@@ -231,6 +231,44 @@ namespace MulletaFlix.Providers.Tests.Manager
             providerManager.AddParts(imageProviders, metadataServices, metadataProviders, metadataSavers, externalIds, externalUrlProviders);
         }
 
+        [Fact]
+        public async Task SaveMetadataAsync_PropagatesCancellationTokenToMetadataSaver()
+        {
+            var cancellationToken = new CancellationTokenSource().Token;
+            var libraryOptions = new LibraryOptions { MetadataSavers = ["TestSaver"] };
+            var providerManager = GetProviderManager(libraryOptions: libraryOptions);
+            var item = new Movie { Path = "movie.mkv" };
+            var saver = new Mock<IMetadataSaver>(MockBehavior.Strict);
+            saver.SetupGet(i => i.Name).Returns("TestSaver");
+            saver.Setup(i => i.IsEnabledFor(item, ItemUpdateType.MetadataEdit)).Returns(true);
+            saver.Setup(i => i.SaveAsync(item, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            AddParts(providerManager, metadataSavers: [saver.Object]);
+
+            await providerManager.SaveMetadataAsync(item, ItemUpdateType.MetadataEdit, cancellationToken);
+
+            saver.Verify(i => i.SaveAsync(item, cancellationToken), Times.Once);
+        }
+
+        [Fact]
+        public async Task SaveMetadataAsync_PropagatesMetadataSaverCancellation()
+        {
+            using var cancellationTokenSource = new CancellationTokenSource();
+            cancellationTokenSource.Cancel();
+            var cancellationToken = cancellationTokenSource.Token;
+            var libraryOptions = new LibraryOptions { MetadataSavers = ["TestSaver"] };
+            var providerManager = GetProviderManager(libraryOptions: libraryOptions);
+            var item = new Movie { Path = "movie.mkv" };
+            var saver = new Mock<IMetadataSaver>(MockBehavior.Strict);
+            saver.SetupGet(i => i.Name).Returns("TestSaver");
+            saver.Setup(i => i.IsEnabledFor(item, ItemUpdateType.MetadataEdit)).Returns(true);
+            saver.Setup(i => i.SaveAsync(item, cancellationToken))
+                .ThrowsAsync(new OperationCanceledException(cancellationToken));
+            AddParts(providerManager, metadataSavers: [saver.Object]);
+
+            await Assert.ThrowsAsync<OperationCanceledException>(() =>
+                providerManager.SaveMetadataAsync(item, ItemUpdateType.MetadataEdit, cancellationToken));
+        }
+
         /// <summary>
         /// Simple <see cref="BaseItem"/> extension to make SupportsLocalMetadata directly settable.
         /// </summary>

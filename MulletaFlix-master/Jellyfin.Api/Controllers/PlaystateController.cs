@@ -76,6 +76,7 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>, or a <see cref="NotFoundResult"/> if item was not found.</returns>
     [HttpPost("UserPlayedItems/{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Tags("UserData")]
     public async Task<ActionResult<UserItemDataDto?>> MarkPlayedItem(
@@ -83,6 +84,11 @@ public class PlaystateController : BaseMulletaFlixApiController
         [FromRoute, Required] Guid itemId,
         [FromQuery, ModelBinder(typeof(LegacyDateTimeModelBinder))] DateTime? datePlayed)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -150,12 +156,18 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>A <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>, or a <see cref="NotFoundResult"/> if item was not found.</returns>
     [HttpDelete("UserPlayedItems/{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Tags("UserData")]
     public async Task<ActionResult<UserItemDataDto?>> MarkUnplayedItem(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -222,12 +234,18 @@ public class PlaystateController : BaseMulletaFlixApiController
     [HttpDelete("UserResumeItems/{itemId}")]
     [HttpDelete("UserItems/{itemId}/Resume")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Tags("UserData")]
     public ActionResult<UserItemDataDto?> RemoveFromResume(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -279,8 +297,14 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Sessions/Playing")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> ReportPlaybackStart([FromBody] PlaybackStartInfo playbackStartInfo)
     {
+        if (playbackStartInfo is null)
+        {
+            return BadRequest("Playback start info is required.");
+        }
+
         playbackStartInfo.PlayMethod = ValidatePlayMethod(playbackStartInfo.PlayMethod, playbackStartInfo.PlaySessionId);
         playbackStartInfo.SessionId = await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
         await _sessionManager.OnPlaybackStart(playbackStartInfo).ConfigureAwait(false);
@@ -295,8 +319,14 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Sessions/Playing/Progress")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> ReportPlaybackProgress([FromBody] PlaybackProgressInfo playbackProgressInfo)
     {
+        if (playbackProgressInfo is null)
+        {
+            return BadRequest("Playback progress info is required.");
+        }
+
         playbackProgressInfo.PlayMethod = ValidatePlayMethod(playbackProgressInfo.PlayMethod, playbackProgressInfo.PlaySessionId);
         playbackProgressInfo.SessionId = await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
         await _sessionManager.OnPlaybackProgress(playbackProgressInfo).ConfigureAwait(false);
@@ -311,8 +341,14 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Sessions/Playing/Ping")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult PingPlaybackSession([FromQuery, Required] string playSessionId)
     {
+        if (string.IsNullOrWhiteSpace(playSessionId))
+        {
+            return BadRequest("Play session id must not be empty.");
+        }
+
         var deviceId = User.GetDeviceId();
         if (!string.IsNullOrWhiteSpace(deviceId))
         {
@@ -330,8 +366,14 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Sessions/Playing/Stopped")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> ReportPlaybackStopped([FromBody] PlaybackStopInfo playbackStopInfo)
     {
+        if (playbackStopInfo is null)
+        {
+            return BadRequest("Playback stop info is required.");
+        }
+
         _logger.LogDebug("ReportPlaybackStopped PlaySessionId: {0}", playbackStopInfo.PlaySessionId ?? string.Empty);
         if (!string.IsNullOrWhiteSpace(playbackStopInfo.PlaySessionId))
         {
@@ -358,6 +400,7 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("PlayingItems/{itemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Obsolete("This endpoint is obsolete. Use ReportPlaybackStart instead")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult> OnPlaybackStart(
@@ -370,6 +413,11 @@ public class PlaystateController : BaseMulletaFlixApiController
         [FromQuery] string? playSessionId,
         [FromQuery] bool canSeek = false)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var playbackStartInfo = new PlaybackStartInfo
         {
             CanSeek = canSeek,
@@ -438,6 +486,7 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("PlayingItems/{itemId}/Progress")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Obsolete("This endpoint is obsolete. Use ReportPlaybackProgress instead")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult> OnPlaybackProgress(
@@ -454,6 +503,11 @@ public class PlaystateController : BaseMulletaFlixApiController
         [FromQuery] bool isPaused = false,
         [FromQuery] bool isMuted = false)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var playbackProgressInfo = new PlaybackProgressInfo
         {
             ItemId = itemId,
@@ -528,6 +582,7 @@ public class PlaystateController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpDelete("PlayingItems/{itemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Obsolete("This endpoint is obsolete. Use ReportPlaybackStop instead")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult> OnPlaybackStopped(
@@ -538,6 +593,11 @@ public class PlaystateController : BaseMulletaFlixApiController
         [FromQuery] string? liveStreamId,
         [FromQuery] string? playSessionId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var playbackStopInfo = new PlaybackStopInfo
         {
             ItemId = itemId,

@@ -6,6 +6,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Querying;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using MulletaFlix.Data.Enums;
 using MulletaFlix.Database.Implementations;
@@ -21,14 +22,37 @@ namespace MulletaFlix.Server.Implementations.Item;
 /// <summary>
 /// Manager for handling people.
 /// </summary>
-/// <param name="dbProvider">Efcore Factory.</param>
-/// <param name="itemTypeLookup">Items lookup service.</param>
-/// <remarks>
-/// Initializes a new instance of the <see cref="PeopleRepository"/> class.
-/// </remarks>
-public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider, IItemTypeLookup itemTypeLookup) : IPeopleRepository
+public class PeopleRepository : IPeopleRepository
 {
-    private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider = dbProvider;
+    private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
+    private readonly IItemTypeLookup _itemTypeLookup;
+    private readonly ILogger<PeopleRepository> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PeopleRepository"/> class.
+    /// </summary>
+    /// <param name="dbProvider">The EF Core context factory.</param>
+    /// <param name="itemTypeLookup">The item type lookup.</param>
+    public PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider, IItemTypeLookup itemTypeLookup)
+        : this(dbProvider, itemTypeLookup, NullLogger<PeopleRepository>.Instance)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PeopleRepository"/> class.
+    /// </summary>
+    /// <param name="dbProvider">The EF Core context factory.</param>
+    /// <param name="itemTypeLookup">The item type lookup.</param>
+    /// <param name="logger">The logger.</param>
+    public PeopleRepository(
+        IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IItemTypeLookup itemTypeLookup,
+        ILogger<PeopleRepository> logger)
+    {
+        _dbProvider = dbProvider;
+        _itemTypeLookup = itemTypeLookup;
+        _logger = logger;
+    }
 
     /// <inheritdoc/>
     public QueryResult<PersonInfo> GetPeople(InternalPeopleQuery filter)
@@ -103,7 +127,23 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
         itemLock.Wait();
         try
         {
-            UpdatePeopleUnderLocks(itemId, people);
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    UpdatePeopleUnderLocks(itemId, people);
+                    return;
+                }
+                catch (Exception ex) when (attempt < 3 && ItemPersistenceService.IsTransientMariaDbLockFailure(ex))
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Retrying people replacement for item {ItemId} after MariaDB lock failure (attempt {Attempt}/3)",
+                        itemId,
+                        attempt + 1);
+                    Thread.Sleep(attempt * 150);
+                }
+            }
         }
         finally
         {
@@ -278,7 +318,7 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
     {
         if (filter.User is not null && filter.IsFavorite.HasValue)
         {
-            var personType = itemTypeLookup.BaseItemKindNames[BaseItemKind.Person];
+            var personType = _itemTypeLookup.BaseItemKindNames[BaseItemKind.Person];
             var oldQuery = query;
 
             query = context.UserData

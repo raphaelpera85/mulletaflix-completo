@@ -43,6 +43,7 @@ import * as bitrateTest from 'utils/bitrateTest';
 import { getAudioMaxValues } from 'utils/playback/audioProfile';
 import { warmupMediaStream } from 'utils/playback/warmupMediaStream';
 import { playIntroThenMain } from 'utils/playback/playIntroThenMain';
+import { showAdSenseInterstitial } from '../branding/adsense';
 
 const UNLIMITED_ITEMS = -1;
 
@@ -2544,7 +2545,15 @@ export class PlaybackManager {
                         setPlaylistState(items[introStartIndex].PlaylistItemId, introStartIndex);
                         loading.hide();
                     }, undefined, true),
-                    (error: any) => console.warn('[playbackmanager] intro playback failed, falling back to main item:', error),
+                    async (error: any) => {
+                        console.warn('[playbackmanager] intro playback failed, falling back to main item:', error);
+
+                        try {
+                            await showAdSenseInterstitial(apiClient, 'playback');
+                        } catch (adError: unknown) {
+                            console.warn('[playbackmanager] AdSense interstitial failed; continuing playback:', adError);
+                        }
+                    },
                     () => {
                         const fallbackIndex = introItems.length + playStartIndex;
                         const fallbackPlayOptions = Object.assign({}, firstItem.playOptions, {
@@ -2887,7 +2896,7 @@ export class PlaybackManager {
                     return fullItem.MediaStreams;
                 });
 
-            return Promise.all([promise, player.getDeviceProfile(item), apiClient.getCurrentUser(), getMediaStreams]).then(function (responses: any) {
+            const playbackPromise = Promise.all([promise, player.getDeviceProfile(item), apiClient.getCurrentUser(), getMediaStreams]).then(function (responses: any) {
                 const deviceProfile = responses[1];
                 const user = responses[2];
                 const mediaStreams = responses[3];
@@ -2979,6 +2988,14 @@ export class PlaybackManager {
                         }, 100);
                     });
                 });
+            });
+
+            return playbackPromise.catch((error: unknown) => {
+                if (propagateErrors) {
+                    destroyPlayer(player);
+                }
+
+                throw error;
             });
         }
 
@@ -3603,6 +3620,13 @@ export class PlaybackManager {
 
             const streamInfo = getPlayerData(player).streamInfo;
 
+            if (playerStopInfo.item?.IsIntro) {
+                const apiClient = ServerConnections.getApiClient(playerStopInfo.item.ServerId);
+                void showAdSenseInterstitial(apiClient, 'playback').catch((error: unknown) => {
+                    console.warn('[playbackmanager] AdSense interstitial failed; continuing playback:', error);
+                });
+            }
+
             // only used internally as a safeguard to avoid reporting other events to the server after playback stopped
             streamInfo.ended = true;
 
@@ -3746,8 +3770,16 @@ export class PlaybackManager {
             } else if (newPlayer) {
                 const apiClient = ServerConnections.getApiClient(nextItem.item.ServerId);
 
-                void apiClient.getCurrentUser().then(function (user: any) {
+                void apiClient.getCurrentUser().then(async function (user: any) {
                     if (user.Configuration.EnableNextEpisodeAutoPlay || nextMediaType !== MediaType.Video) {
+                        if (streamInfo?.item?.IsIntro) {
+                            try {
+                                await showAdSenseInterstitial(apiClient, 'playback');
+                            } catch (error) {
+                                console.warn('[playbackmanager] AdSense interstitial failed; continuing playback:', error);
+                            }
+                        }
+
                         self.nextTrack();
 
                         if (newPlayer !== player) {

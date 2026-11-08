@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using MulletaFlix.Data.Enums;
@@ -54,10 +55,26 @@ public class RecordingsMetadataManager
     /// <param name="recordingPath">The recording path.</param>
     /// <param name="seriesPath">The series path.</param>
     /// <returns>A task representing the metadata saving.</returns>
-    public async Task SaveRecordingMetadata(TimerInfo timer, string recordingPath, string? seriesPath)
+    public Task SaveRecordingMetadata(TimerInfo timer, string recordingPath, string? seriesPath)
+        => SaveRecordingMetadata(timer, recordingPath, seriesPath, CancellationToken.None);
+
+    /// <summary>
+    /// Saves the metadata for a provided recording.
+    /// </summary>
+    /// <param name="timer">The recording timer.</param>
+    /// <param name="recordingPath">The recording path.</param>
+    /// <param name="seriesPath">The series path.</param>
+    /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
+    /// <returns>A task representing the metadata saving.</returns>
+    public async Task SaveRecordingMetadata(
+        TimerInfo timer,
+        string recordingPath,
+        string? seriesPath,
+        CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var program = string.IsNullOrWhiteSpace(timer.ProgramId) ? null : _libraryManager.GetItemList(new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.LiveTvProgram],
@@ -104,23 +121,27 @@ public class RecordingsMetadataManager
                 {
                     ArgumentNullException.ThrowIfNull(seriesPath);
 
-                    await SaveSeriesNfoAsync(timer, seriesPath).ConfigureAwait(false);
-                    await SaveVideoNfoAsync(timer, recordingPath, program, false).ConfigureAwait(false);
+                    await SaveSeriesNfoAsync(timer, seriesPath, cancellationToken).ConfigureAwait(false);
+                    await SaveVideoNfoAsync(timer, recordingPath, program, false, cancellationToken).ConfigureAwait(false);
                 }
                 else if (!timer.IsMovie || timer.IsSports || timer.IsNews)
                 {
-                    await SaveVideoNfoAsync(timer, recordingPath, program, true).ConfigureAwait(false);
+                    await SaveVideoNfoAsync(timer, recordingPath, program, true, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
-                    await SaveVideoNfoAsync(timer, recordingPath, program, false).ConfigureAwait(false);
+                    await SaveVideoNfoAsync(timer, recordingPath, program, false, cancellationToken).ConfigureAwait(false);
                 }
             }
 
             if (config.SaveRecordingImages)
             {
-                await SaveRecordingImages(recordingPath, program).ConfigureAwait(false);
+                await SaveRecordingImages(recordingPath, program, cancellationToken).ConfigureAwait(false);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -128,8 +149,9 @@ public class RecordingsMetadataManager
         }
     }
 
-    private static async Task SaveSeriesNfoAsync(TimerInfo timer, string seriesPath)
+    private static async Task SaveSeriesNfoAsync(TimerInfo timer, string seriesPath, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var nfoPath = Path.Combine(seriesPath, "tvshow.nfo");
 
         if (File.Exists(nfoPath))
@@ -193,8 +215,14 @@ public class RecordingsMetadataManager
         }
     }
 
-    private async Task SaveVideoNfoAsync(TimerInfo timer, string recordingPath, BaseItem item, bool lockData)
+    private async Task SaveVideoNfoAsync(
+        TimerInfo timer,
+        string recordingPath,
+        BaseItem item,
+        bool lockData,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var nfoPath = Path.ChangeExtension(recordingPath, ".nfo");
 
         if (File.Exists(nfoPath))
@@ -213,6 +241,7 @@ public class RecordingsMetadataManager
             };
 
             var options = _config.GetNfoConfiguration();
+            cancellationToken.ThrowIfCancellationRequested();
 
             var isSeriesEpisode = timer.IsProgramSeries;
 
@@ -404,7 +433,10 @@ public class RecordingsMetadataManager
         }
     }
 
-    private async Task SaveRecordingImages(string recordingPath, LiveTvProgram program)
+    private async Task SaveRecordingImages(
+        string recordingPath,
+        LiveTvProgram program,
+        CancellationToken cancellationToken)
     {
         var image = program.IsSeries ?
             (program.GetImageInfo(ImageType.Thumb, 0) ?? program.GetImageInfo(ImageType.Primary, 0)) :
@@ -414,7 +446,11 @@ public class RecordingsMetadataManager
         {
             try
             {
-                await SaveRecordingImage(recordingPath, program, image).ConfigureAwait(false);
+                await SaveRecordingImage(recordingPath, program, image, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -429,7 +465,11 @@ public class RecordingsMetadataManager
             {
                 try
                 {
-                    await SaveRecordingImage(recordingPath, program, image).ConfigureAwait(false);
+                    await SaveRecordingImage(recordingPath, program, image, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -442,7 +482,11 @@ public class RecordingsMetadataManager
             {
                 try
                 {
-                    await SaveRecordingImage(recordingPath, program, image).ConfigureAwait(false);
+                    await SaveRecordingImage(recordingPath, program, image, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -455,7 +499,11 @@ public class RecordingsMetadataManager
             {
                 try
                 {
-                    await SaveRecordingImage(recordingPath, program, image).ConfigureAwait(false);
+                    await SaveRecordingImage(recordingPath, program, image, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -465,11 +513,20 @@ public class RecordingsMetadataManager
         }
     }
 
-    private async Task SaveRecordingImage(string recordingPath, LiveTvProgram program, ItemImageInfo image)
+    private async Task SaveRecordingImage(
+        string recordingPath,
+        LiveTvProgram program,
+        ItemImageInfo image,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!image.IsLocalFile)
         {
-            image = await _libraryManager.ConvertImageToLocal(program, image, 0).ConfigureAwait(false);
+            image = await _libraryManager.ConvertImageToLocal(
+                program,
+                image,
+                0,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         var imageSaveFilenameWithoutExtension = image.Type switch
@@ -491,6 +548,7 @@ public class RecordingsMetadataManager
         // preserve original image extension
         imageSavePath = Path.ChangeExtension(imageSavePath, Path.GetExtension(image.Path));
 
+        cancellationToken.ThrowIfCancellationRequested();
         File.Copy(image.Path, imageSavePath, true);
     }
 }

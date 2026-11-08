@@ -1,3 +1,287 @@
+## Mapeamento completo das partes não homologadas, runtime isolado (`18096`/`33188`) e suítes Playwright/a11y — 2026-11-04 00:30 BRT
+
+Mapeadas todas as partes ainda não homologadas do sistema (`server` 2/7 áreas formais = 28,6%, `android` 10/21 áreas = 47,6% + 47 itens abertos em `TODO-APP.md`, `web` em monitoramento `W1..W4`, e os 79 itens abertos do roadmap: 7 `in_progress` e 72 `pending`) e executadas as homologações locais pendentes de runtime isolado e Playwright/a11y sem tocar a produção (`127.0.0.1:8096`), o MariaDB operacional (`127.0.0.1:3306`) ou o MongoDB operacional (`127.0.0.1:27017`):
+
+1. **Desbloqueio de instância isolada do servidor lado a lado com produção (`MariaDbProcessManager` e `SecureConnectionProcessManager`)**:
+   - `Jellyfin.Server/Helpers/MariaDbProcessManager.cs`: adicionado `ResolveStartupMutexNames(bool requireEmbeddedProcess, int port)` para usar `"Global\\MulletaFlix.EmbeddedMariaDb.Port.{port}"` e `"Local\\MulletaFlix.EmbeddedMariaDb.Port.{port}"` quando `port != 3306`, preservando `"Global\\MulletaFlix.EmbeddedMariaDb"` para a porta padrão `3306` de produção. Resolve o bloqueio registrado anteriormente em `server-metrics-runtime-smoke-mariadb-lock-2026-11-03-2335`.
+   - `Jellyfin.Server/Helpers/SecureConnectionProcessManager.cs`: adicionado `ShouldSkipForIsolatedTestEnvironment(string? e2eTestMode, string? disableExternalBootstrap)` para suprimir inicialização de Nginx/DuckDNS quando `MFLX_E2E_TEST_MODE=true` ou `MFLX_DISABLE_EXTERNAL_BOOTSTRAP=true`.
+   - `tests/Jellyfin.Server.Tests/Observability/MetricsLabelRedactionTests.cs`: adicionados testes unitários cobrindo `ResolveStartupMutexNames` e `ShouldSkipForIsolatedTestEnvironment`; `MetricsLabelRedactionTests` passou **14/14** em Release.
+2. **Smoke live do servidor isolado (`127.0.0.1:18096` + MariaDB embarcado `127.0.0.1:33188`) e prova live de redaction de `/metrics`**:
+   - `MulletaFlix.dll` (`12.1.46`) iniciado em diretório temporário com cadeia de ancestrais confiável para `BackupRestoreDirectory.OpenRoot`, MariaDB embarcado na porta `33188` (`mulletaflix_smoke`) e HTTP na porta `18096` após `CoreInitialisation` e `PostInitialization`.
+   - `GET http://127.0.0.1:18096/System/Info/Public` respondeu HTTP 200 (`Version=12.1.46`, `ServerName=Mulletaflix`).
+   - `GET http://127.0.0.1:18096/health` respondeu HTTP 200 (`Healthy`).
+   - `GET http://127.0.0.1:18096/metrics` respondeu HTTP 200 (**326 linhas / 28.317 bytes**) com **0 ocorrências** de `mysqlconnector`, `pool_name`, `User ID`, `Server=` ou `33188`.
+   - Instância isolada e `mariadbd.exe` da porta `33188` encerrados e diretório temporário removido (`Port 18096 listening: False`, `Port 33188 listening: False`).
+3. **Homologação Playwright E2E, acessibilidade WCAG 2.2 AA (`axe-core`) e bundle budget em `MulletaFlix-web-master`**:
+   - Corrigido `MulletaFlix-web-master/vite.config.ts`: `htmlPlugin.resolveId` retorna `{ id: source, external: true }` durante `options?.scan` (evitando erro do esbuild dependency scanner em `*.template.html`), `optimizeDeps.entries` inclui fixtures Playwright e `resolve.dedupe` unifica `react`, `react-dom`, `@emotion/react` e `@emotion/styled`.
+   - `npx playwright test -c playwright.a11y.config.ts` passou **3/3** (`28-backup-coverage.spec.ts` em `390px`/`1280px` e `29-accessibility.spec.ts` WCAG 2.2 AA com `axe-core` nos estados `success`, `loading`, `error` e `empty` em `390px`/`1280px`).
+   - `npx playwright test -c playwright.scrollbuttons.config.ts` passou **2/2** (`24-scrollbuttons.spec.ts` navegação por teclado, `:focus-visible`, LTR/RTL e estado `disabled`).
+   - `npx playwright test -c playwright.requests.config.ts` passou **8/8** (`25-myrequests.spec.ts` em `390px`/`1280px`, `26-request-autocomplete.spec.ts` teclado/debounce/stale response, `27-nebula-navigation.spec.ts` em `390px`/`1280px`, `28-backup-coverage.spec.ts` em `390px`/`1280px`).
+   - `npm run verify:build` passou (**1.929 artefatos válidos**, payload inicial **294,3 KB gzip** dentro do limite de **420 KB gzip**); `tsc --noEmit` **0 erros**; Vitest **76 arquivos / 421 testes aprovados**.
+
+## Homologação local integrada: MongoDB descartável, MariaDB descartável, LocalMetadata, NebulaPython e Web — 2026-11-03 23:45 BRT
+
+Executada a homologação local integrada das frentes anteriormente pendentes no host Windows sem tocar o servidor de produção (`127.0.0.1:8096`), o MariaDB operacional (`127.0.0.1:3306`) ou o MongoDB operacional (`127.0.0.1:27017`):
+
+1. **MongoDB 8.3 descartável (`127.0.0.1:27099`) + Python 3.10 locked venv (`Category=RequiresMongo`)**:
+   - Corrigida asserção obsoleta de cursor UUID com `%22` em `tests/Jellyfin.Server.Implementations.Tests/Nebula/NebulaSupabaseRestoreMongoTests.cs` (linhas 177-179) para validar `id=gt.{appUserId:D}` conforme produzido por `NebulaSupabaseSyncService.FetchSupabaseRowsPagedAsync`.
+   - `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-build --filter "Category=RequiresMongo"` passou **38 aprovados, 0 ignorados, 0 falhas/38** (`NebulaQueueConcurrencyMongoTests` **31/31** com cross-initializer C#/Python, `NebulaSupabaseRestoreMongoTests` **2/2**, `NebulaSupabaseBackupBotTokensMongoTests` **2/2**, `NebulaPlaybackRecoveryMongoTests` **1/1**, `MongoTopologyCapabilityTests` **2/2**).
+2. **MariaDB 11.4.4 descartável (`127.0.0.1:33189`)**:
+   - Corrigido `tests/IntroSkipper.Integration.Tests/BackupRestoreMariaDbTests.cs` (`CreateDisposableConnection`, linhas 61-63, 402-404, 972-973) para usar `MariaDbTestEnvironment.SkipUnlessConfigured()` e encaminhar `disposableInstanceConfirmed: true` a `MariaDbTestEnvironment.Validate(connectionString, disposableInstanceConfirmed: true)`.
+   - `IntroSkipper.Integration.Tests` passou **96 aprovados, 0 ignorados, 0 falhas/96** (incluindo `BackupRestoreMariaDbTests` **4/4**, `SaveImagesAsync_RetriesAfterMariaDbProcessRestartDuringDelete` **1/1** com kill e restart do `mysqld.exe` descartável bloqueado em trigger `BEFORE DELETE`, `ServerPersistenceMariaDbTests`, `IntroSkipperMariaDbTests`, `SqliteToMariaDbMigrationTests` e `MariaDbTestConnectionTests`).
+   - Suítes MariaDB de `Users` em `Jellyfin.Server.Implementations.Tests` passaram **64 aprovados, 1 ignorado, 0 falhas/65** (o único skip requer `lower_case_table_names == 0` em filesystem Linux case-sensitive).
+   - `MariaDbProcessManagerLifecycleTests` em `Jellyfin.Server.Tests` passou **3 aprovados, 0 ignorados, 0 falhas/3**.
+   - `Jellyfin.Server.Integration.Tests` executada por classe isolada com `mysqldump.exe` no `PATH` passou **146 aprovados, 0 ignorados, 0 falhas/146 casos únicos** em todas as 26 classes HTTP/WebSocket/OpenAPI/Backup (incluindo `ImageControllerProfileUploadTests` **1/1**, `StartupBackupRecoveryTests` **1/1**, `LibraryControllerTests` **17/17**, `UserLibraryControllerTests` **16/16**, `VideosControllerTests` **13/13**, `AudioControllerTests` **12/12**, `DashboardControllerTests` **12/12**, `UserControllerTests` **11/11**).
+   - Instâncias descartáveis `27099` e `33189` foram encerradas e seus diretórios temporários removidos ao final (`Port 27099 listening: False`, `Port 33189 listening: False`).
+3. **Correções adicionais em `MediaBrowser.LocalMetadata` (TDD RED/GREEN)**:
+   - `MediaBrowser.LocalMetadata/Images/EpisodeLocalImageProvider.cs` (linha 45): `d.Name.Equals("metadata", StringComparison.OrdinalIgnoreCase)` em vez de `StringComparison.Ordinal`, descobrindo miniaturas de episódios em subpastas `Metadata`/`METADATA`.
+   - `MediaBrowser.LocalMetadata/Images/LocalImageProvider.cs` (linhas 127 e 166): normalização `(i.Extension ?? string.Empty).ToLowerInvariant()` antes de `Array.IndexOf(BaseItem.SupportedImageExtensions, ...)`, evitando que extensões em maiúsculas (`poster.JPG`) recebam índice `-1` e ordenem antes de `poster.png`.
+   - Dois novos testes unitários adicionados em `LibraryManagerImageConversionTests`, que passou **6/6**.
+4. **Suítes NebulaPython, Packaging, Release e Frontend Web**:
+   - `Tools/NebulaPython` (`pytest` via venv Python 3.10 locked): **726 aprovados, 2 ignorados (POSIX), 0 falhas**.
+   - Packaging PowerShell (`MulletaFlix-packaging-master/scripts/tests/*.Tests.ps1`): **5/5 aprovados**.
+   - Release Node (`node --test tools/release/tests/*.test.mjs`): **33/33 aprovados**.
+   - Frontend `MulletaFlix-web-master`: `npm test -- --run` **76 arquivos / 421 testes aprovados**; `npm run build:check` (`tsc --noEmit`) **0 erros**.
+
+## Auditoria comparativa Jellyfin: metadados locais, subpastas de imagens, TMDb e conversão lazy — 2026-11-03 22:12 BRT
+
+Comparação read-only com Jellyfin upstream (`MediaBrowser.Providers`, `Emby.Server.Implementations`, `Jellyfin.Api`) identificou e corrigiu via TDD (RED/GREEN) quatro grupos de defeitos no tratamento de informações de mídia, imagens e capas:
+
+1. **`MetadataService.RefreshWithProviders` (`MediaBrowser.Providers/Manager/MetadataService.cs`)**: `localItem.Images` agora é mesclado antes de `localItem.RemoteImages`, dando precedência a arquivos locais sobre URLs remotas do provider local; e os tipos existentes em `item.ImageInfos` são fotografados antes do loop `localItem.RemoteImages`, impedindo que o primeiro backdrop salvo bloqueie o segundo e demais backdrops locais quando `!options.IsReplacingImage(ImageType.Backdrop)`.
+2. **`ItemImageProvider.MergeImages` (`MediaBrowser.Providers/Manager/ItemImageProvider.cs`)**: substituído `item.ContainingFolderPath.Contains(Path.GetDirectoryName(image.FileInfo.FullName))` pelo helper `IsImageStoredWithMedia(item, image)`, reconhecendo imagens na pasta da mídia e em subpastas (`extrafanart`, `extrathumbs`, `metadata`) e eliminando falsos positivos com caminhos relativos (`""`) ou pastas irmãs de mesmo prefixo (`C:\Media\Movie` vs `C:\Media\Movies\Sample`).
+3. **Provedores TMDb (`MediaBrowser.Providers/Plugins/Tmdb/*`)**: `TmdbPersonImageProvider`, `TmdbMovieProvider`, `TmdbSeriesProvider`, `TmdbSeasonProvider`, `TmdbEpisodeProvider`, `TmdbBoxSetProvider` e `TmdbPersonProvider` agora validam IDs TMDb com `int.TryParse(..., NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && id > 0` antes de resolver idioma ou chamar `_tmdbClientManager` (evitando `FormatException` e permitindo fallback para IMDb/TVDB/busca por nome). `TmdbMovieProvider.GetSearchResults` passa `searchInfo.MetadataLanguage` (e não `GetImageLanguagesParam`) a `FindByExternalIdAsync` e faz fallback para TVDB/nome quando `FindByExternalIdAsync` retorna lista vazia (`Count == 0`), alinhado a `TmdbSeriesProvider.GetSearchResults`. Corrigida precedência do operador `??` na capacidade inicial de `List<RemoteImageInfo>` em `TmdbMovieImageProvider`, `TmdbSeriesImageProvider` e `TmdbBoxSetImageProvider`.
+4. **Conversão lazy de image stubs remotos (`Emby.Server.Implementations/Library/LibraryManager.cs` e `Jellyfin.Api/Controllers/ImageController.cs`)**: `LibraryManager.ConvertImageToLocal` agora tenta todas as URLs separadas por `|` mesmo quando uma URL candidata falha com erro HTTP transitório (`5xx`/rede) ou `InvalidDataException`, e só remove o image stub quando todas as URLs falham permanentemente (`404`/`403`/`410`/payload inválido), relançando a falha transitória caso contrário. `ImageController.GetImageInternal` captura `InvalidOperationException` e `HttpRequestException` na conversão lazy, tenta `TryRecoverMissingBookPrimaryImageAsync` na primeira tentativa e retorna `204 NoContent` em vez de erro 500 não tratado.
+
+Evidência Windows/.NET 10 Release: 13 novos casos RED falharam antes das correções e passaram em GREEN; `Jellyfin.Providers.Tests` **944 aprovados, 13 ignorados, 0 falhas/957**; `Jellyfin.Server.Implementations.Tests` **1.755 aprovados, 95 ignorados, 0 falhas/1.850**; `Jellyfin.Api.Tests` **831 aprovados, 3 ignorados, 0 falhas/834**; build Release `MulletaFlix.sln` **0 erros**; probe read-only `127.0.0.1:8096` confirmou `/health` e `/System/Info/Public` HTTP 200 na versão instalada `12.1.45`. Runtime instalado não contém as correções da working tree; homologação formal permanece 2/7 (28,6%).
+
+## Probe pós-pacote 12.1.46 — 2026-11-03 22:25 BRT
+
+O probe read-only confirmou que o pacote local `12.1.46` ainda não foi aplicado. O processo instalado continua no PID `24732`, versão **12.1.45**. `/health`, `/System/Info/Public` e `/Users/Public` responderam HTTP 200. `/metrics` respondeu HTTP 200 com **477.526 bytes** e ainda publicou `pool_name` em 158 ocorrências, `User ID` em 158, `Server=` em 158 e host em 160. Nenhum restart, instalação ou mutação ocorreu durante o probe.
+
+## Pacote local de release 12.1.46 — 2026-11-03 22:17 BRT
+
+Pacote local criado a partir da working tree para homologação controlada. Build Release serial da solução terminou com **0 erros e 4 avisos**. ZIP de atualização: `dist/mulletaflix-update-win-x64.zip`, **128.092.167 bytes**, SHA-256 `B9DA1ED28ED281A8FD89A28EC885B0BD167D61CBF49BEE148E932795D88C70B6`, 2.524 entradas; inclui `MulletaFlix.dll`, `apply-update.ps1`, `Tools/NebulaPython/stream_service.py` e web client. Instalador NSIS: `dist/mulletaflix_12.1.46_windows-x64.exe`, **415.470.877 bytes**, SHA-256 `2937C7D3958C75EA156FB381CF5B69CD93E4D677AAE06521F0902E503268734B`. Nenhum commit, push, publicação ou alteração no runtime instalado foi executado. O pacote representa o estado atual inteiro da working tree, que possui alterações amplas não commitadas.
+
+## Revalidação read-only do runtime e inventário de SaveImage — 2026-11-03 19:42 BRT
+
+O runtime instalado continua ativo na versão **12.1.45**. `/health`, `/System/Info/Public` e `/Users/Public` responderam HTTP 200; `/Items?Limit=1` respondeu HTTP 401 sem credencial. `/metrics` respondeu HTTP 200 com **339.050 bytes** e ainda publicou `pool_name` em 186 ocorrências, `User ID` em 186, `Server=` em 186 e host em 188; valores foram redigidos. Inventário read-only enumerou callers de `SaveImage`, `SetImageSource`, `RemoteImageInfo` e `ProviderName`, sem novo gap confirmado. A working tree continua sem crédito no runtime.
+
+## Regressão ampla API — 2026-11-03 19:32 BRT
+
+`Jellyfin.Api.Tests` passou **830 aprovados, 3 ignorados, 0 falhas/833 casos** em Release serial com Integration excluído. Os três ignorados são cenários Linux/ACL e preservação de arquivo diante de alteração concorrente; não contam como aprovação. O resultado cobre controllers, autorização, imagens remotas, persistência de imagem, cancelamento HTTP e rotas administrativas.
+
+## Regressão ampla Server Implementations — 2026-11-03 18:43 BRT
+
+`Jellyfin.Server.Implementations.Tests` passou **1.753 aprovados, 95 ignorados, 0 falhas/1.848 casos** em Release serial com Integration excluído. O resultado cobre persistência, biblioteca, usuários, restore e Nebula dentro da working tree; ignorados permanecem fora da aprovação. Comparação read-only com Jellyfin upstream foi revisada para `ProviderManager`, `ItemImageProvider` e `MetadataService`; divergências locais continuam deliberadas e cobertas por testes.
+
+## Contorno seguro MariaDB e locks — 2026-11-03 18:02 BRT
+
+`ItemPersistenceServiceTests` passou **39/39** em Release serial, cobrindo stripes, locks de item/parent/owner e classificação de deadlocks/conflitos transitórios. Para integração, o harness exige conexão explícita a MariaDB descartável em loopback e porta não padrão, com confirmação `I_ACKNOWLEDGE_TESTS_CREATE_AND_DROP_SCHEMAS`. A máquina não tem variáveis configuradas nem binaries standalone conhecidos. Proxy para `3306` foi recusado porque burlaria o fail-closed e poderia mutar a instância operacional. Próximo contorno seguro: iniciar instância descartável por Docker/Podman/WSL ou binário standalone, sem tocar MariaDB de produção.
+
+## Revalidação ampla Providers — 2026-11-03 17:57 BRT
+
+A suíte serial `Jellyfin.Providers.Tests` sem Integration passou **931/931**, com **0 falhas e 0 ignorados**. O resultado fortalece a evidência local de providers, idioma, fallback, proveniência e metadata, mas não valida o runtime instalado, TMDb real, item persistido ou capa renderizada.
+
+## Revalidação provider/fallback e probe autenticado — 2026-11-03 17:54 BRT
+
+A consulta Graphify no grafo existente encontrou 65.443 nós relacionados a providers, idioma, fallback e proveniência. A leitura do código confirmou que TMDb preserva o idioma real por imagem, converte `xx` em sem idioma e mantém `ProviderName`; `GetImageLanguagesParam` produz idioma preferido + `null` + inglês sem duplicação. Filtro Release focal passou **84/84**, com build concluído em **0 erros e 19 avisos existentes**. Runtime instalado respondeu `/Items` com HTTP 401 sem credencial e `/Users/Public` com HTTP 200 e lista vazia. Não houve instalação, restart, refresh ou mutação.
+
+## Redaction local de métricas — 2026-11-03 17:44 BRT
+
+Auditoria confirmou `Jellyfin.Server/Startup.cs` conectando `MetricsLabelRedactor.ShouldPublishInstrument` ao `Prometheus.MeterAdapter`, removendo o meter `MySqlConnector` do endpoint público. `MetricsLabelRedactionTests` passou **8/8** em Release. O runtime instalado `12.1.45` continua anterior à correção e ainda expõe `pool_name`, `User ID`, `Server=` e host em `/metrics`; nenhuma instalação ou mutação de produção ocorreu.
+
+## Probe read-only do runtime instalado — 2026-11-03 17:33 BRT
+
+Revalidado `MulletaFlix.exe` instalado, versão **12.1.45**, PID **24732**. `/health` e `/System/Info/Public` responderam HTTP **200**. `/metrics` respondeu HTTP **200** com **363.566 bytes** e ainda publicou `pool_name` em **158** ocorrências, `User ID` em **158**, `Server=` em **158** e `127.0.0.1` em **160**; valores foram redigidos. O binário instalado continua sem crédito pelas correções da working tree. Não houve instalação, restart, refresh, mutação, commit, push ou release. Repetir após instalação autorizada permanece pendente.
+
+## Fallback após identificação por provider — 2026-11-03 16:12 BRT
+
+Auditoria comparativa encontrou filtragem destrutiva em `MetadataService.ExecuteRemoteProviders`: `SearchProviderName` removia todos os providers exceto o selecionado. Em `ItemLookupController.ApplySearchCriteria`, isso podia deixar o item sem metadata quando o provider escolhido retornava vazio ou falhava. A correção preserva todos os providers e ordena o selecionado primeiro; a prioridade do resultado identificado permanece, mas providers seguintes podem preencher metadata ausente. TDD RED reproduziu `OtherProvider` não chamado. GREEN: `RefreshWithProviders_IdentifySearchProvider_PrioritizesSelectedProvider` e `RefreshWithProviders_IdentifySelectedProviderWithoutMetadata_FallsBackToOtherProvider`. Evidência: focais **2/2**, `MetadataServiceTests` **50/50**, `Jellyfin.Providers.Tests` sem Integration **928/928**, regressão serial **5.555 aprovados, 98 ignorados, 0 falhas/5.653 casos**, build Release **0 erros e 594 avisos existentes**. Comparação read-only com Jellyfin upstream confirmou ordenação do provider selecionado sem remover os demais. Runtime instalado, providers remotos reais, CI hospedada e Linux/POSIX continuam sem aceite.
+
+## Contrato de falha em providers remotos — 2026-11-03 15:55 BRT
+
+Auditoria identificou que `ProviderManager.GetImages` registrava exceção de `IRemoteImageProvider.GetImages` e retornava `Enumerable.Empty<RemoteImageInfo>`. Em refresh, isso podia parecer ausência limpa de candidatos e permitir avanço indevido de `DateLastRefreshed`. TDD RED: `GetAvailableRemoteImages_SelectedProviderFailureIsNotReportedAsEmpty` falhou porque a falha era convertida em vazio. GREEN: `GetImages` retorna imagens e erro separadamente; `GetAvailableRemoteImages` lança `AggregateException` somente quando todos os providers falham e preserva resultados de providers saudáveis. `ItemImageProvider.RefreshImages` converte falha total em `RefreshResult.Failures`, sem atualizar refresh; cancelamento continua relançado. Evidência: ProviderManager focal 2/2; ItemImageProvider focal 1/1; `Jellyfin.Providers.Tests` sem Integration 927/927; regressão serial atual 5.554 aprovados, 98 ignorados, 0 falhas/5.652 casos; build Release 0 erros e 594 avisos existentes; `git diff --check` passou. Execução 5.549/5.647 foi superseded por execução atual após build; execução 82/82 cobriu somente último TRX por sobrescrita de nome. Correção apenas na working tree; runtime instalado e providers reais continuam sem aceite.
+
+## Proveniência em imagens dinâmicas — 2026-11-03 15:37 BRT
+
+Auditoria read-only encontrou perda de `ProviderName` em imagens produzidas por `IDynamicImageProvider`. O fluxo HTTP criava `ItemImageInfo` sem provider; fluxos stream e arquivo delegavam a `SaveImage` e também deixavam a imagem sem proveniência. Isso impedia classificação posterior por provider para stale-image replacement, pruning e proteção de ownership. TDD RED alterou os testes HTTP e stream para exigir `MockDynamicProvider`; ambos falharam com `null`. GREEN gravou `provider.Name` no item HTTP e aplicou o mesmo valor à imagem salva nos caminhos stream/arquivo. O teste de caminho de arquivo também foi fortalecido. Testes focais passaram 3/3; `Jellyfin.Providers.Tests` sem Integration passou 924/924; build Release serial passou com 0 erros e 20 avisos existentes; `git diff --check` passou. Correção somente na working tree; runtime instalado 12.1.45, providers remotos reais, CI hospedada, Linux/POSIX e produção continuam sem aceite.
+
+## Proveniência em image stubs remotos — 2026-11-03 15:18 BRT
+
+`ItemImageProvider.SaveImageStub` copiava `RemoteImageInfo.ProviderName` e `Language`, mas não passava o `IRemoteImageProvider` atual a `SetImageSource`. Quando o provider retornava `ProviderName` vazio, a imagem remota ficava sem origem. TDD RED/GREEN: `RefreshImages_RemoteStubWithoutProviderName_UsesRemoteProviderName` falhou com `null` e passou após `SaveImageStub` receber o provider nos caminhos singular e múltiplo; `SetImageSource` aplica `provider.Name` como fallback. `Jellyfin.Providers.Tests` Release passou 924 aprovados, 13 ignorados, 0 falhas/937. O upstream Jellyfin mantém o stub sem este fallback; a correção local reforça a proveniência já aplicada no download local. Tentativa concorrente encontrou lock de DLL em `testhost`; build Release serial posterior passou com 0 erros e 565 avisos existentes. Runtime instalado 12.1.45 não contém a mudança.
+
+## Revisão adversarial do cancelamento Live TV — 2026-11-03 15:18 BRT
+
+A revisão encontrou três gaps no lote anterior. `RecordingsManager` capturava `OperationCanceledException` no callback assíncrono como erro genérico; `SaveSeriesNfoAsync` e `SaveVideoNfoAsync` não recebiam o token; e a troca para quatro parâmetros não mantinha o método público de três parâmetros para callers binários antigos. TDD RED reproduziu a ausência do overload e o cancelamento durante carregamento da configuração NFO. GREEN adicionou o overload compatível, propagou o token às duas rotinas NFO, verificou cancelamento antes da geração e após carregar configuração, e registrou cancelamento normal em nível debug. `RecordingsMetadataManagerTests` passou 4/4; `Jellyfin.LiveTv.Tests` passou 84/84; build Release passou com 0 erros e 565 avisos existentes; regressão serial completa sem Integration passou 5.551 aprovados, 98 ignorados, 0 falhas/5.649 casos em 15 assemblies. Runtime instalado 12.1.45 não contém a correção.
+
+## Cancelamento nas imagens de gravações Live TV — 2026-11-03 15:18 BRT
+
+`RecordingsMetadataManager.SaveRecordingMetadata` era o caller de produção restante que convertia capas remotas sem receber o token da gravação. TDD RED reproduziu a ausência da sobrecarga com `CancellationToken`; GREEN adicionou parâmetro opcional, propagou `recordingInfo.CancellationTokenSource.Token` desde `RecordingsManager`, encaminhou-o a todas as conversões de imagem e relança `OperationCanceledException` nos ramos de imagem em vez de registrá-la como falha comum. `RecordingsMetadataManagerTests` passou 82/82; build Release da solução terminou com 0 erros e 565 avisos existentes; `git diff --check` passou. Busca de twins por `ConvertImageToLocal` encontrou os callers de produção com token; usos sem token restantes estão em testes de compatibilidade. Runtime instalado 12.1.45 não contém a mudança; nenhuma mutação de produção foi executada.
+
+## Cancelamento em atualização de imagens — 2026-11-03 14:38 BRT
+
+`ILibraryManager.UpdateImagesAsync` não recebia token, embora `ImageController`, `BaseItem.RefreshMetadata`, `Folder` e `UpdateItemsAsync` já operassem em fluxos canceláveis. TDD RED reproduziu a ausência de contrato; GREEN adicionou `CancellationToken` opcional a `UpdateImagesAsync` e `RunMetadataSavers`. `LibraryManager` agora encaminha o token a `ConvertImageToLocal` e `IItemPersistenceService.SaveImagesAsync`, verificando cancelamento antes de cada imagem. `ImageControllerIndexTests` passou 3/3; `LibraryManagerImageConversionTests` passou 2/2; `Jellyfin.Api.Tests` sem Integration passou 830 aprovados, 3 ignorados, 0 falhas/833; regressão serial sem Integration terminou exit 0 com 5.545 aprovados, 98 ignorados, 0 falhas/5.643 casos observados; build Release serial terminou com 0 erros e 600 avisos existentes. O agregado histórico 5.642/5.740 foi preservado sem misturar denominadores. Callers sem token preservam compatibilidade pelo default. Runtime instalado 12.1.45 não contém a correção; nenhuma mutação de produção foi executada.
+
+## Cancelamento em `ConvertImageToLocal` — 2026-11-03 14:20 BRT
+
+O teste novo de conversão revelou que a interface `ILibraryManager.ConvertImageToLocal` não aceitava o token necessário. Após a correção, `LibraryManager` encaminha `CancellationToken` a `ProviderManager.SaveImage` e `UpdateToRepositoryAsync`; `ImageController` e `GuideManager` encaminham seus tokens disponíveis. `LibraryManagerImageConversionTests` passou 2/2 e o build Release da solução terminou com 0 erros e 600 avisos existentes. Callers sem token continuam compatíveis pelo parâmetro default; isso não prova cancelamento nesses fluxos. Runtime instalado 12.1.45 não contém a mudança.
+
+## Probe read-only de produção e comparação upstream — 2026-11-03 14:04 BRT
+
+Runtime instalado `12.1.45` confirmou `/health`, `/System/Info/Public` e `/metrics` HTTP 200; processo `24732`. MariaDB empacotado `11.4.4`, processo `8792`, escuta em `127.0.0.1:3306`. O endpoint `/metrics` ainda publica `pool_name` em **158** linhas, além de ocorrências de `User ID`, `Server=` e `127.0.0.1`; valores foram redigidos.
+
+Consulta read-only encontrou 0 transações ativas e três conexões de aplicação ociosas. `SHOW ENGINE INNODB STATUS` confirmou o deadlock do log: `INSERT` em lote de `BaseItemImageInfos` contra `DELETE ... WHERE ItemId = ...`, disputando `IX_BaseItemImageInfos_ItemId_ImageType`; a transação de inserção foi revertida. A working tree atual já usa stripes locais, lock MariaDB e retry, mas o binário instalado não contém as correções.
+
+Comparação read-only com Jellyfin upstream: o upstream mantém a substituição `DELETE` + `INSERT` sem a serialização/retry local. O fluxo upstream de imagens poda stale somente após novos downloads; a proteção local permanece compatível com refresh parcial. Nenhuma mutação de produção foi executada.
+
+## Log de produção: deadlocks e starvation — 2026-11-03 13:59 BRT
+
+O recorte de produção (5.981 linhas; `07:10:15.464`–`11:28:56.252`) confirma um incidente operacional de persistência: 182 deadlocks MariaDB, 124 comandos falhos e 96 retries de imagens, predominantemente no `DELETE BaseItemImageInfos`, além de 29 retries de itens. O log também registra 21 heartbeats atrasados do Kestrel, máximo de 1m14,232s, 59 colisões de arquivo de imagem em uso, 16 falhas de metadata saver por `#sql-temptable-*` ausente e um timeout de conexão. O recorte termina durante retry, sem prova do resultado final; não creditar como resolvido.
+
+O código atual já serializa o item em memória e usa lock de banco em `ItemPersistenceService.SaveImagesAsync`, mas o log prova que isso não fecha o problema em produção. Próxima evidência exigida: `SHOW ENGINE INNODB STATUS`, lista de transações/conexões ativas e correlação por process/assembly version. Nenhuma alteração foi aplicada no runtime.
+
+## Cancelamento em ItemLookup e regressão sistêmica — 2026-11-03 13:45 BRT
+
+`ItemLookupController` passava `CancellationToken.None` em oito endpoints de busca remota e no fluxo `ApplySearchCriteria`, incluindo refresh, fallback de imagem e persistência. TDD RED/GREEN adicionou três testes de propagação; GREEN usa `HttpContext.RequestAborted` em todos esses pontos. Busca de twins encontrou zero ocorrências de `CancellationToken.None` nos controllers `ItemLookupController.cs` e `RemoteImageController.cs`. API sem Integration passou 828 aprovados, 3 ignorados, 0 falhas/831; build Release passou 0 erros; regressão serial sem Integration passou 5.642 aprovados, 98 ignorados, 0 falhas/5.740. Runtime instalado 12.1.45 ainda não contém a correção.
+
+## Runtime instalado: `/metrics` ainda expõe `pool_name` — 2026-11-03 13:34 BRT
+
+Probe read-only contra `C:\\Program Files\\MulletaFlix\\Server\\MulletaFlix.exe` confirmou versão `12.1.45`, PID `24732`, `/health` HTTP 200 `Healthy` e `/System/Info/Public` HTTP 200. `/metrics` respondeu HTTP 200 e publicou `pool_name` em **130 linhas** do MySqlConnector; valores foram redigidos e não foram persistidos. A working tree contém `MetricsLabelRedactor`, validado por `MetricsLabelRedactionTests` **8/8** em Release, mas o runtime instalado ainda não contém essa correção. Não houve mutação de produção. O aceite exige instalação autorizada seguida de novo probe read-only.
+
+## Cancelamento HTTP em imagens remotas e regressão sistêmica — 2026-11-03 13:20 BRT
+
+`RemoteImageController` usava `CancellationToken.None` ao consultar imagens remotas, impedindo que o cancelamento do request interrompesse o provider. O controller agora encaminha `HttpContext.RequestAborted` para `GetAvailableRemoteImages`, `SaveImage` e `UpdateToRepositoryAsync` nos fluxos `GetRemoteImages` e `DownloadRemoteImage`. TDD RED/GREEN: testes focais de cancelamento 2/2; `RemoteImageControllerTests` passou; `Jellyfin.Api.Tests` sem Integration passou 826 aprovados, 3 ignorados, 0 falhas/829. Build Release passou 0 erros; regressão serial sem Integration passou 5.640 aprovados, 98 ignorados, 0 falhas/5.738; portal 361/361. `TWINS: searched CancellationToken.None em RemoteImageController.cs` - found 0 outros sites. Runtime instalado 12.1.45, provider remoto real, CI/Linux, instalação persistente e produção permanecem pendentes.
+
+## Seleção exclusiva do provider identificado e regressão sistêmica — 2026-11-03 11:28 BRT
+
+`MetadataService.RefreshWithProviders` agora restringe a execução ao provider indicado por `MetadataRefreshOptions.SearchResult.SearchProviderName`; antes, a identificação executava toda a lista e permitia que provider diferente sobrescrevesse o resultado escolhido. TDD RED/GREEN: `RefreshWithProviders_IdentifySearchProvider_OnlyRunsSelectedProvider` passou 1/1 após RED; `MetadataServiceTests` passou 49/49; `Jellyfin.Providers.Tests` sem Integration passou 921/921. Regressão serial sem Integration passou 5.537 aprovados, 98 ignorados, 0 falhas/5.635; build Release passou com 0 erros e 593 avisos existentes. Jellyfin upstream foi consultado somente leitura: `ProviderManager` filtra buscas pelo provider identificado, enquanto `MetadataService` prioriza sem restringir; a restrição local é deliberada e aguarda validação com providers reais. Revalidação adicional do caso anteriormente observado como falha `SaveRemoteResultImages_SingularFailureRecoveredByNextProvider_DoesNotRemainFailed` passou **1/1** isoladamente; a falha não reproduziu após a serialização atual. Isso reduz o risco de regressão no fallback de imagem, mas não substitui validação com providers remotos reais. Runtime instalado 12.1.45 não foi alterado.
+
+## Proteção contra referências compartilhadas, fallback inglês e regressão sistêmica — 2026-11-03 10:47 BRT
+
+A revisão adversarial encontrou e o TDD corrigiu quatro gaps no `ItemImageProvider`: prune podia retirar stale sem replacement, fallback inglês dependia do índice zero, exclusão física não consultava referências em outros tipos/entidades e o branch de stream dinâmico não persistia `ProviderName`. `PruneImages` agora verifica o item inteiro e `ILibraryManager.GetItemList` com todos os tipos de imagem antes de apagar; sem índice ou diante de erro, faz somente detach. `IOException` vira warning e não interrompe a remoção da referência. O fallback inglês avalia qualquer stale não-inglês e o prune parcial prioriza esses stale. TDD: referências compartilhadas 1/1, `IOException` 1/1, fallback inglês multi-backdrop 1/1, stream dinâmico 1/1; classe 85/85; Providers sem Integration 920/920; build Release 0 erros/593 avisos; regressão serial 5.536 aprovados, 98 ignorados, 0 falhas/5.634 casos. Runtime instalado permanece sem as correções da working tree e não recebe crédito formal.
+
+## Seleção localizada, limpeza, prune parcial e preferência global — 2026-11-03 10:00 BRT
+
+`ItemImageProvider` agora propaga `preferredLanguage` até `RefreshFromProvider`, resolve preferência global para item vazio, prioriza candidato localizado com `MatchesLanguage`, remove arquivo local somente quando a imagem substituída mantém `ProviderName` remoto e pruna somente tantos backdrops obsoletos quanto replacements realmente baixados durante refresh localizado. Backdrop manual sem proveniência continua protegido; `RemoveImages` segue apenas removendo referências. TDD: preferência local 1/1, preferência global em item vazio 1/1, fallback após MIME inválido 1/1, limpeza remota/preservação manual 1/1, prune parcial 1/1, classe 81/81, `Jellyfin.Providers.Tests` 916 aprovados/13 ignorados. Build Release 0 erros/593 avisos; regressão 5.532 aprovados, 98 ignorados, 0 falhas/5.630 casos. Fallback entre múltiplos providers e runtime instalado permanecem pendentes.
+
+## Cobertura adicional de backdrops — 2026-11-03 07:59 BRT
+
+O teste `RefreshImages_ReplacesMultipleStaleRemoteBackdropsBeforePruning` cobre dois backdrops remotos obsoletos, um manual e limite `1`; passou 1/1. A classe `ItemImageProviderTests` passou 75/75. A revisão adversarial também identificou mutação de estado estático nos testes `ImageSaverTests`; a classe foi colocada na coleção não paralela `LibraryManagerTests`, e o filtro passou 5/5.
+
+## Substituição de backdrop obsoleto com backdrop manual — 2026-11-03 07:53 BRT
+
+`ItemImageProvider` agora reserva capacidade temporária para cada backdrop remoto obsoleto antes do prune. RED reproduziu que limite `1` + remoto `en` obsoleto + backdrop manual não baixava o candidato `pt`; GREEN passou com limite 1 e 2, mantendo manual + remoto localizado. `ItemImageProviderTests` 74/74; Providers sem Integration 909/909 após reexecução; build Release 0 erros e 20 avisos existentes. A ordem sem idioma primeiro continua igual ao Jellyfin upstream e fica pendente de homologação funcional com catálogo real.
+
+## Regressão serial sem Integration — 2026-11-03 07:41 BRT
+
+`dotnet test MulletaFlix.sln --no-restore --no-build --configuration Release --filter 'FullyQualifiedName!~Integration' -m:1` passou com **5.523 aprovados, 98 ignorados, 0 falhas, 5.621 casos**. Providers passou 908/908; Server.Implementations passou 1.752 com 95 ignorados. Os skips dependem de Linux/macOS, Mongo/MariaDB opt-in ou fixtures externos; não contam como homologação.
+
+## Runtime instalado — probe read-only 2026-11-03 07:30 BRT
+
+O runtime instalado permanece em `C:\Program Files\MulletaFlix\Server\MulletaFlix.exe`, versão 12.1.45, PID 24732. `/health` respondeu HTTP 200 com `Healthy`; `/System/Info/Public` respondeu HTTP 200 com `Version=12.1.45`. Probe não alterou produção e não valida correções presentes apenas na working tree.
+
+## Retry de ImageSaver com múltiplos caminhos e streams non-seekable — 2026-11-03 07:25 BRT
+
+`ImageSaver` calculava dois caminhos compatíveis para backdrop duplicado, mas um único `retryPath` interno. A condição `paths.Length == retryPaths.Length` deixava `retryPath` nulo e convertia falha no diretório compatível em erro final. RED reproduziu `IOException` ao ocupar `extrafanart` com arquivo; GREEN mudou a seleção para `retryPaths.Length > i`, usando fallback por índice existente. Segundo RED mostrou que bufferizar stream non-seekable sem reposicionar o `MemoryStream` salvava zero bytes; GREEN define `Position = 0` após `CopyToAsync`. `ImageSaverTests` passou 5/5. Jellyfin upstream ainda possui a condição antiga; as correções locais cobrem cenários confirmados sem ampliar API.
+
+## Fallback de idioma preferido em overview e tagline — 2026-11-03 06:54 BRT
+
+Comparação read-only com Jellyfin upstream mostrou que o refresh mantém marcadores locais para `overviewIsFallback` e `taglineIsFallback`: um resultado em idioma não preferido pode preencher o campo, mas um provider posterior no idioma preferido deve substituí-lo. O fluxo local não tinha essa proteção. RED reproduziu dois providers retornando inglês seguido de `pt-BR`, mantendo o texto inglês. GREEN adicionou o rastreamento por campo em `ExecuteRemoteProviders` e comparação exata/regional (`pt`/`pt-BR`), com teste `RefreshWithProviders_PrefersPreferredLanguageOverEarlierFallback` passando 1/1 e classe `MetadataServiceTests` 48/48. Imagens e múltiplos backdrops permanecem separados.
+
+## Reexecução MariaDB concorrente — resultado preservado — 2026-11-03 06:54 BRT
+
+Uma execução duplicada do script de persistência MariaDB, concorrente com outra execução do mesmo cenário, terminou com 21 aprovados, 13 falhas e 1 ignorado em 35 casos. A falha ocorreu na resolução do serviço `Contexts` durante `InitializeAsync` (`ServerPersistenceMariaDbTests.cs:96/136`); não foi promovida como regressão funcional. A execução limpa subsequente passou 34 aprovados, 1 ignorado, 0 falhas/35. O caso ignorado continua opt-in por reinício do processo MariaDB. O listener operacional 3306 não foi tocado; sem processo scratch remanescente. Formal 2/7.
+
+## Auditoria contínua — preservação de idioma regional explícito — 2026-11-03 06:47 BRT
+
+`BaseItem.GetPreferredMetadataLanguage` convertia globalmente `pt-PT` para `pt-BR` quando o país era BR. A comparação com Jellyfin upstream e com `TmdbUtils` mostrou que a conversão deve ficar no adaptador do provider/API que exige ISO 639-1, não no modelo compartilhado. TDD RED/GREEN: `GetPreferredMetadataLanguage_PreservesExplicitRegionalLanguage` passou 1/1 após remover a normalização; `BaseItemTests` passou 13/13; `Jellyfin.Providers.Tests` sem `Integration` passou 905/905; build Release terminou com 0 erros. Runtime instalado 12.1.45 não foi alterado; homologação formal continua 2/7.
+
+## Auditoria contínua — IDs TMDb inválidos em providers de imagens — 2026-11-03 06:29 BRT
+
+`TmdbSeriesImageProvider`, `TmdbSeasonImageProvider`, `TmdbEpisodeImageProvider` e `TmdbBoxSetImageProvider` agora validam `ProviderId` com `int.TryParse` antes de resolver idioma ou consultar TMDb. A auditoria TDD reproduziu quatro `FormatException` com `not-a-number`; GREEN passou 4/4. Filtro combinado de imagem/TMDb passou 36/36; regressão `Jellyfin.Providers.Tests` sem `Integration` passou 905/905 após isolar uma falha transitória de `AudioResolverTests`; `git diff --check` passou. Build Release da solução passou serialmente com 0 erros e 20 avisos existentes. Busca de twins não encontrou `Convert.ToInt32` remanescente em `*ImageProvider.cs` no módulo TMDb. Providers de metadata não-imagem seguem fora deste slice; runtime instalado 12.1.45 não foi alterado. Homologação formal permanece 2/7.
+
+## Auditoria contínua — proveniência em imagens dinâmicas — 2026-11-03 05:17 BRT
+
+`ItemImageProvider` agora persiste `provider.Name` quando provider dinâmico entrega URL HTTP ou arquivo local. TDD 2/2; filtro de imagens 73/73; Providers 901 aprovados/13 ignorados/0 falhas; build Release 0 erros/1 aviso XML. Runtime instalado não foi alterado; homologação formal segue 2/7.
+
+## Auditoria contínua — retry seguro de imagem — 2026-11-03 04:56 BRT
+
+`ImageSaver` agora reinicia stream seekable em zero antes do retry e bufferiza stream não seekable quando `retryPaths` existem. TDD `ImageSaverTests` 3/3; `Jellyfin.Providers.Tests` 899 aprovados/13 ignorados/0 falhas; build Release 0 erros/1 aviso XML. Runtime instalado 12.1.45 não foi alterado; homologação formal segue 2/7.
+
+## Auditoria contínua — proveniência na conversão local — 2026-11-03 04:46 BRT
+
+`LibraryManager.ConvertImageToLocal` agora captura e restaura `ProviderName`/`Language` após `SaveImage`, porque `BaseItem.SetImagePath` limpa esses campos durante a troca de URL por arquivo local. Teste TDD 1/1; `Jellyfin.Server.Implementations.Tests` passou 1.752 aprovados, 95 ignorados, 0 falhas/1.847; build Release 0 erros/4 avisos XML. Runtime instalado 12.1.45 não foi alterado; homologação formal segue 2/7.
+
+## Auditoria contínua — índice de imagem na rota — 2026-11-03 04:33 BRT
+
+`ImageController.SetItemImageByIndex` descartava `imageIndex` e enviava `null` ao `IProviderManager.SaveImage`. Correção TDD encaminha o índice recebido na rota; `ImageControllerIndexTests` passou 1/1 e filtro `ImageController` passou 53/53. Busca de twins encontrou somente `SetItemImage`, endpoint sem índice que mantém `null` intencionalmente. Build Release passou com 0 erros e 4 avisos XML preexistentes. Homologação formal segue 2/7; runtime instalado 12.1.45 não foi alterado.
+
+## Auditoria contínua de imagens e metadados — 2026-11-03 04:18 BRT
+
+Comparação read-only com Jellyfin upstream e TDD local corrigiram dois pontos: `MetadataService.RefreshMetadata` só avança `DateLastRefreshed` quando metadata ou imagem tentam busca real; `ImageProcessor` não colide cache entre `PercentPlayed` e `UnwatchedCount`, usando marcadores separados e versão 4. Providers passou 898 aprovados/13 ignorados/0 falhas; focal API/imagens 3/3; build Release 0 erros/3 avisos XML preexistentes. O inventário de callers ainda mantém bypasses de provenance em `RemoteImageController`, `ItemLookupController`, conversão lazy e `LibraryManager`; eles continuam pendentes para testes TDD separados. Runtime instalado 12.1.45 respondeu somente a probes read-only e não contém a working tree. Homologação formal 2/7.
+
+## Revalidação após retomada do Codex — 2026-11-02 22:25 BRT
+
+O checkout atual contém retry da unidade transacional completa, em contexto novo, para capítulos, streams e pessoas. A errata de 21:35 em `TODO-AUDITORIA.md` descreve o estado anterior às alterações de 21:42–21:58; não representa mais o código atual. `ItemRepositoryTransientRetryTests` foi reexecutado em Windows/.NET 10 Release: 17 aprovados, 0 ignorados/falhas, exit 0, aproximadamente 12 s incluindo build. A integração MariaDB descartável 1/1 às 22:18 é evidência anterior, não repetida nesta sessão.
+
+Pesquisa oficial: MariaDB informa que erro 1205 reverte a instrução que aguardou por padrão (a transação inteira somente com `innodb_rollback_on_timeout`); por isso o retry deve descartar contexto/transação e repetir a unidade completa. EF Core alerta que retries com transação explícita devem envolver todas as operações da unidade repetível e que falha no commit pode deixar resultado ambíguo. O código só repete códigos de lock 1205/1213; resultado ambíguo por falha de conexão/commit continua fora da política. Fontes: https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-system-variables e https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency. Sem mudanças de módulo, classe, API, dependência ou fluxo de produção; formal 2/7, sem release. `last_verified: 2026-11-02`.
+
+# Retries transacionais de capítulos e streams — 2026-11-02 21:42 BRT
+
+## Evidência de lock wait timeout MariaDB real — 2026-11-02 22:18 BRT
+
+O teste opt-in `ServerPersistenceMariaDbTests.SaveChaptersAsync_RetriesAfterRealMariaDbLockTimeout` comprovou o retry do caminho de substituição assíncrona em MariaDB 11.4.4 descartável. O lock concorrente gerou 1205; o teste observou o warning, liberou o lock e verificou o novo capítulo persistido. `innodb_lock_wait_timeout=1` é aplicado somente às conexões do factory de teste por `DbConnectionInterceptor.ConnectionOpenedAsync`; o global foi conferido em 50 s antes e depois. Resultados: cenário real 1/1 e simulação SQLite das três classes 17/17. Não comprova produção, Linux, CI hospedada, runtime instalado, carga, nem caminho síncrono dos streams. O CI executa o cenário no job MariaDB dedicado. Técnica compatível com o escopo de sessão documentado pelo MariaDB e o hook oficial de conexão assíncrona do EF Core: https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-system-variables ; https://learn.microsoft.com/en-us/dotnet/api/microsoft.entityframeworkcore.diagnostics.dbconnectioninterceptor.connectionopenedasync?view=efcore-10.0 . `last_verified: 2026-11-02`.
+
+Implementados em `ChapterRepository.SaveChapters/SaveChaptersAsync` e `MediaStreamRepository.SaveMediaStreams/SaveMediaStreamsAsync`: cada tentativa cria contexto e transação novos, repete somente em MariaDB 1205/1213, no máximo três tentativas com pausas de 150/300 ms, e registra warning. Os construtores originais foram preservados; overloads com logger permitem observabilidade via DI. Os retries envolvem a substituição inteira e não mascaram falhas permanentes. Testes SQLite com falhas MySqlException injetadas passaram 10/10 (incluem rollback, limite e não-retry de falha permanente); formatter Release e build do projeto de integração passaram. MariaDB real, CI Linux, runtime instalado e produção não foram validados.
+
+Pendência detectada na mesma comparação: `PeopleRepository.UpdatePeople` ainda não repete a transação no checkout, apesar de seção anterior afirmá-lo. Corrigir a memória e tratar esse fluxo em tarefa separada. Homologação formal segue 2/7 (28,6%), sem crédito; nenhuma release.
+
+# Errata: retries de transações em capítulos e streams — 2026-11-02 21:35 BRT
+
+A conferência do checkout atual (branch main, HEAD fa1289b686bf7130315b6f36ab417064f054e8c9) contradiz afirmações anteriores no roadmap e no vault. `ChapterRepository.SaveChapters`, `ChapterRepository.SaveChaptersAsync`, `MediaStreamRepository.SaveMediaStreams` e `MediaStreamRepository.SaveMediaStreamsAsync` executam DELETE + INSERT em transação sem retry para MariaDB 1205/1213. Callers confirmados: `ChapterManager.SaveChapters` (síncrono); `FFProbeVideoInfo` e `AudioFileProber` usam os caminhos assíncronos. Não há testes desses repositórios no checkout atual. O retry configurado em `ItemPersistenceService` não é aplicado automaticamente a esses contextos.
+
+Registros anteriores que afirmam retries implementados (roadmap, ficha e sessões de 02/11) não são corroborados pelo código e pelos worktrees atuais; tratá-los como desatualizados. A hipótese de que mudanças de código/teste tenham se perdido numa sessão interrompida não foi comprovada. Nenhum código foi alterado nesta auditoria; testes não executados. Próximo passo: reconstruir teste de repetição integral com contexto/transação novos e validar 1205/1213 em fixture, seguido de MariaDB descartável opt-in. Sem crédito de homologação ou release. Fonte de técnica: https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency — retry precisa envolver a transação completa.
+
+# NextUp MariaDB: tentativa de catálogo sintético ampliado — 2026-11-02 21:28 BRT
+
+Tentativa local de acrescentar 2.000 episódios de séries fora do filtro ao teste `GetNextUpEpisodesBatch_SelectsEarliestUnplayedEpisodeOnMariaDb`. O fixture alterado não produziu evidência válida: a asserção de contagem revelou 2.020 registros-base, a expectativa fixa de `r_rows=19` não se manteve e a filtragem do JSON por `table_name=BaseItems` não encontrou nós. As alterações experimentais foram revertidas; nenhuma lógica de produção mudou. Não foi obtido tempo válido do plano ampliado. O teste pequeno continua com a evidência anterior, sem revalidação nesta sessão.
+
+O método oficial `ANALYZE FORMAT=JSON` executa a consulta e reporta contadores reais de linhas, loops e duração. A documentação do EF Core alerta que bases pequenas não demonstram desempenho em escala. Fontes: https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/analyze-and-explain-statements/analyze-format-json e https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying. Próximo passo: entender a estrutura real dos nós do plano antes de retomar este teste. Homologação formal 2/7 (28,6%), sem crédito/release. Mapa técnico conferido; módulos, contratos e fluxo de produção inalterados.
+
+# Atualização do driver MariaDB e advisory GHSA-473q-m89c-ghf8 — 2026-11-02 21:09 BRT
+
+`MySqlConnector` 2.4.0 era resolvido transitivamente pelo Pomelo 9.0.0 nos dois consumidores do servidor. Atualizado para 2.6.1, versão corrigida do advisory, com versionamento central e referências diretas em `Jellyfin.Database.Implementations` e `MulletaFlix.Plugin.IntroSkipper`. Pomelo 9.0.0 documenta o intervalo suportado como MySqlConnector >=2.4.0, EF Core 9 e .NET 8+; runtime do servidor usa MariaDB 11.4.2. A atualização não troca o provider nem altera strings/configurações da conexão.
+
+O advisory aplica-se a `SslMode=VerifyCA` ou `VerifyFull`, sem `SslCa`, e com senha não vazia. A revisão dos caminhos locais não encontrou essa configuração; a exposição em produção não foi comprovada. Verificação Windows/.NET 10 Release: `Jellyfin.Server.Implementations.Tests` 1746 aprovados/95 ignorados/0 falhas; `IntroSkipper.Integration.Tests` 22/53/0. Restore completo dos grafos de teste, `dotnet list package --vulnerable --include-transitive` sem vulnerabilidades nos dois grafos verificados. Testes MariaDB opt-in, Linux, CI hospedada, runtime instalado e produção permanecem pendentes. Homologação formal 2/7 (28,6%), sem crédito.
+
+## MariaDB descartável: mutex de teste separado da instância operacional — 2026-11-02 21:18 BRT
+
+O teste `GetNextUpEpisodesBatch_SelectsEarliestUnplayedEpisodeOnMariaDb` falhou antes de iniciar seu datadir temporário porque a instância MulletaFlix operacional mantinha o mutex global por todo o ciclo de vida. O cenário usava porta dinâmica e diretório temporário exclusivos; a trava global impedia a integração sem proteger um recurso compartilhado.
+
+Quando `requireEmbeddedProcess` é `true` (uso interno atual: testes de integração), `MariaDbProcessManager` usa um mutex de teste próprio. O caminho público de produção mantém os nomes globais existentes. A mensagem de timeout agora descreve a liberação do lock de ciclo de vida.
+
+Windows/.NET 10 Release: a integração NextUp passou 1/1 em 9,5 s e `MariaDbStartupMutexTests` passou 4/4 em 156 ms. O ciclo start/stop/start passou 1/1 em 11 s. A primeira execução anterior à correção falhou em 45,8 s no timeout do mutex. O servidor instalado e seu listener 3306 permaneceram ativos; os testes usaram portas diferentes de 3306, datadirs temporários e limparam os datadirs. Build direcionado passou com dois avisos SA1201 preexistentes. Linux/CI hospedada e runtime instalado não foram validados. Fixture NextUp ainda tem 19 episódios; medir catálogo representativo permanece pendente. Homologação formal 2/7 (28,6%), sem crédito ou release.
+
+# Restore — reexecução FullSystemBackup em Windows — 2026-10-27 17:07 BRT
+
+`dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~FullSystemBackup"` concluiu exit 0: 142 aprovados, 16 ignorados, 0 falhas/158 em Windows/.NET 10 Release. TRX classifica 14 skips Linux (dirfd/O_NOFOLLOW/statx, ACL POSIX, symlink, bind/nested mount e identidade de mount) e 2 macOS. A evidência atualiza a reexecução anterior 141/16/0/157.
+
+Isto confirma apenas o comportamento Windows. Os cenários Linux e macOS não foram executados; CI hospedada, runtime instalado e produção permanecem pendentes. Restore P0 e homologação formal 2/7 (28,6%) continuam abertos; sem crédito/release. Mapa técnico conferido, sem mudança estrutural.
+
+# Scheduler de biblioteca — cleanup e descarte concorrentes — 2026-10-27 16:24 BRT
+
+`LimitedConcurrencyLibraryScheduler` sincroniza snapshot e remoção de `_taskRunners` com `_taskLock`; a saída do worker remove a chave registrada e lê o canal pelo token vinculado cancelado no cleanup. Uma barreira mantém novos enqueues suspensos até todos os workers ociosos encerrarem. `DisposeAsync` espera enqueues já admitidos, fecha o canal, cancela e aguarda workers, e chamadas simultâneas compartilham a conclusão. Cancelamento tolera fonte já descartada. Testes cobrem backpressure, cleanup real de 65 s, enqueue durante callbacks de cleanup e descarte concorrente.
+
+Windows/.NET 10 Release: `Jellyfin.Controller.Tests` 69/69 e regressão serial da solução 17 TRX, 5.477 aprovados, 98 `NotExecuted`, 0 falhas; em seguida, após o guard final pós-dispose, a classe do scheduler passou 4/4. Portal Node 359/359. Formatter direcionado, revisão estática independente e `git diff --check` passaram. Assemblies de Integration foram filtrados. CI hospedada, Linux, runtime instalado e produção não foram validados. Formal 2/7 (28,6%), sem crédito ou release.
+
+Revalidação no checkout atual, 27/10/2026 16:30 BRT: `LimitedConcurrencyLibrarySchedulerTests` passou 4/4 em Windows/.NET 10 Release. Resultado focal confirma o estado pós-guard; não substitui a regressão ampla nem fecha CI/Linux/runtime/produção.
+
+# Restore — arquivo agendado aplicado antes da inicialização — 2026-10-27 14:50 BRT
+
+`ScheduledRestore_RestoresArchiveBeforeStartupInitialization` cobre o caminho entre `ScheduleRestoreAndRestartServer`, `IHostApplicationLifetime.StopApplication`, `Program.CaptureRestartState` (usado pelo `StartServer`) e os helpers de recovery executados pelo startup seguinte. O teste usa um archive e diretórios locais isolados, captura os campos de reinício que o entry point transfere do host e usa uma nova instância de `BackupService` para simular o serviço do host seguinte; comprova conteúdo restaurado, migração/inicialização adiadas e journal removido. A limpeza do teste restaura os valores estáticos que encontrou antes.
+
+Validação Windows/.NET 10 Release: teste focal passou 1/1; `dotnet format whitespace --verify-no-changes` e portal Node passaram (358/358). Não executa `Program.Main`, relançamento real de processo, Linux/ACL, CI hospedada, runtime instalado ou produção. Formal 2/7 (28,6%), sem crédito/release. A estrutura técnica foi conferida e atualizada: `Program` contém o helper interno `CaptureRestartState` chamado pelo loop de `StartServer`; sem novo módulo, dependência ou API pública.
+
 # Restore: handle aberto impede rename da raiz Windows — 2026-10-27 09:09 BRT
 
 Adicionado teste adversarial Windows: `BackupRestoreDirectory.OpenRoot` mantém o handle sem `FileShareDelete`; `Directory.Move` não consegue renomear a raiz enquanto a autoridade está viva, e a mesma operação passa depois do descarte. `BackupRestoreDirectoryTests` Release passou 44/55 (11 ignorados, 0 falhas); os ignorados POSIX/Linux não são validação Linux.
@@ -424,6 +708,8 @@ Se esta conversa ficar sem tokens e for necessario continuar em outra IA, a prox
 1. P0 - Medir a home real com banco grande:
    - comparar `LatestMedia` de filmes e series com `EXPLAIN ANALYZE`;
    - confirmar se o custo saiu de SQL e ficou em DTO/imagem.
+   - [x] Adicionar medição MariaDB descartável dos dois ramos: filmes com 10.000 versões sintéticas (100 chaves x 100; ANALYZE 10.001 linhas/9,562 ms; endpoint 369,929 / 65,830 / 19,720 ms) e séries com 10.000 episódios (100 séries x 100, no mesmo acervo com os filmes; ANALYZE 20.101 linhas/13,504 ms; endpoint 60,406 / 21,906 / 23,016 ms). O teste exige milhares de linhas no plano para garantir a captura da consulta candidata, não da consulta de carga final.
+   - [ ] Repetir em snapshot anonimizado/fixture representativa da biblioteca real e medir memória e custo do DTO/imagem; não ajustar índice nem algoritmo apenas com a fixture sintética.
    - ganho esperado: muito alto se ainda existir scan ou sort caro.
 2. P1 - Fechar `NextUp`:
    - [x] Revisar a materialização: `GetNextUpSeriesKeys` projeta apenas as chaves no banco e aplica o limite antes de retornar; o lote seguinte pode não ter limite geral.
@@ -1387,3 +1673,161 @@ Validação Windows/.NET 10 Release: `StreamStateCacheTests` 18/18, `DynamicHlsC
 O semáforo de `RateLimitMiddleware` serializa somente a admissão HTTP de `POST /Backup/Create`, `/Backup/Restore` e `/Backup/RestorePointInTime`; seu `finally` libera o semáforo após a resposta. A exclusão do trabalho real está no `BackupService.TryBeginOperation`, que usa `Interlocked.CompareExchange` para manter uma operação ativa durante o backup/restauração. `ScheduleRestoreAndRestartServer` conserva o gate enquanto prepara o encerramento; `RestoreBackupInternalAsync` o libera no `finally`.
 
 Revalidação Windows/.NET 10 Release: `ConcurrentRestoreRequests_AreRejectedWithoutBlockingPlayback` 2/2; `CreateBackupAsync_RejectsConcurrentOperationAndReleasesGateAfterFailure` 1/1. O primeiro verifica admissão concorrente nos dois endpoints de restore e que GET de playback continua; o segundo verifica restore e scheduling rejeitados durante backup ativo e liberação do gate após falha. A direção restore-ativo contra novo backup, o restart real, carga, Linux, CI hospedada, runtime e produção não foram testados. Isso não completa T6.2 nem altera homologação formal (2/7); sem release. Mapa conferido: middleware, controller e service existentes; nenhuma API, dependência ou módulo alterado.
+## Backup/restore — exclusão nas duas direções — 2026-10-27 14:00 BRT
+
+Adicionada regressão em `BackupServiceTests` que pausa o restore no callback de criação do sidecar do arquivo existente e confirma que um backup concorrente recebe `BackupOperationInProgressException`. Após liberar o restore, o teste confirma a conclusão e o conteúdo restaurado. O helper da fixture passou a expor esse callback de restore e os chamadores existentes foram renomeados para refletir seu uso; produção não mudou.
+
+Windows/.NET 10 Release: os três testes focais de gate passaram 3/3, incluindo backup ativo rejeitando restore/scheduling, restore ativo rejeitando backup e liberação do gate após falha. Isso não valida o ciclo real de reinício após scheduling, CI hospedada, Linux, runtime instalado, carga, nem produção. Homologação formal permanece 2/7 (28,6%), sem crédito ou release.
+
+## Backup/restore — suíte completa no HEAD atual — 2026-10-27 14:04 BRT
+
+No HEAD `fa1289b`, a execução `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter 'FullyQualifiedName~FullSystemBackup' --verbosity quiet` passou 141 testes, ignorou 16 e falhou 0/157 em Windows/.NET 10 Release. Os skips são limitações de plataforma/privilégio e não contam como execução Linux.
+
+Isso revalida a suíte de backup/restore na árvore atual, mas não executa o ciclo end-to-end de agendamento + encerramento + novo processo + startup, nem ACL/TOCTOU Linux, CI hospedada, runtime instalado ou produção. Homologação formal permanece 2/7 (28,6%), sem crédito ou release.
+
+## Regressão ampla da solução — HEAD fa1289b — 2026-10-27 14:25 BRT
+
+Execução serial Windows/.NET 10 Release, sem recompilar, com filtro `FullyQualifiedName!~Integration`: exit code 0. Foram gerados e reconciliados 17 TRX independentes: 5.473 `Passed`, 98 `NotExecuted`, 0 falhas, 5.571 resultados. O filtro exclui casos cujo nome completo contém `Integration`; os 98 `NotExecuted` não são aprovações. Integrações MariaDB/MongoDB opt-in, Linux/ACL, CI hospedada, runtime instalado e produção não foram validados. Homologação formal permanece 2/7 (28,6%), sem crédito/release.
+
+## Restore — sinal de encerramento após agendamento — 2026-10-27 14:34 BRT
+
+O teste `ScheduleRestoreAndRestartServer_SetsRestorePathAndKeepsOperationsBlocked` agora espera o callback de `IHostApplicationLifetime.StopApplication()` e confirma uma chamada depois do atraso de 500 ms. Mantém também as verificações de `RestoreBackupPath`, `ShouldRestart`, notificação de reinício e bloqueio de operações concorrentes.
+
+Windows/.NET 10 Release: teste focal passou 1/1. A verificação cobre o sinal de shutdown no `BackupService`, não o encerramento e relançamento de um processo nem a restauração realizada no boot seguinte. O teste do ciclo completo continua pendente, assim como CI hospedada, Linux/ACL, runtime instalado e produção; formal 2/7, sem crédito/release. Mapa técnico conferido: somente teste e documentação mudaram; módulos, classes/API de produção, dependências e fluxo permanecem iguais.
+
+## Restore — sinal de encerramento após agendamento — 2026-10-27 14:34 BRT
+
+O teste `ScheduleRestoreAndRestartServer_SetsRestorePathAndKeepsOperationsBlocked` agora espera o callback de `IHostApplicationLifetime.StopApplication()` e confirma uma chamada depois do atraso de 500 ms. Mantém as verificações de `RestoreBackupPath`, `ShouldRestart`, notificação de reinício e bloqueio de operações concorrentes.
+
+Windows/.NET 10 Release: teste focal passou 1/1. A verificação cobre o sinal de shutdown no `BackupService`, não o encerramento e relançamento de um processo nem a restauração realizada no boot seguinte. O teste do ciclo completo continua pendente, assim como CI hospedada, Linux/ACL, runtime instalado e produção; formal 2/7, sem crédito/release. Mapa técnico conferido: somente teste e documentação mudaram; módulos, classes/API de produção, dependências e fluxo permanecem iguais.
+# LatestMedia — consulta ainda sem medição representativa — 2026-10-27 16:36 BRT
+
+Auditoria estática do caminho `UserLibraryController.GetLatestMedia` → `LibraryManager.GetLatestItemList` → `BaseItemRepository.GetLatestItemList`: filmes e séries ordenam/projetam candidatos no SQL, mas fazem a deduplicação por `PresentationUniqueKey`/`SeriesId` após `AsEnumerable()`, limitando somente depois de obter chaves distintas. O fluxo evita DTOs para todos os candidatos, mas não limita no SQL as linhas candidatas examinadas/transferidas.
+
+Não há evidência de volume ou latência em banco real. A hipótese é custo proporcional a duplicatas por chave e precisa ser medida em MariaDB descartável com população representativa antes de propor mudança, preservando ordem estável e semântica de versões. Nesta sessão não havia conexão de teste MariaDB configurada; nenhuma consulta ou benchmark foi executado. Homologação formal continua 2/7 (28,6%), auditoria distinta 5.465/5.493; sem crédito/release.
+
+`BaseItemRepositoryLatestTvShowTests` passou 3/3 em Windows/.NET 10 Release. Esses casos exercitam semântica de seleção de séries/álbuns, não medem execução SQL nem desempenho; `GetLatestItemList_Movies` ainda não tem teste focal identificado nesta busca.
+
+## LatestMedia — observação read-only do runtime de produção — 2026-10-27 17:01 BRT
+
+Após o operador iniciar o servidor, `GET /System/Info/Public` respondeu 200 e identificou MulletaFlix 12.1.35. `GET /metrics` respondeu 200; uma leitura local levou 35,603 ms. Os histogramas cumulativos expostos no scrape tinham somente `db_context=users`: 76 comandos de leitura (74,329 ms acumulados; média 0,978 ms), 7 comandos de schema (2,762 ms; média 0,395 ms) e 28 aberturas de conexão (14,168 ms; média 0,506 ms). São métricas agregadas do processo, sem atribuição por controller/rota.
+
+`Startup` também usa `UseHttpMetrics`, e o scrape `/metrics` expõe `http_request_duration_seconds`/`http_requests_received_total` com labels `controller`, `action` e `endpoint` para outras rotas observadas. O snapshot não contém série para `Items/Latest`; a chamada anônima respondeu 401 e não forneceu duração autenticada. Portanto ainda não há amostra da rota nem evidência sobre o acervo real, DTOs/imagens ou memória. Nenhum dado foi alterado e não foi executado SQL/ANALYZE contra produção. Próximo passo: após login no navegador já aberto, capturar uma carga normal de `/Items/Latest` e comparar o header `X-Response-Time-ms`/métricas por endpoint com histogramas agregados DB. Homologação formal permanece 2/7 (28,6%); sem crédito/release. Mapa técnico conferido e complementado com a instrumentação HTTP existente.
+
+
+## LatestMedia em produção — rechecagem read-only — 2026-10-27 17:10 BRT
+
+Cinco requisições locais por endpoint: /System/Info/Public, /metrics e /web/ retornaram 200. Medianas do tempo total cliente local: 1,87 ms, 11,38 ms e 1,87 ms. A primeira chamada foi incluída; os valores não isolam tempo de servidor e não representam acesso remoto. GET /Items/Latest?Limit=5 anônimo retorna 401. Chrome permanece no formulário de login, sem sessão válida; endpoint protegido e acervo não puderam ser medidos. Nenhuma leitura/escrita de banco operacional foi feita e nenhum dado foi alterado.
+
+
+## Restore Linux gate — ambiente e branch rechecados — 2026-10-27 17:12 BRT
+
+Rechecagem do host: wsl.exe --list --quiet não listou distribuição; Docker e Podman não estão instalados/disponíveis. git fetch origin concluiu sem erro e manteve origin/main em d51f4f38; checkout main fa1289b6 segue 1 commit à frente e 8 atrás. Há alterações locais não commitadas em Program.cs, scheduler e testes que também diferem do upstream; não houve merge/rebase para preservar esse trabalho. Consulta GitHub do commit remoto devolveu lista vazia de status checks; isso não comprova execução CI Linux nem causa do run falho previamente observado. Restore P0, Linux/ACL, CI hospedada, runtime/produção continuam sem validação; formal 2/7, sem crédito/release.
+
+
+## LatestMedia — métricas atuais sem série da rota — 2026-10-27 17:13 BRT
+
+GET /System/Info/Public confirmou MulletaFlix 12.1.35. GET /metrics respondeu 200, porém filtro de http_request_duration_seconds e http_requests_received_total por Latest/UserLibrary não encontrou séries. Não há amostra para estimar duração da rota; requer navegação autenticada e telemetria emitida pelo caminho. Nenhum banco foi consultado ou alterado. Homologação formal 2/7, sem crédito/release.
+
+
+## Restore agendado — segunda passagem do loop de startup — 2026-10-27 17:16 BRT
+
+O teste ScheduledRestore_RestoresArchiveBeforeStartupInitialization agora verifica que ContinueAfterBackupRecoveryAsync limpa _restoreFromBackup e que a próxima chamada do gate, com nova instância de BackupService no mesmo processo, continua para migração e inicialização em vez de reaplicar o archive. O teste focal passou 1/1 em Windows/.NET 10 Release; FullSystemBackup passou 142 aprovados, 16 ignorados por plataforma e 0 falhas/158. O primeiro filtro FQN incorreto selecionou zero testes; a repetição com filtro pelo nome do teste executou e passou. Não houve mudança na lógica de produção. Linux/ACL, CI hospedada, runtime e host operacional continuam pendentes; formal 2/7, sem crédito/release.
+
+
+## Restore agendado — semântica de restart reconciliada — 2026-10-27 17:18 BRT
+
+A inspeção de Program.StartApp confirma que o reinício agendado não relança o executável: um do/while chama StartServer, e quando _restartOnShutdown está ativo a aplicação chama _setupServer.StopAsync/RunAsync antes de iterar novamente no mesmo processo. O teste ScheduledRestore_RestoresArchiveBeforeStartupInitialization cobre duas invocações do gate com serviços de teste, mas não executa Program.Main/StartApp nem o ciclo real com host operacional. Registros antigos que descreviam um “processo novo” foram corrigidos nas entradas ativas; evidência histórica não foi reescrita. Linux/ACL, CI, runtime/produção pendentes; formal 2/7, sem crédito/release.
+# Nebula — runtime em diretório de dados e paginação Supabase (27/10/2026)
+
+O log de execução apontou `WinError 5` ao criar `Tools/NebulaPython/.venv` em `Program Files`, mas a exceção era absorvida e o gerenciador ainda tentava iniciar os processos. O bootstrap agora instala runtime e marker em `CommonApplicationPaths.DataPath/Tools/NebulaPython`, passa o diretório de dados ao script de instalação e propaga erro de dependência para impedir worker em estado incompleto. `FindPythonExe` consulta o novo marker e o caminho antigo para compatibilidade de instalações existentes.
+
+O paginador Supabase passou a enviar GUID como UUID sem aspas, corrigindo `22P02`; a reconciliação de `nebula_users` filtra chaves de login nulas e vazias para não invalidar lotes por dados legados. Não houve exclusão de dados. Windows/.NET 10: testes focais Supabase 3/3, restart loop 1/1; verificação de integridade do pacote aprovada. Instalador instalado, CI hospedada, Linux e reteste produtivo pendentes. Formal 2/7, sem crédito ou release.
+
+### Revalidação Nebula runtime — 27/10/2026
+O marker Python em `DataPath/Tools/NebulaPython/python.path` tem precedência sobre o marker legado em `AppContext.BaseDirectory`, mantendo compatibilidade como fallback. O instalador sem `MULLETAFLIX_DATA_PATH` usa `<ProgramData>/MulletaFlix/Server/data`, alinhado a `BaseApplicationPaths.DataPath`. Teste focado 1/1 e integridade do staging aprovados. O log recebido depois do patch reproduz o caminho antigo e falha Supabase durante reconciliação; não comprova execução da versão corrigida. Publicação bloqueada pela divergência da branch e mudanças locais; CI, pacote final e produção pendentes. Formal 2/7.
+
+### Correlação Supabase do incidente Nebula — 27/10/2026
+Logs do trace de produção mostram agente `MulletaFlix-Server/12.0`, paginação `nebula_users` sem os filtros adicionados na fonte local e, em requisição subsequente do mesmo trace, cursor UUID citado em `mulletaflix_users` com PostgREST 400/22P02. O schema remoto tem PK `nebula_users.login` e 7 linhas. O teste `FetchSupabaseRowsPagedAsync_PreservesNebulaLoginFiltersWhenPaging` cobre os filtros em ambas as páginas; os três testes focais de cursor/filtros passaram 3/3. Evidência remota sugere binário anterior ao patch; runtime pós-patch não foi confirmado. Advisor Supabase reporta search_path mutável na função `set_nebula_updated_at` e índice duplicado na tabela de usuários; alterações de banco não executadas.
+Validação do patch em base limpa: aplicado sem conflito a `origin/main` d51f4f38 em `C:\mf`; regressão Windows/.NET 10 Nebula 84/84 e `Assert-StageIntegrity.Tests.ps1` aprovados. Isso não substitui a pipeline completa, validação Linux nem reteste do runtime em produção. Nenhuma release/tag criada.
+
+## Reauditoria do scheduler e Nebula — 2026-10-27 22:07 BRT
+
+No working tree compartilhado, os testes focais dos diffs locais passaram: LimitedConcurrencyLibrarySchedulerTests 4/4 (Windows/.NET 10 Release; ciclo incluiu a janela de cleanup de 65 s) e NebulaDownloaderStartupTests + NebulaSupabaseSyncTests 100/100 (Windows/.NET 10 Release). Revisão adversarial independente não encontrou problema concreto no diff Nebula. No scheduler, o descarte espera _enqueueCounter chegar a zero antes de cancelar os runners; portanto, um callback admitido que não conclua pode atrasar o descarte indefinidamente. A API atual não fornece token de cancelamento do scheduler ao callback, e nenhum teste demonstrou esse travamento com trabalho não cooperativo; tratar como limite de desligamento gracioso para decisão/validação futura, sem mudar contrato nesta sessão.
+
+Estes testes focalizados não são regressão completa nem validação Linux, CI hospedada, runtime instalado ou produção. Os diffs já existentes permanecem sem commit e sem release. A homologação formal continua em 2/7 (28,6%). Mapa técnico conferido: sem mudança estrutural.
+
+## Scheduler — propagação de cancelamento em varreduras — 2026-10-27 22:21 BRT
+
+`ILimitedConcurrencyLibraryScheduler.Enqueue` agora entrega um `CancellationToken` ao callback; `Folder` o propaga às operações de validação e atualização de metadados. A escrita no canal limitado usa token ligado ao cancelamento do chamador e ao descarte, para não continuar admitindo itens após shutdown. Falhas lançadas por callbacks de cancelamento são registradas e não interrompem o restante da limpeza.
+
+Windows/.NET 10 Release: classe `LimitedConcurrencyLibrarySchedulerTests` 6/6; suíte `Jellyfin.Controller.Tests` 71/71; `git diff --check` passou. Formatter direcionado reportou ordenação de imports já existente em `Folder.cs` e não concluiu a segunda execução antes de ser interrompido; verificação de formatação completa permanece pendente. Callbacks que ignoram o token ainda podem estender o descarte gracioso; não foi validado com runtime real, Linux, CI hospedada ou produção. Checkout principal divergente e sujo; nenhum commit, push ou release efetuado. Homologação formal 2/7 (28,6%).
+
+Revalidação em branch limpa sobre `origin/main` (22:35 BRT): scheduler 12/12, Controller 75/75 e caller-cancel com canal cheio 1/1. Commits `0813ca64` e `69d81ca4` publicados em `codex/scheduler-callback-cancellation`. PR bloqueado por integração GitHub 403 e ausência de sessão `gh`; sem merge/release. Formatter completo, Linux, runtime e produção permanecem pendentes.
+
+## Scheduler — cancelamento de workers no shutdown gracioso — 2026-11-02
+
+Auditoria do diff local encontrou regressão: `LimitedConcurrencyLibraryScheduler.Worker` vinculava o token do worker apenas ao seu lifetime local, removendo o vínculo pré-existente com `IHostApplicationLifetime.ApplicationStopping`. Um teste reproduziu a falha: após sinalizar shutdown, workers ociosos não encerravam em 5 s. O token do worker agora também observa `ApplicationStopping`. A classe `LimitedConcurrencyLibrarySchedulerTests` passou 7/7 e `Jellyfin.Controller.Tests` passou 72/72, Windows/.NET 10 Release; o contrato do portal passou 360/360. Treze verificações do portal exigiam mês fixo e foram atualizadas para validar formato ISO com `-03:00`; a primeira execução falhou nessas verificações até o ajuste. `dotnet restore` levou 32,85 s e reportou aviso NU1902 moderado para MySqlConnector 2.4.0, dependência existente. CI hospedada, Linux, runtime instalado e produção não validados. Homologação formal permanece 2/7, sem crédito; nenhuma release criada. Mapa técnico conferido; fluxo de cancelamento atualizado. Ver sessão do vault `2026-11-02-MulletaFlix-scheduler-host-shutdown-cancellation-2055`.
+### Retry transacional em atualização de elenco — 2026-11-02
+
+`PeopleRepository.UpdatePeople` agora repete a substituição integral após deadlock ou lock wait timeout MariaDB (1213/1205), usando contexto e transação novos, até três tentativas e espera curta crescente. O lock do item permanece adquirido entre tentativas; falhas permanentes continuam propagando. Os testes usam interceptor SQLite para simular os códigos sem serviço externo. A abordagem segue a recomendação do EF Core de repetir a unidade transacional inteira.
+
+Revisão adversarial identificou que os testes iniciais injetavam a falha antes das gravações: `TransactionStarting` em People e o comando `DELETE` interceptado antes de executar em Chapters/MediaStreams. Os cenários foram unificados para injetar o erro transitório em `TransactionCommitting`/`TransactionCommittingAsync`, depois das escritas, e conferir o estado anterior após rollback e retry. `ItemRepositoryTransientRetryTests`: 17/17 aprovados em Windows/.NET 10; formatter e `git diff --check` aprovados. A técnica usa callbacks oficiais do interceptor transacional e atomicidade de transação do EF Core ([interceptores](https://learn.microsoft.com/en-us/ef/core/logging-events-diagnostics/interceptors), [transações](https://learn.microsoft.com/en-us/ef/core/saving/transactions)).
+
+Ainda falta MariaDB descartável com lock real, Linux/CI hospedada e runtime/produção. Formal 2/7; não conta como homologação ou release.
+### 02/11/2026 — URLs sensíveis nos logs Live TV/IPTV (T6.4 parcial)
+
+- `TunerHostManager` redige URLs de sintonizadores em logs de descoberta e alteração, e formata a exceção de descoberta depois de remover URLs remotas.
+- `IptvOrgEpgSynchronizer` e `XmlTvListingsProvider` não passam mais a exceção bruta ao logger nos fluxos de tuner/EPG/XMLTV; `LiveTvUrlRedactor.RedactText` sanitiza URLs embutidas no texto da exceção enquanto preserva o restante do diagnóstico.
+- Testes Release Windows/.NET 10: Live TV focal 19/19 e Providers focal 11/11; formatter e diff-check passaram. Warning SA1507 no `LiveTvManager.cs` não foi causado por estes arquivos.
+- Limite: auditoria de outros `ILogger` e sinks do servidor, Linux, runtime instalado e produção ainda pendente; nenhuma release/instalação.
+
+
+### 02/11/2026 — provedores externos e imagens Live TV (T6.4 parcial)
+
+- URLs de falha/sucesso e exceções em NartoDrama, GoodShort e YouTube agora passam pelo redator de URL já existente no assembly Providers; GuideManager usa o redator de Live TV.
+- Teste do YouTube simula URL .strm com credenciais e API key sintéticas, força falha HTTP e confirma logs sem os valores. Providers focal: 62/62; Live TV focal: 15/15.
+- A pesquisa estática ainda mostra sinks de URL em outros provedores e ItemImageProvider; T6.4 não está concluído. Linux, runtime instalado e produção não foram testados.
+
+### 02/11/2026 — redação compartilhada de URLs em imagens e provedores (T6.4 parcial)
+
+- O helper interno `RemoteUrlLogRedactor` foi movido para `MediaBrowser.Providers/Helpers` para atender provedores independentes de MidiaStorageOnline.
+- `ItemImageProvider`, `ListenBrainzLabsClient` e `DramaBoxClient` redigem URLs e exceções antes do logger; erros de refresh de imagem também removem URLs sensíveis.
+- Providers focal: 150/150 em Windows/.NET 10 Release; `dotnet format whitespace --verify-no-changes` e `git diff --check` passaram. A busca ampliada localizou logs de exceção ainda a revisar em ShortMax e no tratamento de erro de imagens do YouTube; varredura não fecha T6.4.
+- T6.4 continua parcial: formatos/sinks fora do padrão e demais módulos do servidor precisam de auditoria; Linux, runtime instalado e produção pendentes. Nenhuma instalação ou release.
+
+### 02/11/2026 — nova varredura de exceções de rede dos providers (T6.4 parcial)
+
+- Redação aplicada em ShortMax, nos três caminhos remotos de YouTube metadata, YouTube Images, ListenBrainz Similar, TMDb Similar Movie/TV e JSON inválido de GoodShort.
+- Testes focais existentes + novos: Providers 152/152 em Windows/.NET 10 Release; formatter focal aprovado. `git diff --check` aprovado no escopo.
+- A pesquisa literal de `_logger.Log*(ex, ...)` em `MediaBrowser.Providers/Plugins` ainda encontra somente dois usos com contexto local (leitura de índice e persistência local); outras formas de log, camadas de transportes e módulos do servidor não estão cobertos por essa busca.
+- Microsoft Learn recomenda redaction pelo pipeline com classificação e `Microsoft.Extensions.Telemetry`; dependência/compatibilidade não avaliadas e nenhuma adoção feita. Linux, runtime instalado, CI remota e produção pendentes.
+### Continuação T6.4 — exceções em fronteiras comuns de providers e Live TV (2026-11-02 23:56 BRT)
+
+Providers/Live TV agora sanitizam texto de exceção antes do logger em `ProviderManager`, `MetadataService`, OpenLibrary, letras e legendas, `GuideManager` e chamadas de imagem/headend da Schedules Direct. Mensagens de erro de refresh originadas por providers também removem URLs. A chamada HTTP da Schedules Direct mantém host redigido, status HTTP e código de serviço; o corpo bruto, que pode ecoar dados, deixou de ser registrado. Nenhuma requisição ou metadado persistido foi alterado.
+
+Verificações Windows/.NET 10 Release: `Jellyfin.Providers.Tests` 893 aprovados, 13 ignorados, 0 falhas/906; `Jellyfin.LiveTv.Tests` 81/81; `git diff --check` aprovado. `dotnet format whitespace --verify-no-changes` nos arquivos alterados teve verificação parcial: a ferramenta parou em `CHARSET` nos arquivos preexistentes `LyricManager.cs` e `SchedulesDirect.cs`; os demais arquivos selecionados passaram. A busca estática ainda encontra outros logs com exceção bruta fora dos pontos confirmados; T6.4 permanece parcial.
+
+Após fechamento forçado informado pelo usuário, não havia processo de build/test `dotnet` nem processo `git`/`gh` ativo na inspeção. Duas instâncias `Nebula` e duas rotinas `clean_already_sent.py` estavam ativas e não foram encerradas. O histórico do processo já fechado não permite identificar a execução que ficou presa por cinco horas.
+
+Sem release, instalação, publicação remota ou crédito formal. Homologação permanece 2/7 (28,6%). O mapa técnico foi conferido e atualizado: fluxos de log foram ampliados em classes existentes; sem novo módulo, API ou dependência.
+## Auditoria contínua — persistência MariaDB de imagens — 2026-11-03 05:41 BRT
+
+MariaDB 11.4.4 descartável foi iniciado em `127.0.0.1:51588` com datadir temporário e `max-connections=500`, sem tocar a instância operacional na porta 3306. O filtro focal de imagens passou 11 aprovados, 1 ignorado e 0 falhas; a classe `ServerPersistenceMariaDbTests` passou 34 aprovados, 1 ignorado e 0 falhas em 35 casos. A execução inicial revelou falha de fixture no teste `GetNextUpSeriesKeys_WithEqualLastPlayedDates_AppliesStableTieBreakBeforeLimit`, causada por `UserData` sem `User` correspondente; o fixture foi corrigido, o teste isolado passou 1/1 e a classe completa foi reexecutada com sucesso. Cleanup confirmou porta liberada e datadir removido. Build Release da solução terminou com 0 erros e 603 avisos existentes. Nenhum código de produção ou ambiente operacional foi alterado. A evidência técnica de persistência de imagens está concluída localmente; CI hospedada, Linux, instalação persistente, runtime corrigido e produção continuam pendentes.
+# Atualização de homologação — 2026-11-03 12:22 BRT
+
+- Fallback de capa de livro agora persiste `ProviderName`/`Language` após `SaveImage` via `UpdateToRepositoryAsync`; testes focais **2/2**.
+- Imagens de `IDynamicImageProvider` são extrações locais (EPUB, áudio, vídeo ou imagem embutida) e não recebem `ItemImageInfo.ProviderName`, reservado para origem remota; testes dinâmicos **4/4**.
+- A preferência global em item vazio passou **1/1** após correção da fixture de teste; o ordenamento singular de produção não foi alterado.
+- Providers sem Integration **921/921**; API sem Integration **823/823 aplicáveis**; regressão serial **5.537/5.635**, com 98 ignorados; build Release sem erros.
+- Status permanece parcial: runtime instalado 12.1.45 não contém essas correções e gates reais/CI/Linux/produção continuam pendentes.
+## 2026-11-03 12:43 BRT — download manual de imagem remota e isolamento API
+
+- Corrigido `RemoteImageController.DownloadRemoteImage`: o endpoint agora resolve o `RemoteImageInfo` pelo URL/tipo, preserva `ProviderName` e `Language` no `ItemImageInfo` salvo e mantém `UpdateToRepositoryAsync`.
+- TDD RED/GREEN: `RemoteImageControllerTests.DownloadRemoteImage_PersistsSelectedRemoteImageProvenance` passou 1/1; filtro combinado dos testes que mutam `BaseItem.LibraryManager` passou 5/5.
+- Corrida de estado estático foi isolada na coleção não paralela `LibraryManagerTests` para quatro classes API.
+- API sem Integration: 824 aprovados, 3 ignorados, 0 falhas/827. Build Release: 0 erros, 576 avisos existentes.
+- Aceite permanece parcial: runtime 12.1.45 não contém working tree; integração real/repositório, providers remotos, CI/Linux, instalação e produção continuam pendentes.
+## Fallback não-HTTP de imagens e regressão serial — 2026-11-03 12:57 BRT
+
+`ItemImageProvider.DownloadImage` e `DownloadMultiImages` agora distinguem cancelamento de falha comum: `OperationCanceledException` continua propagada; exceções não-HTTP viram falha do candidato, warning redigido e permitem tentar o próximo provider/imagem. O teste `RefreshImages_SingularNonHttpFailureContinuesWithNextCandidate` passou 1/1 após RED; `Jellyfin.Providers.Tests` sem Integration passou 923/923; regressão serial sem Integration passou 5.638 aprovados, 98 ignorados, 0 falhas/5.736; build Release passou com 0 erros. Runtime 12.1.45 não foi alterado.

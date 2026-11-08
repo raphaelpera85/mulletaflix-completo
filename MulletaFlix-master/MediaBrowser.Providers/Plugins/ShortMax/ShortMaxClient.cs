@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Plugins.ShortMax;
@@ -111,7 +112,7 @@ public sealed class ShortMaxClient : IDisposable
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            _logger.LogWarning(ex, "ShortMax request failed for {Path}", path);
+            _logger.LogWarning("ShortMax request failed for {Path}: {Error}", path, RemoteUrlLogRedactor.Redact(ex.ToString()));
             return null;
         }
         finally { _requestLock.Release(); }

@@ -202,9 +202,8 @@ namespace MulletaFlix.Server
 
             var startupMigrationApplied = false;
 
-            do
-            {
-                await StartServer(
+            await RunServerLoopAsync(
+                () => StartServer(
                     appPaths,
                     options,
                     startupConfig,
@@ -217,16 +216,14 @@ namespace MulletaFlix.Server
 
                         await ApplyStartupMigrationAsync(appPaths, startupConfig, options).ConfigureAwait(false);
                         startupMigrationApplied = true;
-                    }).ConfigureAwait(false);
-
-                if (_restartOnShutdown)
+                    }),
+                () => _restartOnShutdown,
+                async () =>
                 {
                     _startTimestamp = Stopwatch.GetTimestamp();
                     await _setupServer.StopAsync().ConfigureAwait(false);
                     await _setupServer.RunAsync().ConfigureAwait(false);
-                }
-            }
-            while (_restartOnShutdown);
+                }).ConfigureAwait(false);
 
             _setupServer.Dispose();
 
@@ -235,6 +232,23 @@ namespace MulletaFlix.Server
 
             // Parar o Proxy Reverso Nginx se gerenciado
             await SecureConnectionProcessManager.StopSecureConnectionAsync(_logger).ConfigureAwait(false);
+        }
+
+        internal static async Task RunServerLoopAsync(
+            Func<Task> startServer,
+            Func<bool> shouldRestart,
+            Func<Task> restartSetupServer)
+        {
+            do
+            {
+                await startServer().ConfigureAwait(false);
+
+                if (shouldRestart())
+                {
+                    await restartSetupServer().ConfigureAwait(false);
+                }
+            }
+            while (shouldRestart());
         }
 
         private static void ConfigureThreadPool()
@@ -374,8 +388,7 @@ namespace MulletaFlix.Server
                     await _MulletaFlixHost.WaitForShutdownAsync().ConfigureAwait(false);
                 }
 
-                _restartOnShutdown = appHost.ShouldRestart;
-                _restoreFromBackup = appHost.RestoreBackupPath;
+                CaptureRestartState(appHost);
             }
             catch (Exception ex)
             {
@@ -543,6 +556,12 @@ namespace MulletaFlix.Server
             _restoreFromBackup = null;
             _restartOnShutdown = true;
             return false;
+        }
+
+        internal static void CaptureRestartState(IServerApplicationHost appHost)
+        {
+            _restartOnShutdown = appHost.ShouldRestart;
+            _restoreFromBackup = appHost.RestoreBackupPath;
         }
 
         private static IConfigurationBuilder ConfigureAppConfiguration(

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Collections.Immutable;
@@ -72,6 +72,7 @@ public class YearsController : BaseMulletaFlixApiController
     /// <returns> A <see cref="QueryResult{BaseItemDto}"/> containing the year result.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<QueryResult<BaseItemDto>> GetYears(
         [FromQuery] int? startIndex,
@@ -90,6 +91,21 @@ public class YearsController : BaseMulletaFlixApiController
         [FromQuery] bool recursive = true,
         [FromQuery] bool? enableImages = true)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var dtoOptions = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
@@ -178,9 +194,15 @@ public class YearsController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("{year}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<BaseItemDto>> GetYear([FromRoute, Required] int year, [FromQuery] Guid? userId)
     {
+        if (year <= 0)
+        {
+            return BadRequest("Year must be greater than 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var item = _libraryManager.GetYear(year);
         if (item is null)

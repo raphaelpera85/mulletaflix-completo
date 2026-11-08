@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
+import { getFixtureBaseUrl } from '../support/stage.mjs';
 
 for (const width of [390, 1280]) {
     test(`request grids and retry remain usable at ${width}px`, async ({ page }) => {
@@ -10,6 +11,7 @@ for (const width of [390, 1280]) {
                 pending: [{ Id: 1, Name: 'Solicitação de mídia: Um título pendente muito longo para verificar a quebra de texto na tela pequena', Overview: 'Séries · 2026' }],
                 included: [{ Id: 2, Name: 'Solicitação de mídia: Atomic', Overview: 'Incluído' }],
                 priorityRequestIds: new Set([1]), isPending: false, isError: false,
+                hasData: true,
                 hasNextPage: true, isFetchingNextPage: false, isFetchNextPageError: true,
                 fetchNextPage: async () => { window.__loadMoreCalls = (window.__loadMoreCalls || 0) + 1; },
                 refetch: async () => {}
@@ -28,12 +30,14 @@ for (const width of [390, 1280]) {
                 Retry: 'Tentar novamente', ErrorDefault: 'Não foi possível carregar mais solicitações'
             }[key] || key) };`
         }));
+        const fixtureBaseUrl = getFixtureBaseUrl(String(test.info().project.use.baseURL));
         const modulePath = resolve('tests/playwright/fixtures/myrequests.tsx').replaceAll('\\', '/');
+        const moduleUrl = new URL(`/@fs/${modulePath}`, fixtureBaseUrl).toString();
         await page.route('**/__requests_fixture__', route => route.fulfill({
             contentType: 'text/html',
-            body: `<html lang="pt-BR"><body style="background:#111;color:white;margin:16px"><div id="root"></div><script type="module" src="/@fs/${modulePath}"></script></body></html>`
+            body: `<html lang="pt-BR"><body style="background:#111;color:white;margin:16px"><div id="root"></div><script type="module" src="${moduleUrl}"></script></body></html>`
         }));
-        await page.goto('/__requests_fixture__');
+        await page.goto(new URL('/__requests_fixture__', fixtureBaseUrl).toString());
 
         const pending = page.getByRole('region', { name: 'Fila de solicitações' });
         const included = page.getByRole('region', { name: 'Títulos incluídos' });

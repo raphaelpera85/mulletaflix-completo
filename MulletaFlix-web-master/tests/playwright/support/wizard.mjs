@@ -36,14 +36,23 @@ export async function completeWizard(page, { adminUser, adminPassword, serverNam
     const startupUserResponse = await startupUserLoad;
     expect(startupUserResponse.ok()).toBeTruthy();
     const usernameInput = wizardUserPage.locator('#txtUsername');
-    await usernameInput.fill(adminUser);
+    await expect.poll(async () => {
+        await usernameInput.fill(adminUser);
+        return await usernameInput.inputValue();
+    }, { timeout: 10_000 }).toBe(adminUser);
     await expect(usernameInput).toHaveValue(adminUser, { timeout: 30_000 });
 
     await wizardUserPage.locator('#txtManualPassword').fill(adminPassword);
     await wizardUserPage.locator('#txtPasswordConfirm').fill(adminPassword);
     await expect(wizardUserPage.locator('#txtManualPassword')).toHaveValue(adminPassword);
     await expect(wizardUserPage.locator('#txtPasswordConfirm')).toHaveValue(adminPassword);
+    const startupUserUpdate = page.waitForResponse(response =>
+        response.request().method() === 'POST'
+        && new URL(response.url()).pathname.endsWith('/Startup/User')
+    );
     await wizardUserPage.locator('.wizardUserForm .button-submit').click();
+    const startupUserUpdateResponse = await startupUserUpdate;
+    expect(startupUserUpdateResponse.ok()).toBeTruthy();
 
     await expect(wizardLibraryPage).toBeVisible({ timeout: 60_000 });
     await expect(page).toHaveURL(/\/wizard\/library$/i, { timeout: 10_000 });

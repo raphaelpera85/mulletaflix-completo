@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Security;
 using System.Threading.Tasks;
@@ -53,11 +53,17 @@ public class UserLicenseController : BaseMulletaFlixApiController
     /// <returns>A <see cref="UserLicenseDto"/> with information about the license.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UserLicenseDto>> GetUserLicense(
         [FromRoute, Required] Guid userId)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
         // Check if user can access this license (non-admins can only access their own)
         try
         {
@@ -95,12 +101,28 @@ public class UserLicenseController : BaseMulletaFlixApiController
     [HttpPost]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<UserLicenseDto>> SetUserLicense(
         [FromRoute, Required] Guid userId,
         [FromBody, Required] SetUserLicenseRequest request)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (request is null)
+        {
+            return BadRequest("License request is required.");
+        }
+
+        if (request.DurationHours.HasValue && request.DurationHours.Value <= 0)
+        {
+            return BadRequest("Duration hours must be greater than 0.");
+        }
+
         var user = _userManager.GetUserById(userId);
         if (user is null)
         {
@@ -136,11 +158,17 @@ public class UserLicenseController : BaseMulletaFlixApiController
     [HttpDelete]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> RevokeUserLicense(
         [FromRoute, Required] Guid userId)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
         var user = _userManager.GetUserById(userId);
         if (user is null)
         {

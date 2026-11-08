@@ -7,6 +7,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Plugins.Tmdb.TV;
@@ -72,7 +73,7 @@ public class TmdbSeriesSimilarProvider : IRemoteSimilarItemsProvider<Series>
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get similar TV shows from TMDb for {TmdbId} page {Page}", tmdbId, page);
+                _logger.LogWarning("Failed to get similar TV shows from TMDb for {TmdbId} page {Page}: {Error}", tmdbId, page, RemoteUrlLogRedactor.Redact(ex.ToString()));
                 yield break;
             }
 

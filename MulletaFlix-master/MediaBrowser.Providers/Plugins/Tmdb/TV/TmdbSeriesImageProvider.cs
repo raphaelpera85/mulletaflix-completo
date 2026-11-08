@@ -57,9 +57,10 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
         /// <inheritdoc />
         public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
-            var tmdbId = item.GetProviderId(MetadataProvider.Tmdb);
-
-            if (string.IsNullOrEmpty(tmdbId))
+            var tmdbId = await TmdbSeriesProvider
+                .ResolveTmdbIdAsync(item, _tmdbClientManager, cancellationToken)
+                .ConfigureAwait(false);
+            if (tmdbId <= 0)
             {
                 return Enumerable.Empty<RemoteImageInfo>();
             }
@@ -67,7 +68,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             var language = item.GetPreferredMetadataLanguage();
             var countryCode = item.GetPreferredMetadataCountryCode();
             var series = await _tmdbClientManager.GetSeriesImagesAsync(
-                Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture),
+                tmdbId,
                 language,
                 countryCode,
                 cancellationToken).ConfigureAwait(false);
@@ -80,7 +81,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             var posters = series.Posters;
             var backdrops = series.Backdrops;
             var logos = series.Logos;
-            var remoteImages = new List<RemoteImageInfo>(posters?.Count ?? 0 + backdrops?.Count ?? 0 + logos?.Count ?? 0);
+            var remoteImages = new List<RemoteImageInfo>((posters?.Count ?? 0) + (backdrops?.Count ?? 0) + (logos?.Count ?? 0));
 
             if (posters is not null)
             {

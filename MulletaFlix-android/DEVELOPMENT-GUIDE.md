@@ -62,6 +62,10 @@ Módulos de feature presentes: `auth`, `downloads`, `home`, `item-detail`,
 Confirme os diretórios atuais antes de abrir uma nova área; não crie um módulo
 duplicado por conveniência.
 
+O AndroidTest de `feature/user` usa `:data` como dependência exclusivamente de
+teste para integrar `ProfileScreen`/`UserProfileViewModel` com logout e DataStore
+reais. Essa ligação não faz parte das dependências de produção do módulo.
+
 ## Planejar, executar e curar tarefas
 
 1. Localize a tarefa em `TODO-APP.md`; identifique comportamento observável,

@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS1591
 
@@ -133,8 +133,8 @@ namespace MediaBrowser.Providers.Manager
                 retryPaths = GetSavePaths(item, type, imageIndex, mimeType, false);
             }
 
-            // If there are more than one output paths, the stream will need to be seekable
-            if (paths.Length > 1 && !source.CanSeek)
+            // Retry paths also require a reusable stream after a partial write.
+            if ((paths.Length > 1 || retryPaths.Length > 0) && !source.CanSeek)
             {
                 var memoryStream = new MemoryStream();
                 await using (source.ConfigureAwait(false))
@@ -142,6 +142,7 @@ namespace MediaBrowser.Providers.Manager
                     await source.CopyToAsync(memoryStream, cancellationToken).ConfigureAwait(false);
                 }
 
+                memoryStream.Position = 0;
                 source = memoryStream;
             }
 
@@ -173,7 +174,7 @@ namespace MediaBrowser.Providers.Manager
                     }
 
                     string retryPath = null;
-                    if (paths.Length == retryPaths.Length)
+                    if (retryPaths.Length > i)
                     {
                         retryPath = retryPaths[i];
                     }
@@ -236,6 +237,11 @@ namespace MediaBrowser.Providers.Manager
                 }
             }
 
+            if (source.CanSeek)
+            {
+                source.Position = 0;
+            }
+
             await SaveImageToLocation(source, retryPath, cancellationToken).ConfigureAwait(false);
             return retryPath;
         }
@@ -256,9 +262,11 @@ namespace MediaBrowser.Providers.Manager
             try
             {
                 _libraryMonitor.ReportFileSystemChangeBeginning(path);
-                _libraryMonitor.ReportFileSystemChangeBeginning(parentFolder);
-
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                if (!string.IsNullOrEmpty(parentFolder))
+                {
+                    _libraryMonitor.ReportFileSystemChangeBeginning(parentFolder);
+                    Directory.CreateDirectory(parentFolder);
+                }
 
                 _fileSystem.SetAttributes(path, false, false);
 
@@ -284,7 +292,10 @@ namespace MediaBrowser.Providers.Manager
             finally
             {
                 _libraryMonitor.ReportFileSystemChangeComplete(path, false);
-                _libraryMonitor.ReportFileSystemChangeComplete(parentFolder, false);
+                if (!string.IsNullOrEmpty(parentFolder))
+                {
+                    _libraryMonitor.ReportFileSystemChangeComplete(parentFolder, false);
+                }
             }
         }
 

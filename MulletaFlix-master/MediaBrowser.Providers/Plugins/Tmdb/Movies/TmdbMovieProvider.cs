@@ -55,11 +55,13 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
         /// <inheritdoc />
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(MovieInfo searchInfo, CancellationToken cancellationToken)
         {
-            if (searchInfo.TryGetProviderId(MetadataProvider.Tmdb, out var id))
+            if (searchInfo.TryGetProviderId(MetadataProvider.Tmdb, out var id)
+                && int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedTmdbId)
+                && parsedTmdbId > 0)
             {
                 var movie = await _tmdbClientManager
                     .GetMovieAsync(
-                        int.Parse(id, CultureInfo.InvariantCulture),
+                        parsedTmdbId,
                         searchInfo.MetadataLanguage,
                         TmdbUtils.GetImageLanguagesParam(searchInfo.MetadataLanguage, searchInfo.MetadataCountryCode),
                         searchInfo.MetadataCountryCode,
@@ -96,24 +98,24 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 var result = await _tmdbClientManager.FindByExternalIdAsync(
                     id,
                     FindExternalSource.Imdb,
-                    TmdbUtils.GetImageLanguagesParam(searchInfo.MetadataLanguage, searchInfo.MetadataCountryCode),
+                    searchInfo.MetadataLanguage,
                     searchInfo.MetadataCountryCode,
                     cancellationToken).ConfigureAwait(false);
                 movieResults = result?.MovieResults;
             }
 
-            if (movieResults is null && searchInfo.TryGetProviderId(MetadataProvider.Tvdb, out id))
+            if (movieResults is not { Count: > 0 } && searchInfo.TryGetProviderId(MetadataProvider.Tvdb, out id))
             {
                 var result = await _tmdbClientManager.FindByExternalIdAsync(
                     id,
                     FindExternalSource.TvDb,
-                    TmdbUtils.GetImageLanguagesParam(searchInfo.MetadataLanguage, searchInfo.MetadataCountryCode),
+                    searchInfo.MetadataLanguage,
                     searchInfo.MetadataCountryCode,
                     cancellationToken).ConfigureAwait(false);
                 movieResults = result?.MovieResults;
             }
 
-            if (movieResults is null)
+            if (movieResults is not { Count: > 0 })
             {
                 var parsedName = _libraryManager.ParseName(searchInfo.Name);
                 var targetYear = searchInfo.Year ?? parsedName.Year;
@@ -195,6 +197,11 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
             var imdbId = info.GetProviderId(MetadataProvider.Imdb);
             var config = Plugin.Instance.Configuration;
 
+            if (!int.TryParse(tmdbId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedMovieTmdbId) || parsedMovieTmdbId <= 0)
+            {
+                tmdbId = null;
+            }
+
             if (string.IsNullOrEmpty(tmdbId) && string.IsNullOrEmpty(imdbId))
             {
                 // ParseName is required here.
@@ -240,27 +247,29 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                     var bestMatch = FindBestMatch(candidateResults, baseName, targetYear);
                     if (bestMatch is not null)
                     {
+                        parsedMovieTmdbId = bestMatch.Id;
                         tmdbId = bestMatch.Id.ToString(CultureInfo.InvariantCulture);
                     }
                 }
             }
 
-            if (string.IsNullOrEmpty(tmdbId) && !string.IsNullOrEmpty(imdbId))
+            if (parsedMovieTmdbId <= 0 && !string.IsNullOrEmpty(imdbId))
             {
                 var movieResultFromImdbId = await _tmdbClientManager.FindByExternalIdAsync(imdbId, FindExternalSource.Imdb, info.MetadataLanguage, info.MetadataCountryCode, cancellationToken).ConfigureAwait(false);
                 if (movieResultFromImdbId?.MovieResults?.Count > 0)
                 {
-                    tmdbId = movieResultFromImdbId.MovieResults[0].Id.ToString(CultureInfo.InvariantCulture);
+                    parsedMovieTmdbId = movieResultFromImdbId.MovieResults[0].Id;
+                    tmdbId = parsedMovieTmdbId.ToString(CultureInfo.InvariantCulture);
                 }
             }
 
-            if (string.IsNullOrEmpty(tmdbId))
+            if (parsedMovieTmdbId <= 0)
             {
                 return new MetadataResult<Movie>();
             }
 
             var movieResult = await _tmdbClientManager
-                .GetMovieAsync(Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture), info.MetadataLanguage, TmdbUtils.GetImageLanguagesParam(info.MetadataLanguage, info.MetadataCountryCode), info.MetadataCountryCode, cancellationToken)
+                .GetMovieAsync(parsedMovieTmdbId, info.MetadataLanguage, TmdbUtils.GetImageLanguagesParam(info.MetadataLanguage, info.MetadataCountryCode), info.MetadataCountryCode, cancellationToken)
                 .ConfigureAwait(false);
 
             if (movieResult is null)

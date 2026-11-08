@@ -13,6 +13,28 @@ describe('playIntroThenMain', () => {
         expect(playMain).toHaveBeenCalledOnce();
     });
 
+    it('waits for asynchronous intro error handling before starting the main item', async () => {
+        let releaseAd: (() => void) | undefined;
+        const adFinished = new Promise<void>((resolve) => {
+            releaseAd = resolve;
+        });
+        const onIntroError = vi.fn(() => adFinished);
+        const playMain = vi.fn().mockResolvedValue('main playback started');
+
+        const playback = playIntroThenMain(
+            vi.fn().mockRejectedValue(new Error('intro source is unavailable')),
+            onIntroError,
+            playMain
+        );
+
+        await Promise.resolve();
+        expect(playMain).not.toHaveBeenCalled();
+
+        releaseAd!();
+        await expect(playback).resolves.toBe('main playback started');
+        expect(playMain).toHaveBeenCalledOnce();
+    });
+
     it('does not start the main item when the intro starts successfully', async () => {
         const playIntro = vi.fn().mockResolvedValue(undefined);
         const onIntroError = vi.fn();

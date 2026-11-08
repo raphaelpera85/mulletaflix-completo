@@ -44,7 +44,12 @@ function Install-NebulaRuntimeDependencies {
         throw "Lock de dependências Python do Nebula não encontrado: $requirementsLock"
     }
 
-    $runtimeDirectory = Join-Path $PSScriptRoot 'Tools\NebulaPython'
+    $dataDirectory = $env:MULLETAFLIX_DATA_PATH
+    if ([string]::IsNullOrWhiteSpace($dataDirectory)) {
+        $dataDirectory = Join-Path $env:ProgramData 'MulletaFlix\Server\data'
+    }
+
+    $runtimeDirectory = Join-Path $dataDirectory 'Tools\NebulaPython'
     $venvDirectory = Join-Path $runtimeDirectory '.venv'
     $venvPython = Join-Path $venvDirectory 'Scripts\python.exe'
     New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null

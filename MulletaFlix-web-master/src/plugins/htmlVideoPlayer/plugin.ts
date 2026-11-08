@@ -459,10 +459,10 @@ export class HtmlVideoPlayer {
                         xhr.withCredentials = includeCorsCredentials;
                     }
                 });
-                hls.loadSource(url);
-                hls.attachMedia(elem);
-
                 bindEventsToHlsPlayer(this, hls, elem, this.onError, resolve, reject);
+
+                hls.attachMedia(elem);
+                hls.loadSource(url);
 
                 this._hlsPlayer = hls;
 

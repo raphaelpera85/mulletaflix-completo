@@ -27,6 +27,7 @@
     <ProjectReference Include="../../MulletaFlix.Plugin.IntroSkipper/MulletaFlix.Plugin.IntroSkipper.csproj" />
     <ProjectReference Include="../../Jellyfin.Server.Implementations/Jellyfin.Server.Implementations.csproj" />
     <ProjectReference Include="../../MediaBrowser.Providers/MediaBrowser.Providers.csproj" />
+    <ProjectReference Include="../../src/Jellyfin.Drawing/Jellyfin.Drawing.csproj" />
     <ProjectReference Include="../../src/Jellyfin.Drawing.Skia/Jellyfin.Drawing.Skia.csproj" />
   </ItemGroup>
 

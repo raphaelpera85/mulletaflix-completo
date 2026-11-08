@@ -139,6 +139,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("Channels")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetLiveTvChannels(
@@ -164,6 +165,21 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery] bool enableFavoriteSorting = false,
         [FromQuery] bool addCurrentProgram = true)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         if (!TryResolveLiveTvUser(userId, out var resolvedUserId, out var user))
         {
             return Unauthorized();
@@ -269,6 +285,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the live tv recordings.</returns>
     [HttpGet("Recordings")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetRecordings(
@@ -292,6 +309,21 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery] bool? isLibraryItem,
         [FromQuery] bool enableTotalRecordCount = true)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         if (!TryResolveLiveTvUser(userId, out var resolvedUserId, out _))
         {
             return Unauthorized();
@@ -448,9 +480,15 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Tuners/{tunerId}/Reset")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Authorize(Policy = Policies.RequiresElevation)]
     public async Task<ActionResult> ResetTuner([FromRoute, Required] string tunerId)
     {
+        if (string.IsNullOrWhiteSpace(tunerId))
+        {
+            return BadRequest("Tuner id is required.");
+        }
+
         await _liveTvManager.ResetTuner(tunerId, CancellationToken.None).ConfigureAwait(false);
         return NoContent();
     }
@@ -465,9 +503,15 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("Timers/{timerId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<TimerInfoDto>> GetTimer([FromRoute, Required] string timerId)
     {
+        if (string.IsNullOrWhiteSpace(timerId))
+        {
+            return BadRequest("Timer id is required.");
+        }
+
         return await _liveTvManager.GetTimer(timerId, CancellationToken.None).ConfigureAwait(false);
     }
 
@@ -555,6 +599,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("Programs")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetLiveTvPrograms(
@@ -586,6 +631,21 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields,
         [FromQuery] bool enableTotalRecordCount = true)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         if (!TryResolveLiveTvUser(userId, out _, out var user))
         {
             return Unauthorized();
@@ -642,10 +702,32 @@ public class LiveTvController : BaseMulletaFlixApiController
     /// </returns>
     [HttpPost("Programs")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [Authorize(Policy = Policies.LiveTvAccess)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetPrograms([FromBody] GetProgramsDto body)
     {
+        if (body is null)
+        {
+            return BadRequest("Request body is required.");
+        }
+
+        if (body.StartIndex.HasValue && body.StartIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (body.Limit.HasValue && body.Limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (body.ImageTypeLimit.HasValue && body.ImageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         if (!TryResolveLiveTvUser(body.UserId, out _, out var user))
         {
             return Unauthorized();
@@ -717,6 +799,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpGet("Programs/Recommended")]
     [Authorize(Policy = Policies.LiveTvAccess)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetRecommendedPrograms(
         [FromQuery] Guid? userId,
@@ -737,6 +820,21 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery] bool? enableUserData,
         [FromQuery] bool enableTotalRecordCount = true)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         if (!TryResolveLiveTvUser(userId, out _, out var user))
         {
             return Unauthorized();
@@ -774,12 +872,18 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpGet("Programs/{programId}")]
     [Authorize(Policy = Policies.LiveTvAccess)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<BaseItemDto>> GetProgram(
         [FromRoute, Required] string programId,
         [FromQuery] Guid? userId)
     {
+        if (string.IsNullOrWhiteSpace(programId))
+        {
+            return BadRequest("Program id is required.");
+        }
+
         if (!TryResolveLiveTvUser(userId, out _, out var user))
         {
             return Unauthorized();
@@ -817,9 +921,15 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpDelete("Recordings/{recordingId}")]
     [Authorize(Policy = Policies.LiveTvManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteRecording([FromRoute, Required] Guid recordingId)
     {
+        if (recordingId == Guid.Empty)
+        {
+            return BadRequest("Recording id must not be empty.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(recordingId, User.GetUserId());
         if (item is null)
         {
@@ -843,8 +953,14 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpDelete("Timers/{timerId}")]
     [Authorize(Policy = Policies.LiveTvManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> CancelTimer([FromRoute, Required] string timerId)
     {
+        if (string.IsNullOrWhiteSpace(timerId))
+        {
+            return BadRequest("Timer id is required.");
+        }
+
         await _liveTvManager.CancelTimer(timerId).ConfigureAwait(false);
         return NoContent();
     }
@@ -859,8 +975,19 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpPost("Timers/{timerId}")]
     [Authorize(Policy = Policies.LiveTvManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateTimer([FromRoute, Required] string timerId, [FromBody] TimerInfoDto timerInfo)
     {
+        if (string.IsNullOrWhiteSpace(timerId))
+        {
+            return BadRequest("Timer id is required.");
+        }
+
+        if (timerInfo is null)
+        {
+            return BadRequest("Timer info is required.");
+        }
+
         await _liveTvManager.UpdateTimer(timerInfo, CancellationToken.None).ConfigureAwait(false);
         return NoContent();
     }
@@ -874,8 +1001,14 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpPost("Timers")]
     [Authorize(Policy = Policies.LiveTvManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> CreateTimer([FromBody] TimerInfoDto timerInfo)
     {
+        if (timerInfo is null)
+        {
+            return BadRequest("Timer info is required.");
+        }
+
         await _liveTvManager.CreateTimer(timerInfo, CancellationToken.None).ConfigureAwait(false);
         return NoContent();
     }
@@ -932,8 +1065,14 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpDelete("SeriesTimers/{timerId}")]
     [Authorize(Policy = Policies.LiveTvManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> CancelSeriesTimer([FromRoute, Required] string timerId)
     {
+        if (string.IsNullOrWhiteSpace(timerId))
+        {
+            return BadRequest("Timer id is required.");
+        }
+
         await _liveTvManager.CancelSeriesTimer(timerId).ConfigureAwait(false);
         return NoContent();
     }
@@ -948,8 +1087,19 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpPost("SeriesTimers/{timerId}")]
     [Authorize(Policy = Policies.LiveTvManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateSeriesTimer([FromRoute, Required] string timerId, [FromBody] SeriesTimerInfoDto seriesTimerInfo)
     {
+        if (string.IsNullOrWhiteSpace(timerId))
+        {
+            return BadRequest("Timer id is required.");
+        }
+
+        if (seriesTimerInfo is null)
+        {
+            return BadRequest("Series timer info is required.");
+        }
+
         await _liveTvManager.UpdateSeriesTimer(seriesTimerInfo, CancellationToken.None).ConfigureAwait(false);
         return NoContent();
     }
@@ -963,8 +1113,14 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpPost("SeriesTimers")]
     [Authorize(Policy = Policies.LiveTvManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> CreateSeriesTimer([FromBody] SeriesTimerInfoDto seriesTimerInfo)
     {
+        if (seriesTimerInfo is null)
+        {
+            return BadRequest("Series timer info is required.");
+        }
+
         await _liveTvManager.CreateSeriesTimer(seriesTimerInfo, CancellationToken.None).ConfigureAwait(false);
         return NoContent();
     }
@@ -989,8 +1145,16 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpPost("TunerHosts")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<TunerHostInfo>> AddTunerHost([FromBody] TunerHostInfo tunerHostInfo)
-        => await _tunerHostManager.SaveTunerHost(tunerHostInfo).ConfigureAwait(false);
+    {
+        if (tunerHostInfo is null)
+        {
+            return BadRequest("Tuner host info is required.");
+        }
+
+        return await _tunerHostManager.SaveTunerHost(tunerHostInfo).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Deletes a tuner host.
@@ -1001,8 +1165,14 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpDelete("TunerHosts")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult DeleteTunerHost([FromQuery] string? id)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return BadRequest("Id is required.");
+        }
+
         _tunerHostManager.DeleteTunerHost(id);
         return NoContent();
     }
@@ -1032,6 +1202,7 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpPost("ListingProviders")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [SuppressMessage("Microsoft.Performance", "CA5350:RemoveSha1", MessageId = "AddListingProvider", Justification = "Imported from ServiceStack")]
     public async Task<ActionResult<ListingsProviderInfo>> AddListingProvider(
         [FromQuery] string? pw,
@@ -1039,6 +1210,11 @@ public class LiveTvController : BaseMulletaFlixApiController
         [FromQuery] bool validateListings = false,
         [FromQuery] bool validateLogin = false)
     {
+        if (listingsProviderInfo is null)
+        {
+            return BadRequest("Listings provider info is required.");
+        }
+
         if (!string.IsNullOrEmpty(pw))
         {
             // TODO: remove ToLower when Convert.ToHexString supports lowercase
@@ -1058,8 +1234,14 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpDelete("ListingProviders")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult DeleteListingProvider([FromQuery] string? id)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return BadRequest("Id is required.");
+        }
+
         _listingsManager.DeleteListingsProvider(id);
         return NoContent();
     }
@@ -1159,10 +1341,16 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpGet("LiveRecordings/{streamId}/stream")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesVideoFile]
     public ActionResult GetLiveRecordingFile([FromRoute, Required] string streamId)
     {
+        if (string.IsNullOrWhiteSpace(streamId))
+        {
+            return BadRequest("Stream id is required.");
+        }
+
         var path = _recordingsManager.GetActiveRecordingStreamPath(streamId);
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -1188,12 +1376,18 @@ public class LiveTvController : BaseMulletaFlixApiController
     [HttpGet("LiveStreamFiles/{streamId}/stream.{container}")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesVideoFile]
     public ActionResult GetLiveStreamFile(
         [FromRoute, Required] string streamId,
         [FromRoute, Required][RegularExpression(EncodingHelper.ContainerValidationRegexStr)] string container)
     {
+        if (string.IsNullOrWhiteSpace(streamId))
+        {
+            return BadRequest("Stream id is required.");
+        }
+
         var liveStreamInfo = _mediaSourceManager.GetLiveStreamInfoByUniqueId(streamId);
         if (liveStreamInfo is null)
         {

@@ -20,6 +20,7 @@ using Xunit;
 
 namespace MulletaFlix.Providers.Tests.MediaInfo;
 
+[Collection("LibraryManagerTests")]
 public class ProbeProviderTests
 {
     [Fact]

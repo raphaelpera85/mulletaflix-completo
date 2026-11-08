@@ -58,6 +58,7 @@ public class ItemRefreshController : BaseMulletaFlixApiController
     [HttpPost("{itemId}/Refresh")]
     [Description("Refreshes metadata for an item.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult RefreshItem(
         [FromRoute, Required] Guid itemId,
@@ -67,6 +68,11 @@ public class ItemRefreshController : BaseMulletaFlixApiController
         [FromQuery] bool replaceAllImages = false,
         [FromQuery] bool regenerateTrickplay = false)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {

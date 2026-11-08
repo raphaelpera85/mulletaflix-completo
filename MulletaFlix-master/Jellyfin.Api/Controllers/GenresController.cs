@@ -74,6 +74,7 @@ public class GenresController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the queryresult of genres.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<QueryResult<BaseItemDto>> GetGenres(
@@ -96,6 +97,21 @@ public class GenresController : BaseMulletaFlixApiController
         [FromQuery] bool? enableImages = true,
         [FromQuery] bool enableTotalRecordCount = true)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!TryResolveGenreUser(userId, out var user))
         {
@@ -164,9 +180,15 @@ public class GenresController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the genre.</returns>
     [HttpGet("{genreName}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<BaseItemDto>> GetGenre([FromRoute, Required] string genreName, [FromQuery] Guid? userId)
     {
+        if (string.IsNullOrWhiteSpace(genreName))
+        {
+            return BadRequest("Genre name is required.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!TryResolveGenreUser(userId, out var user))
         {

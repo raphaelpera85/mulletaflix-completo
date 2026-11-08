@@ -14,6 +14,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.MediaInfo
@@ -212,7 +213,7 @@ namespace MediaBrowser.Providers.MediaInfo
             catch (Exception ex)
             {
                 _onFailure?.Invoke();
-                _logger.LogError(ex, "Error downloading subtitles");
+                _logger.LogError("{Error} downloading subtitles", RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
 
             return false;

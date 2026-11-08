@@ -118,12 +118,18 @@ public class SubtitleController : BaseMulletaFlixApiController
     [HttpGet("Items/{itemId}/RemoteSearch/Subtitles/{language}")]
     [Authorize(Policy = Policies.SubtitleManagement)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IEnumerable<RemoteSubtitleInfo>>> SearchRemoteSubtitles(
         [FromRoute, Required] Guid itemId,
         [FromRoute, Required] string language,
         [FromQuery] bool? isPerfectMatch)
     {
+        if (string.IsNullOrWhiteSpace(language))
+        {
+            return BadRequest("Language is required.");
+        }
+
         var item = _libraryManager.GetItemById<Video>(itemId, User.GetUserId());
         if (item is null)
         {
@@ -145,12 +151,18 @@ public class SubtitleController : BaseMulletaFlixApiController
     [HttpPost("Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}")]
     [Authorize(Policy = Policies.SubtitleManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> DownloadRemoteSubtitles(
         [FromRoute, Required] Guid itemId,
         [FromRoute, Required] string subtitleId)
     {
+        if (string.IsNullOrWhiteSpace(subtitleId))
+        {
+            return BadRequest("Subtitle id is required.");
+        }
+
         var item = _libraryManager.GetItemById<Video>(itemId, User.GetUserId());
         if (item is null)
         {
@@ -182,10 +194,16 @@ public class SubtitleController : BaseMulletaFlixApiController
     [HttpGet("Providers/Subtitles/Subtitles/{subtitleId}")]
     [Authorize(Policy = Policies.SubtitleManagement)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Produces(MediaTypeNames.Application.Octet)]
     [ProducesFile("text/*")]
     public async Task<ActionResult> GetRemoteSubtitles([FromRoute, Required] string subtitleId)
     {
+        if (string.IsNullOrWhiteSpace(subtitleId))
+        {
+            return BadRequest("Subtitle id is required.");
+        }
+
         var result = await _subtitleManager.GetRemoteSubtitles(subtitleId, CancellationToken.None).ConfigureAwait(false);
 
         return File(result.Stream, MimeTypes.GetMimeType("file." + result.Format));
@@ -445,39 +463,59 @@ public class SubtitleController : BaseMulletaFlixApiController
     [HttpPost("Videos/{itemId}/Subtitles")]
     [Authorize(Policy = Policies.SubtitleManagement)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> UploadSubtitle(
         [FromRoute, Required] Guid itemId,
         [FromBody, Required] UploadSubtitleDto body)
     {
+        if (body is null)
+        {
+            return BadRequest("Subtitle payload is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.Format))
+        {
+            return BadRequest("Subtitle format is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.Data))
+        {
+            return BadRequest("Subtitle data is required.");
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(body.Data);
+        }
+        catch (FormatException)
+        {
+            return BadRequest("Subtitle data must be valid Base64.");
+        }
+
         var item = _libraryManager.GetItemById<Video>(itemId, User.GetUserId());
         if (item is null)
         {
             return NotFound();
         }
 
-        var bytes = Encoding.UTF8.GetBytes(body.Data);
         var memoryStream = new MemoryStream(bytes, 0, bytes.Length, false, true);
         await using (memoryStream.ConfigureAwait(false))
         {
-            using var transform = new FromBase64Transform();
-            var stream = new CryptoStream(memoryStream, transform, CryptoStreamMode.Read);
-            await using (stream.ConfigureAwait(false))
-            {
-                await _subtitleManager.UploadSubtitle(
-                    item,
-                    new SubtitleResponse
-                    {
-                        Format = body.Format,
-                        Language = body.Language,
-                        IsForced = body.IsForced,
-                        IsHearingImpaired = body.IsHearingImpaired,
-                        Stream = stream
-                    }).ConfigureAwait(false);
-                _providerManager.QueueRefresh(item.Id, new MetadataRefreshOptions(new DirectoryService(_fileSystem)), RefreshPriority.High);
+            await _subtitleManager.UploadSubtitle(
+                item,
+                new SubtitleResponse
+                {
+                    Format = body.Format,
+                    Language = body.Language,
+                    IsForced = body.IsForced,
+                    IsHearingImpaired = body.IsHearingImpaired,
+                    Stream = memoryStream
+                }).ConfigureAwait(false);
+            _providerManager.QueueRefresh(item.Id, new MetadataRefreshOptions(new DirectoryService(_fileSystem)), RefreshPriority.High);
 
-                return NoContent();
-            }
+            return NoContent();
         }
     }
 

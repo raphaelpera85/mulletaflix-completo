@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 
 namespace MulletaFlix.LiveTv;
 
@@ -16,6 +17,12 @@ namespace MulletaFlix.LiveTv;
 public static class LiveTvUrlRedactor
 {
     private const string Redacted = "[REDACTED]";
+    private static readonly Regex RemoteUrlRegex = new(
+        @"https?://[^\s<>""']+",
+        RegexOptions.IgnoreCase | RegexOptions.NonBacktracking);
+
+    internal static string RedactText(string? text)
+        => string.IsNullOrWhiteSpace(text) ? Redacted : RemoteUrlRegex.Replace(text, match => Redact(match.Value));
 
     /// <summary>
     /// Devolve apenas esquema, host e porta, descartando credenciais, path e query.

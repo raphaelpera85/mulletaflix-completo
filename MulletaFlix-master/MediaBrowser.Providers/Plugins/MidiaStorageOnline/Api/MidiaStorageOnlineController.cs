@@ -16,6 +16,7 @@ using System.Threading.Tasks;
 using System.Xml;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -92,7 +93,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
 
         private void Log(string msg)
         {
-            _logger.LogInformation("{Msg}", msg);
+            _logger.LogInformation("{Msg}", RemoteUrlLogRedactor.Redact(msg));
         }
 
         private PluginConfiguration GetConfig() => _configurationManager.GetConfiguration<PluginConfiguration>("midiastorageonline");
@@ -1358,11 +1359,12 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
             }
             catch (Exception ex)
             {
-                Log($"Erro no sync: {ex.Message}");
-                _logger.LogError(ex, "Sync error");
-                config.LastSyncError = ex.Message;
+                var safeError = RemoteUrlLogRedactor.Redact(ex.Message);
+                Log($"Erro no sync: {safeError}");
+                _logger.LogError("Sync error ({ExceptionType}): {Message}", ex.GetType().Name, safeError);
+                config.LastSyncError = safeError;
                 SaveConfig(config);
-                return StatusCode(500, new { error = ex.Message });
+                return StatusCode(500, new { error = safeError });
             }
         }
 

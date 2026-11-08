@@ -28,8 +28,8 @@ function getLibraryPageSelector(library) {
     return library.type === 'tvshows' ? '#tvshowsPage' : '#moviesPage';
 }
 
-async function assertFallbackLibrary(page, library) {
-    const folder = await getVirtualFolderByLibrary(page, library);
+async function assertFallbackLibrary(page, library, knownFolder = null) {
+    const folder = knownFolder || await getVirtualFolderByLibrary(page, library);
     const folderId = folder?.ItemId || folder?.Id;
     expect(folderId).toBeTruthy();
     if (!folderId) {
@@ -62,22 +62,22 @@ async function assertHomeLibrarySection(page, library) {
     }
 }
 
-async function assertHomeLibrary(page, library) {
+async function assertHomeLibrary(page, library, knownFolder = null) {
     const libraryButton = page.locator(`#indexPage a[href*="collectionType=${library.type}"]`).first();
     if (!(await libraryButton.isVisible({ timeout: 8_000 }).catch(() => false))) {
-        await assertFallbackLibrary(page, library);
+        await assertFallbackLibrary(page, library, knownFolder);
         return;
     }
 
     await assertHomeLibrarySection(page, library);
 }
 
-async function assertHomeShowsLibrariesAndCarousels(page, libraries) {
+async function assertHomeShowsLibrariesAndCarousels(page, libraries, knownFolders = {}) {
     await navigateStage(page, '/home');
     await expect(page.locator('#indexPage')).toBeVisible({ timeout: 30_000 });
 
     for (const library of libraries) {
-        await assertHomeLibrary(page, library);
+        await assertHomeLibrary(page, library, knownFolders[library.type]);
     }
 }
 
@@ -194,7 +194,7 @@ test.describe.serial('99 - Pagination and home media', () => {
         await navigateStage(page, '/dashboard/logs');
         const logLink = page.locator('#logPage a[href*="/dashboard/logs/"]').first();
         if (await logLink.isVisible().catch(() => false)) {
-            const logFileName = await logLink.textContent();
+            const logFileName = (await logLink.textContent())?.match(/log_\d+\.log/)?.[0];
             await logLink.click();
             await expect(page.locator('#logPage pre')).toBeVisible({ timeout: 30_000 });
             if (logFileName) {
@@ -250,7 +250,10 @@ test.describe.serial('99 - Pagination and home media', () => {
         await logoutViaDashboard(page);
 
         await loginWithManualForm(page, sharedUser.username, sharedUser.password);
-        await assertHomeShowsLibrariesAndCarousels(page, [ MOVIES_LIBRARY, SERIES_LIBRARY ]);
+        await assertHomeShowsLibrariesAndCarousels(page, [ MOVIES_LIBRARY, SERIES_LIBRARY ], {
+            movies: movieFolder,
+            tvshows: seriesFolder
+        });
         await assertLibraryPagination(page, MOVIES_LIBRARY, '#moviesPage', movieFolder);
         await assertLibraryPagination(page, SERIES_LIBRARY, '#tvshowsPage', seriesFolder);
 

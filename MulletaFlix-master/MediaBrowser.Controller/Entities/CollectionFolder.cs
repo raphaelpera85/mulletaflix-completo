@@ -317,6 +317,8 @@ namespace MediaBrowser.Controller.Entities
                 var files = FileData.GetFilteredFileSystemEntries(directoryService, args.Path, FileSystem, ApplicationHost, Logger, args, flattenFolderDepth: flattenFolderDepth, resolveShortcuts: true);
 
                 args.FileSystemChildren = files;
+
+
             }
 
             _requiresRefresh = _requiresRefresh || !args.PhysicalLocations.SequenceEqual(PhysicalLocations);
@@ -348,7 +350,9 @@ namespace MediaBrowser.Controller.Entities
 
         public IEnumerable<BaseItem> GetActualChildren()
         {
-            return GetPhysicalFolders(true).SelectMany(c => c.Children);
+            var physicalFolders = GetPhysicalFolders(true).ToList();
+            var children = physicalFolders.SelectMany(c => c.Children).ToList();
+            return children;
         }
 
         public IEnumerable<Folder> GetPhysicalFolders()
@@ -368,7 +372,7 @@ namespace MediaBrowser.Controller.Entities
                 .ToList();
 
             return PhysicalLocations
-                    .Where(i => !FileSystem.AreEqual(i, Path))
+                    .Where(i => !ArePhysicalPathsEqual(i, Path))
                     .SelectMany(i => GetPhysicalParents(i, rootChildren))
                     .DistinctBy(x => x.Id);
         }
@@ -376,7 +380,7 @@ namespace MediaBrowser.Controller.Entities
         private IEnumerable<Folder> GetPhysicalParents(string path, List<Folder> rootChildren)
         {
             var result = rootChildren
-                .Where(i => FileSystem.AreEqual(i.Path, path))
+                .Where(i => ArePhysicalPathsEqual(i.Path, path))
                 .ToList();
 
             if (result.Count == 0)
@@ -388,6 +392,18 @@ namespace MediaBrowser.Controller.Entities
             }
 
             return result;
+        }
+
+        private bool ArePhysicalPathsEqual(string left, string right)
+        {
+            try
+            {
+                return FileSystem.AreEqual(System.IO.Path.GetFullPath(left), System.IO.Path.GetFullPath(right));
+            }
+            catch (ArgumentException)
+            {
+                return FileSystem.AreEqual(left, right);
+            }
         }
     }
 }

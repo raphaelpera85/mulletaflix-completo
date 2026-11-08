@@ -67,9 +67,11 @@ public class UserViewsController : BaseMulletaFlixApiController
     /// <param name="presetViews">Preset views.</param>
     /// <param name="includeHidden">Whether or not to include hidden content.</param>
     /// <response code="200">User views returned.</response>
+    /// <response code="404">User not found.</response>
     /// <returns>An <see cref="OkResult"/> containing the user views.</returns>
     [HttpGet("UserViews")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<QueryResult<BaseItemDto>> GetUserViews(
         [FromQuery] Guid? userId,
         [FromQuery] bool? includeExternalContent,
@@ -86,6 +88,7 @@ public class UserViewsController : BaseMulletaFlixApiController
             query.IncludeExternalContent = includeExternalContent.Value;
         }
 
+        presetViews ??= Array.Empty<CollectionType?>();
         if (presetViews.Length != 0)
         {
             query.PresetViews = presetViews;
@@ -103,7 +106,7 @@ public class UserViewsController : BaseMulletaFlixApiController
 
         var dtos = await _dtoService.GetBaseItemDtosAsync(folders, dtoOptions, user).ConfigureAwait(false);
 
-        var result = new QueryResult<BaseItemDto>(dtos);
+        var result = new QueryResult<BaseItemDto>(dtos ?? Array.Empty<BaseItemDto>());
         _itemsResponseCache.Set(cacheKey, result);
         return result;
     }

@@ -6,6 +6,8 @@ while (baseURL.endsWith('/')) {
     baseURL = baseURL.slice(0, -1);
 }
 const rawResultsFile = process.env.PW_JSON_REPORT || 'reports/playwright/raw-results.json';
+const fixturePort = Number(process.env.PW_FIXTURE_PORT || 0);
+const fixtureBaseURL = process.env.PW_FIXTURE_BASE_URL || `http://127.0.0.1:${fixturePort}`;
 
 export default defineConfig({
     testDir: './tests/playwright/specs',
@@ -46,5 +48,11 @@ export default defineConfig({
             use: { ...devices['Desktop Chrome'] }
         }
     ],
-    outputDir: 'test-results/playwright'
+    outputDir: 'test-results/playwright',
+    webServer: fixturePort ? {
+        command: `npm run serve -- --host 127.0.0.1 --port ${fixturePort} --strictPort`,
+        url: `${fixtureBaseURL}/@vite/client`,
+        reuseExistingServer: false,
+        timeout: 60_000
+    } : undefined
 });

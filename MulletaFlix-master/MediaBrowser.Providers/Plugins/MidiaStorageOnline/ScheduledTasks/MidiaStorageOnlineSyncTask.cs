@@ -14,6 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 using MulletaFlix.Data.Enums;
 using MediaBrowser.Common.Configuration;
@@ -305,7 +306,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                 catch (Exception tunerEx)
                 {
                     Log($"Falha ao registrar sintonizador M3U: {tunerEx}");
-                    config.LastSyncError = $"Falha ao registrar sintonizador M3U: {tunerEx.Message}";
+                    config.LastSyncError = RemoteUrlLogRedactor.Redact($"Falha ao registrar sintonizador M3U: {tunerEx.Message}");
                     SaveConfig(config);
                 }
 
@@ -601,8 +602,9 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
             }
             catch (Exception ex)
             {
-                Log($"Erro: {ex}");
-                config.LastSyncError = ex.Message;
+                var safeError = RemoteUrlLogRedactor.Redact(ex.ToString());
+                Log($"Erro: {safeError}");
+                config.LastSyncError = RemoteUrlLogRedactor.Redact(ex.Message);
                 SaveConfig(config);
             }
         }
@@ -640,7 +642,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
 
         private void Log(string msg)
         {
-            _logger.LogInformation("{Msg}", msg);
+            _logger.LogInformation("{Msg}", RemoteUrlLogRedactor.Redact(msg));
         }
 
         private string GetStrmOutputPath(PluginConfiguration config)

@@ -1,4 +1,5 @@
 using MulletaFlix.Server.Extensions;
+using MulletaFlix.Server.Helpers;
 using Xunit;
 
 namespace Jellyfin.Server.Tests.Observability;
@@ -92,5 +93,33 @@ public class MetricsLabelRedactionTests
         var redacted = MetricsLabelRedactor.RedactPoolName("Password=[REDACTED] not-a-connection-string");
 
         Assert.DoesNotContain("[REDACTED]", redacted, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveStartupMutexNames_IsolatesCustomDatabasePortFromProductionMutex()
+    {
+        var prod = MariaDbProcessManager.ResolveStartupMutexNames(requireEmbeddedProcess: false, port: 3306);
+        var isolated = MariaDbProcessManager.ResolveStartupMutexNames(requireEmbeddedProcess: false, port: 33188);
+        var tests = MariaDbProcessManager.ResolveStartupMutexNames(requireEmbeddedProcess: true, port: 33188);
+
+        Assert.Equal(("Global\\MulletaFlix.EmbeddedMariaDb", "MulletaFlix.EmbeddedMariaDb"), prod);
+        Assert.Equal(("Global\\MulletaFlix.EmbeddedMariaDb.Port.33188", "MulletaFlix.EmbeddedMariaDb.Port.33188"), isolated);
+        Assert.Equal(("Global\\MulletaFlix.EmbeddedMariaDb.Tests", "MulletaFlix.EmbeddedMariaDb.Tests"), tests);
+    }
+
+    [Theory]
+    [InlineData("true", null, true)]
+    [InlineData("TRUE", "false", true)]
+    [InlineData(null, "true", true)]
+    [InlineData("false", "false", false)]
+    [InlineData(null, null, false)]
+    public void ShouldSkipForIsolatedTestEnvironment_SkipsNginxAndDuckDnsWhenE2eOrBootstrapDisabled(
+        string? e2eTestMode,
+        string? disableExternalBootstrap,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            SecureConnectionProcessManager.ShouldSkipForIsolatedTestEnvironment(e2eTestMode, disableExternalBootstrap));
     }
 }

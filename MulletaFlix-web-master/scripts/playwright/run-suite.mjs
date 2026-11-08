@@ -123,6 +123,16 @@ async function selectStageDatabasePort() {
     throw new Error('No isolated MariaDB port is available in the Playwright stage range 33100-33200.');
 }
 
+async function selectFixturePort() {
+    for (let candidate = 18197; candidate <= 18297; candidate++) {
+        if (await isPortAvailable(candidate)) {
+            return candidate;
+        }
+    }
+
+    throw new Error('No isolated Vite fixture port is available in the range 18197-18297.');
+}
+
 async function writeStageNetworkConfiguration(baseUrl) {
     const { port } = parseBaseUrl(baseUrl);
     const configDir = path.join(stageDataDir, 'config');
@@ -401,6 +411,9 @@ async function main() {
         return;
     }
 
+    const fixturePort = await selectFixturePort();
+    const fixtureBaseUrl = `http://127.0.0.1:${fixturePort}`;
+
     const env = {
         ...process.env,
         PW_BASE_URL: args.baseUrl,
@@ -415,7 +428,9 @@ async function main() {
         PW_STAGE_DATA_DIR: stageDataDir,
         PW_STAGE_PID_FILE: stagePidFile,
         PW_STAGE_DOTNET: dotnetExecutable,
-        PW_STAGE_DB_PORT: String(args.databasePort)
+        PW_STAGE_DB_PORT: String(args.databasePort),
+        PW_FIXTURE_BASE_URL: fixtureBaseUrl,
+        PW_FIXTURE_PORT: String(fixturePort)
     };
 
     const result = spawnSync(process.execPath, buildPlaywrightArgs(args), {

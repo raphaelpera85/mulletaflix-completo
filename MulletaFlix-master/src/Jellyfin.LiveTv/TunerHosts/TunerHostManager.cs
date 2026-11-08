@@ -171,7 +171,10 @@ public class TunerHostManager : ITunerHostManager
 
             if (configuredDevice is not null && !string.Equals(device.Url, configuredDevice.Url, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation("Tuner url has changed from {PreviousUrl} to {NewUrl}", configuredDevice.Url, device.Url);
+                _logger.LogInformation(
+                    "Tuner url has changed from {PreviousUrl} to {NewUrl}",
+                    LiveTvUrlRedactor.Redact(configuredDevice.Url),
+                    LiveTvUrlRedactor.Redact(device.Url));
 
                 configuredDevice.Url = device.Url;
                 await SaveTunerHost(configuredDevice).ConfigureAwait(false);
@@ -187,14 +190,14 @@ public class TunerHostManager : ITunerHostManager
 
             foreach (var device in discoveredDevices)
             {
-                _logger.LogInformation("Discovered tuner device {0} at {1}", host.Name, device.Url);
+                _logger.LogInformation("Discovered tuner device {0} at {1}", host.Name, LiveTvUrlRedactor.Redact(device.Url));
             }
 
             return discoveredDevices;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error discovering tuner devices");
+            _logger.LogError("Error discovering tuner devices: {Error}", LiveTvUrlRedactor.RedactText(ex.ToString()));
 
             return Array.Empty<TunerHostInfo>();
         }

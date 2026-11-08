@@ -37,6 +37,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     private static readonly Meter DownloadMeter = new(MeterName);
     private static readonly Counter<long> DownloadCounter = DownloadMeter.CreateCounter<long>("mulletaflix.nebula.downloads");
     private static readonly Histogram<double> DownloadDuration = DownloadMeter.CreateHistogram<double>("mulletaflix.nebula.download.duration", "s");
+    private static readonly Regex SensitiveUriUserInfoRegex = new(@"(://)[^/\s@?#]+@", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex SensitiveUriPathTokenRegex = new(@"(/bot)[^/?#\s]+", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex SensitiveUriQueryValueRegex = new(@"([?&;](?:user(?:name)?|pass(?:word|wd)?|token|access_token|refresh_token|api[_-]?key|client_secret|secret|auth(?:orization)?|key)=)[^&#;\s""'<>]*", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     internal static readonly HashSet<string> SupportedMediaExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -344,10 +347,20 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         OnLog?.Invoke($"[{ts}][INFO][STRM] {message}");
     }
 
+    internal static string RedactSensitiveData(string value)
+    {
+        // shortcut: recognizes standard URL credential fields; extend the names when providers introduce new credential parameters.
+        return SensitiveUriQueryValueRegex.Replace(
+            SensitiveUriPathTokenRegex.Replace(
+                SensitiveUriUserInfoRegex.Replace(value, "$1[REDACTED]@"),
+                "$1[REDACTED]"),
+            "$1[REDACTED]");
+    }
+
     private void LogError(string message)
     {
         var ts = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
-        OnLog?.Invoke($"[{ts}][ERROR][STRM] {message}");
+        OnLog?.Invoke($"[{ts}][ERROR][STRM] {RedactSensitiveData(message)}");
     }
 
     private void LogWarning(string message)
@@ -651,7 +664,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[NEBULA-DOWNLOADER] Erro no loop de escaneamento/download.");
+                _logger.LogError(
+                    "[NEBULA-DOWNLOADER] Erro no loop de escaneamento/download ({ExceptionType}): {Message}",
+                    ex.GetType().Name,
+                    RedactSensitiveData(ex.Message));
                 LogError(ex.Message);
                 lock (_queueProgressLock)
                 {
@@ -2430,10 +2446,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         public void RecordFailure(string filePath, string error)
         {
+            var safeError = RedactSensitiveData(error);
             _failures.AddOrUpdate(
                 filePath,
-                _ => (DateTime.UtcNow, 1, error),
-                (_, old) => (DateTime.UtcNow, old.Count + 1, error));
+                _ => (DateTime.UtcNow, 1, safeError),
+                (_, old) => (DateTime.UtcNow, old.Count + 1, safeError));
         }
 
         public void RecordSuccess(string filePath)

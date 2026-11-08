@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
+import { getFixtureBaseUrl } from '../support/stage.mjs';
 
 const expectAxeClean = async (page: import('@playwright/test').Page, width: number) => {
     await page.addScriptTag({ path: resolve('node_modules/axe-core/axe.min.js') });
@@ -20,12 +21,14 @@ const expectAxeClean = async (page: import('@playwright/test').Page, width: numb
 for (const width of [390, 1280]) {
     test(`backup coverage distinguishes destinations and failures at ${width}px`, async ({ page }, testInfo) => {
         await page.setViewportSize({ width, height: 800 });
+        const fixtureBaseUrl = getFixtureBaseUrl(String(test.info().project.use.baseURL));
         const modulePath = resolve('tests/playwright/fixtures/backupCoverage.tsx').replaceAll('\\', '/');
+        const moduleUrl = new URL(`/@fs/${modulePath}`, fixtureBaseUrl).toString();
         await page.route('**/__backup_coverage__**', route => route.fulfill({
             contentType: 'text/html',
-            body: `<html lang="pt-BR"><head><title>Cobertura dos backups</title></head><body style="background:#111;color:white;margin:16px"><div id="root"></div><script type="module" src="/@fs/${modulePath}"></script></body></html>`
+            body: `<html lang="pt-BR"><head><title>Cobertura dos backups</title></head><body style="background:#111;color:white;margin:16px"><div id="root"></div><script type="module" src="${moduleUrl}"></script></body></html>`
         }));
-        await page.goto('/__backup_coverage__');
+        await page.goto(new URL('/__backup_coverage__', fixtureBaseUrl).toString());
         const local = page.getByRole('region', { name: 'ZIP local do servidor' });
         const catalog = page.getByRole('region', { name: 'Catálogo Nebula no Supabase' });
         const users = page.getByRole('region', { name: 'Usuários do aplicativo no Supabase' });
@@ -44,7 +47,7 @@ for (const width of [390, 1280]) {
         await expectAxeClean(page, width);
 
         for (const state of [ 'loading', 'empty' ]) {
-            await page.goto(`/__backup_coverage__?state=${state}`);
+            await page.goto(new URL(`/__backup_coverage__?state=${state}`, fixtureBaseUrl).toString());
             if (state === 'loading') {
                 await expect(page.getByRole('status')).toContainText('Carregando destinos remotos');
             } else {

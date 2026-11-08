@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BitFaster.Caching.Lru;
@@ -2707,7 +2708,7 @@ namespace Emby.Server.Implementations.Library
         }
 
         /// <inheritdoc />
-        public async Task UpdateImagesAsync(BaseItem item, bool forceUpdate = false)
+        public async Task UpdateImagesAsync(BaseItem item, bool forceUpdate = false, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(item);
 
@@ -2723,13 +2724,14 @@ namespace Emby.Server.Implementations.Library
 
             foreach (var img in outdated)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var image = img;
                 if (!img.IsLocalFile)
                 {
                     try
                     {
                         var index = item.GetImageIndex(img);
-                        image = await ConvertImageToLocal(item, img, index, true).ConfigureAwait(false);
+                        image = await ConvertImageToLocal(item, img, index, true, cancellationToken).ConfigureAwait(false);
                     }
                     catch (ArgumentException)
                     {
@@ -2793,7 +2795,7 @@ namespace Emby.Server.Implementations.Library
 
             item.ValidateImages();
 
-            await _persistenceService.SaveImagesAsync(item).ConfigureAwait(false);
+            await _persistenceService.SaveImagesAsync(item, cancellationToken).ConfigureAwait(false);
 
             RegisterItem(item);
         }
@@ -2804,7 +2806,7 @@ namespace Emby.Server.Implementations.Library
             foreach (var item in items)
             {
                 item.DateLastSaved = DateTime.UtcNow;
-                await RunMetadataSavers(item, updateReason).ConfigureAwait(false);
+                await RunMetadataSavers(item, updateReason, cancellationToken).ConfigureAwait(false);
 
                 // Modify again, so saved value is after write time of externally saved metadata
                 item.DateLastSaved = DateTime.UtcNow;
@@ -2904,14 +2906,14 @@ namespace Emby.Server.Implementations.Library
             await _persistenceService.ReattachUserDataAsync(item, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task RunMetadataSavers(BaseItem item, ItemUpdateType updateReason)
+        public async Task RunMetadataSavers(BaseItem item, ItemUpdateType updateReason, CancellationToken cancellationToken = default)
         {
             if (item.IsFileProtocol)
             {
-                await ProviderManager.SaveMetadataAsync(item, updateReason).ConfigureAwait(false);
+                await ProviderManager.SaveMetadataAsync(item, updateReason, cancellationToken).ConfigureAwait(false);
             }
 
-            await UpdateImagesAsync(item, updateReason >= ItemUpdateType.ImageUpdate).ConfigureAwait(false);
+            await UpdateImagesAsync(item, updateReason >= ItemUpdateType.ImageUpdate, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -2991,11 +2993,24 @@ namespace Emby.Server.Implementations.Library
             return GetCollectionFoldersInternal(item, allUserRootChildren);
         }
 
-        private static List<Folder> GetCollectionFoldersInternal(BaseItem item, IEnumerable<Folder> allUserRootChildren)
+        private List<Folder> GetCollectionFoldersInternal(BaseItem item, IEnumerable<Folder> allUserRootChildren)
         {
             return allUserRootChildren
-                .Where(i => string.Equals(i.Path, item.Path, StringComparison.OrdinalIgnoreCase) || i.PhysicalLocations.Contains(item.Path.AsSpan(), StringComparison.OrdinalIgnoreCase))
+                .Where(i => string.Equals(i.Path, item.Path, StringComparison.OrdinalIgnoreCase)
+                    || i.PhysicalLocations.Any(path => ArePhysicalLocationsEqual(path, item.Path)))
                 .ToList();
+        }
+
+        private bool ArePhysicalLocationsEqual(string left, string right)
+        {
+            try
+            {
+                return _fileSystem.AreEqual(Path.GetFullPath(left), Path.GetFullPath(right));
+            }
+            catch (ArgumentException)
+            {
+                return _fileSystem.AreEqual(left, right);
+            }
         }
 
         public LibraryOptions GetLibraryOptions(BaseItem item)
@@ -3097,7 +3112,8 @@ namespace Emby.Server.Implementations.Library
 
             return GetUserRootFolder().Children
                 .OfType<ICollectionFolder>()
-                .Where(i => string.Equals(i.Path, item.Path, StringComparison.OrdinalIgnoreCase) || i.PhysicalLocations.Contains(item.Path))
+                .Where(i => string.Equals(i.Path, item.Path, StringComparison.OrdinalIgnoreCase)
+                    || i.PhysicalLocations.Any(path => ArePhysicalLocationsEqual(path, item.Path)))
                 .Select(i => i.CollectionType)
                 .FirstOrDefault(i => i is not null);
         }
@@ -3905,38 +3921,68 @@ namespace Emby.Server.Implementations.Library
             }
         }
 
-        public async Task<ItemImageInfo> ConvertImageToLocal(BaseItem item, ItemImageInfo image, int imageIndex, bool removeOnFailure)
+        public async Task<ItemImageInfo> ConvertImageToLocal(
+            BaseItem item,
+            ItemImageInfo image,
+            int imageIndex,
+            bool removeOnFailure,
+            CancellationToken cancellationToken = default)
         {
-            foreach (var url in image.Path.Split('|'))
+            Exception? lastTransientException = null;
+
+            foreach (var url in image.Path.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 try
                 {
                     _logger.LogDebug("ConvertImageToLocal item {0} - image url: {1}", item.Id, url);
+                    var providerName = image.ProviderName;
+                    var language = image.Language;
 
-                    await ProviderManager.SaveImage(item, url, image.Type, imageIndex, CancellationToken.None).ConfigureAwait(false);
+                    await ProviderManager.SaveImage(item, url, image.Type, imageIndex, cancellationToken).ConfigureAwait(false);
 
-                    await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
+                    var convertedImage = item.GetImageInfo(image.Type, imageIndex);
+                    if (convertedImage is not null)
+                    {
+                        convertedImage.ProviderName = providerName;
+                        convertedImage.Language = language;
+                    }
 
-                    return item.GetImageInfo(image.Type, imageIndex);
+                    await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, cancellationToken).ConfigureAwait(false);
+
+                    return convertedImage;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (HttpRequestException ex)
                 {
-                    if (ex.StatusCode.HasValue
-                        && (ex.StatusCode.Value == HttpStatusCode.NotFound || ex.StatusCode.Value == HttpStatusCode.Forbidden))
-                    {
-                        _logger.LogDebug(ex, "Error downloading library image.");
-                        continue;
-                    }
+                    _logger.LogDebug(ex, "Error downloading library image.");
 
-                    throw;
+                    if (!ex.StatusCode.HasValue
+                        || (ex.StatusCode.Value != HttpStatusCode.NotFound
+                            && ex.StatusCode.Value != HttpStatusCode.Forbidden
+                            && ex.StatusCode.Value != HttpStatusCode.Gone))
+                    {
+                        lastTransientException ??= ex;
+                    }
                 }
+                catch (InvalidDataException ex)
+                {
+                    _logger.LogDebug(ex, "Invalid library image payload from candidate URL.");
+                }
+            }
+
+            if (lastTransientException is not null)
+            {
+                ExceptionDispatchInfo.Capture(lastTransientException).Throw();
             }
 
             if (removeOnFailure)
             {
                 // Remove this image to prevent it from retrying over and over
                 item.RemoveImage(image);
-                await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
+                await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, cancellationToken).ConfigureAwait(false);
             }
 
             throw new InvalidOperationException("Unable to convert any images to local");
@@ -4173,7 +4219,7 @@ namespace Emby.Server.Implementations.Library
                         CreateItems([personEntity], null, CancellationToken.None);
                     }
 
-                    await RunMetadataSavers(personEntity, itemUpdateType).ConfigureAwait(false);
+                    await RunMetadataSavers(personEntity, itemUpdateType, cancellationToken).ConfigureAwait(false);
                     personEntity.DateLastSaved = DateTime.UtcNow;
 
                     CreateItems([personEntity], null, CancellationToken.None);

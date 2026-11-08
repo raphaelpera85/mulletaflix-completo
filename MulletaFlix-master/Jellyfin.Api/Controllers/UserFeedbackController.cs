@@ -155,6 +155,7 @@ public class UserFeedbackController : BaseMulletaFlixApiController
     /// <summary>Creates a request for a title to be added to the server library.</summary>
     [HttpPost("MediaRequests")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateMediaRequest([FromBody] MediaRequestDto request)
     {
         if (!TryGetCallerUserId(out var userId))
@@ -162,11 +163,26 @@ public class UserFeedbackController : BaseMulletaFlixApiController
             return Unauthorized();
         }
 
+        if (request is null)
+        {
+            return BadRequest("Media request is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            return BadRequest("Title is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.MediaType))
+        {
+            return BadRequest("Media type is required.");
+        }
+
         var title = request.Title.Trim();
         var mediaType = request.MediaType.Trim();
         if (title.Length == 0 || mediaType.Length == 0)
         {
-            return BadRequest();
+            return BadRequest("Title and media type are required.");
         }
 
         var details = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
@@ -192,12 +208,28 @@ public class UserFeedbackController : BaseMulletaFlixApiController
     /// <summary>Creates a report about playback or data for an accessible library item.</summary>
     [HttpPost("PlaybackIssues")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CreatePlaybackIssue([FromBody] PlaybackIssueDto request)
     {
         if (!TryGetCallerUserId(out var userId))
         {
             return Unauthorized();
+        }
+
+        if (request is null)
+        {
+            return BadRequest("Playback issue request is required.");
+        }
+
+        if (request.ItemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Category))
+        {
+            return BadRequest("Category is required.");
         }
 
         var item = _libraryManager.GetItemById<MediaBrowser.Controller.Entities.BaseItem>(request.ItemId, userId);
@@ -209,7 +241,7 @@ public class UserFeedbackController : BaseMulletaFlixApiController
         var category = request.Category.Trim();
         if (category.Length == 0)
         {
-            return BadRequest();
+            return BadRequest("Category is required.");
         }
 
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();

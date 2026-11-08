@@ -38,6 +38,11 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
+    androidTestImplementation(project(":data"))
+    androidTestImplementation(libs.mockwebserver)
+    androidTestImplementation(libs.moshi.kotlin)
+    androidTestImplementation(libs.retrofit)
+    androidTestImplementation(libs.retrofit.moshi)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
 

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string] $RoadmapPath = (Join-Path $PSScriptRoot '..\docs\roadmap-evolucao-tecnologica-servidor-e-web.md'),
     [string] $StatusPath = (Join-Path $PSScriptRoot '..\portal-site\homologacao-status.json')
@@ -102,7 +102,7 @@ $status.coverage.completed = $completed
 $status.coverage.pending = $pending
 $status.coverage | Add-Member -NotePropertyName inProgress -NotePropertyValue $inProgress -Force
 $status.coverage.total = $features.Count
-$status.coverage.definition = 'Checklists de funcionalidades do roadmap (cada checkbox conta como um item); tarefas com evento ativo identificado aparecem como em execução.'
+$status.coverage.definition = 'Checklists de implementação do roadmap (cada checkbox conta como um item e não equivale à homologação formal); tarefas com evento ativo identificado aparecem como em execução.'
 $status.features = @($features)
 $status.generatedAt = [DateTimeOffset]::Now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", [Globalization.CultureInfo]::InvariantCulture)
 

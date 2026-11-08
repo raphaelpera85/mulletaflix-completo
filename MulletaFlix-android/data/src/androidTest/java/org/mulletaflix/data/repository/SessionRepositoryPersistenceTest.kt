@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -94,6 +95,58 @@ class SessionRepositoryPersistenceTest {
         assertNull(restored.getFeedbackRequestSession().first())
         assertEquals("https://media.example.test", restored.getBaseUrl().first())
         assertEquals("device-2", restored.getDeviceId().first())
+    }
+
+    @Test
+    fun logoutReturnsFailureWhenRealSessionDataStoreCannotWrite() = runBlocking {
+        val isolatedPath = File(targetContext.cacheDir, "logout-storage-${UUID.randomUUID()}")
+        val blockedFilesDir = File(isolatedPath, "files")
+        isolatedPath.mkdirs()
+        blockedFilesDir.mkdirs()
+        val failingContext = object : ContextWrapper(targetContext) {
+            override fun getApplicationContext(): Context = this
+            override fun getFilesDir(): File = blockedFilesDir
+        }
+        val sessionRepository = SessionRepositoryImpl(failingContext)
+        val dataStoreDirectory = File(blockedFilesDir, "datastore")
+        val server = MockWebServer()
+        server.start()
+
+        try {
+            sessionRepository.saveSession(
+                serverUrl = "https://media.example.test",
+                token = "synthetic-logout-token",
+                userId = "user-test",
+                userName = "Conta de teste",
+                serverId = "server-test",
+                deviceId = "device-test",
+            )
+            assertTrue("session DataStore must be created in the isolated context", dataStoreDirectory.isDirectory)
+            assertTrue("test must remove write access from the DataStore directory", dataStoreDirectory.setWritable(false, false))
+            assertFalse("DataStore directory must be unwritable before logout", dataStoreDirectory.canWrite())
+
+            val api = Retrofit.Builder()
+                .baseUrl(server.url("/"))
+                .addConverterFactory(MoshiConverterFactory.create(Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()))
+                .build()
+                .create(MulletaFlixApiService::class.java)
+            val authRepository = AuthRepositoryImpl(api, sessionRepository)
+
+            val result = authRepository.logout()
+            val failure = result.exceptionOrNull()
+
+            assertFalse("logout must not succeed when DataStore cannot persist", result.isSuccess)
+            assertNotNull("failure must preserve the filesystem cause", failure)
+            assertTrue(
+                "failure must originate from the unwritable DataStore path",
+                generateSequence(failure) { it.cause }.any { it is IOException },
+            )
+            assertEquals("logout must not call the media server", 0, server.requestCount)
+        } finally {
+            dataStoreDirectory.setWritable(true, true)
+            server.shutdown()
+            isolatedPath.deleteRecursively()
+        }
     }
 
     @Test

@@ -362,11 +362,19 @@ public sealed class RecordingsManager : IRecordingsManager, IDisposable
                     timer.Status = RecordingStatus.InProgress;
                     _timerManager.AddOrUpdate(timer, false);
 
-                    await _recordingsMetadataManager.SaveRecordingMetadata(timer, recordingPath, seriesPath).ConfigureAwait(false);
+                    await _recordingsMetadataManager.SaveRecordingMetadata(
+                        timer,
+                        recordingPath,
+                        seriesPath,
+                        recordingInfo.CancellationTokenSource.Token).ConfigureAwait(false);
                     await CreateRecordingFolders().ConfigureAwait(false);
 
                     TriggerRefresh(recordingPath);
                     await EnforceKeepUpTo(timer, seriesPath).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (recordingInfo.CancellationTokenSource.IsCancellationRequested)
+                {
+                    _logger.LogDebug("Recording metadata initialization canceled for {RecordPath}", recordingPath);
                 }
                 catch (Exception ex)
                 {

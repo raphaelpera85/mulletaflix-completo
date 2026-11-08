@@ -23,6 +23,7 @@ Priority Order:
 import sys
 import subprocess
 import argparse
+import json
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -88,6 +89,9 @@ def run_script(name: str, script_path: Path, project_path: str, url: Optional[st
     
     # Build command
     cmd = [sys.executable, str(script_path), project_path]
+    is_security_scan = script_path.name == "security_scan.py"
+    if is_security_scan:
+        cmd.extend(["--output", "json"])
     if url and ("lighthouse" in script_path.name.lower() or "playwright" in script_path.name.lower()):
         cmd.append(url)
     
@@ -101,6 +105,13 @@ def run_script(name: str, script_path: Path, project_path: str, url: Optional[st
         )
         
         passed = result.returncode == 0
+        if passed and is_security_scan:
+            try:
+                scan_result = json.loads(result.stdout)
+                total_findings = scan_result["summary"]["total_findings"]
+                passed = total_findings == 0
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                passed = False
         
         if passed:
             print_success(f"{name}: PASSED")

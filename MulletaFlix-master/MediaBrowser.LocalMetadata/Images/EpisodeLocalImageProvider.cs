@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -42,7 +42,7 @@ namespace MediaBrowser.LocalMetadata.Images
 
             var images = GetImageFilesFromFolder(nameWithoutExtension, parentPathFiles);
 
-            var metadataSubDir = directoryService.GetDirectories(parentPath).FirstOrDefault(d => d.Name.Equals("metadata", StringComparison.Ordinal));
+            var metadataSubDir = directoryService.GetDirectories(parentPath).FirstOrDefault(d => d.Name.Equals("metadata", StringComparison.OrdinalIgnoreCase));
             if (metadataSubDir is not null)
             {
                 var files = directoryService.GetFiles(metadataSubDir.FullName);

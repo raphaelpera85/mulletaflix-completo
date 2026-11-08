@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.IO;
@@ -85,7 +85,7 @@ public class RemoteImageController : BaseMulletaFlixApiController
                     IncludeDisabledProviders = true,
                     ImageType = type
                 },
-                CancellationToken.None)
+                HttpContext.RequestAborted)
             .ConfigureAwait(false);
 
         var imageArray = images.ToArray();
@@ -151,22 +151,57 @@ public class RemoteImageController : BaseMulletaFlixApiController
     [HttpPost("Items/{itemId}/RemoteImages/Download")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DownloadRemoteImage(
         [FromRoute, Required] Guid itemId,
         [FromQuery, Required] ImageType type,
         [FromQuery] string? imageUrl)
     {
+        if (string.IsNullOrWhiteSpace(imageUrl))
+        {
+            return BadRequest("Image URL is required.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
             return NotFound();
         }
 
-        await _providerManager.SaveImage(item, imageUrl, type, null, CancellationToken.None)
+        RemoteImageInfo? selectedRemoteImage = null;
+        if (!string.IsNullOrWhiteSpace(imageUrl))
+        {
+            selectedRemoteImage = (await _providerManager.GetAvailableRemoteImages(
+                    item,
+                    new RemoteImageQuery(string.Empty)
+                    {
+                        ImageType = type,
+                        IncludeAllLanguages = true,
+                        IncludeDisabledProviders = true
+                    },
+                    HttpContext.RequestAborted)
+                .ConfigureAwait(false))
+                .FirstOrDefault(image => string.Equals(image.Url, imageUrl, StringComparison.Ordinal));
+        }
+
+        await _providerManager.SaveImage(item, imageUrl, type, null, HttpContext.RequestAborted)
             .ConfigureAwait(false);
 
-        await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
+        if (selectedRemoteImage is not null)
+        {
+            var savedImageIndex = item.AllowsMultipleImages(type)
+                ? item.GetImages(type).Count() - 1
+                : 0;
+            var savedImage = item.GetImageInfo(type, savedImageIndex);
+            if (savedImage is not null)
+            {
+                savedImage.ProviderName = selectedRemoteImage.ProviderName;
+                savedImage.Language = selectedRemoteImage.Language;
+            }
+        }
+
+        await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, HttpContext.RequestAborted).ConfigureAwait(false);
         return NoContent();
     }
 

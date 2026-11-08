@@ -42,7 +42,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
 
             var apiKey = Plugin.Instance.Configuration.TmdbApiKey;
             apiKey = string.IsNullOrEmpty(apiKey) ? TmdbUtils.ApiKey : apiKey;
-            _tmDbClient = new TMDbClient(apiKey);
+            _tmDbClient = new TMDbClient(apiKey, true, "api.themoviedb.org", TolerantTmdbJsonSerializer.Instance, null);
 
             // Not really interested in NotFoundException
             _tmDbClient.ThrowApiExceptions = false;
@@ -314,8 +314,13 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <param name="countryCode">The country code, ISO 3166-1.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>The TMDb tv show episode group information or null if not found.</returns>
-        private async Task<TvGroupCollection?> GetSeriesGroupAsync(int tvShowId, string displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
+        private async Task<TvGroupCollection?> GetSeriesGroupAsync(int tvShowId, string? displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
+            if (string.IsNullOrEmpty(displayOrder))
+            {
+                return null;
+            }
+
             TvGroupType? groupType =
                 string.Equals(displayOrder, "originalAirDate", StringComparison.Ordinal) ? TvGroupType.OriginalAirDate :
                 string.Equals(displayOrder, "absolute", StringComparison.Ordinal) ? TvGroupType.Absolute :
@@ -410,9 +415,9 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <param name="countryCode">The country code, ISO 3166-1.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>The TMDb tv episode information or null if not found.</returns>
-        public async Task<TvEpisode?> GetEpisodeAsync(int tvShowId, int seasonNumber, long episodeNumber, string displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
+        public async Task<TvEpisode?> GetEpisodeAsync(int tvShowId, int seasonNumber, long episodeNumber, string? displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = BuildCacheKey("episode", tvShowId.ToString(CultureInfo.InvariantCulture), seasonNumber.ToString(CultureInfo.InvariantCulture), episodeNumber.ToString(CultureInfo.InvariantCulture), displayOrder, language, imageLanguages, countryCode);
+            var key = BuildCacheKey("episode", tvShowId.ToString(CultureInfo.InvariantCulture), seasonNumber.ToString(CultureInfo.InvariantCulture), episodeNumber.ToString(CultureInfo.InvariantCulture), displayOrder ?? string.Empty, language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvEpisode? episode))
             {
                 return episode;
@@ -454,7 +459,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <summary>
         /// Gets an episode with artwork in the preferred language, its original language, English, and all other supported languages.
         /// </summary>
-        public async Task<TvEpisode?> GetEpisodeImagesAsync(int tvShowId, int seasonNumber, long episodeNumber, string displayOrder, string preferredLanguage, string? countryCode, CancellationToken cancellationToken)
+        public async Task<TvEpisode?> GetEpisodeImagesAsync(int tvShowId, int seasonNumber, long episodeNumber, string? displayOrder, string preferredLanguage, string? countryCode, CancellationToken cancellationToken)
         {
             var imageLanguages = TmdbUtils.GetImageLanguagesParam(preferredLanguage, countryCode);
             return await GetEpisodeAsync(tvShowId, seasonNumber, episodeNumber, displayOrder, preferredLanguage, imageLanguages, countryCode, cancellationToken).ConfigureAwait(false);

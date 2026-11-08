@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -15,8 +15,10 @@ using MediaBrowser.Controller.IO;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Providers;
 using MediaBrowser.Providers.Manager;
 using MediaBrowser.Providers.Movies;
 using Microsoft.Extensions.Logging;
@@ -392,6 +394,410 @@ namespace MulletaFlix.Providers.Tests.Manager
             Assert.Equal(0, refreshResult.Failures);
             providerManager.Verify(manager => manager.SaveImage(item, "local-unavailable", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Once);
             providerManager.Verify(manager => manager.SaveImage(item, "local-fallback", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task RefreshWithProviders_LocalMultipleBackdrops_SavesEveryBackdropWhenSaveImageMutatesItemImages()
+        {
+            var item = new Movie();
+            var localResult = new MetadataResult<Movie>
+            {
+                HasMetadata = true,
+                Item = new Movie { Name = "Local metadata" }
+            };
+            localResult.RemoteImages.Add(("local-backdrop-1", ImageType.Backdrop));
+            localResult.RemoteImages.Add(("local-backdrop-2", ImageType.Backdrop));
+
+            var localProvider = new Mock<ILocalMetadataProvider<Movie>>(MockBehavior.Strict);
+            localProvider.SetupGet(provider => provider.Name).Returns("LocalProvider");
+            localProvider.Setup(provider => provider.GetMetadata(It.IsAny<ItemInfo>(), It.IsAny<IDirectoryService>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(localResult);
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.SaveImage(item, "local-backdrop-1", ImageType.Backdrop, null, It.IsAny<CancellationToken>()))
+                .Callback<BaseItem, string, ImageType, int?, CancellationToken>((savedItem, url, type, _, _) =>
+                    savedItem.SetImage(new ItemImageInfo { Path = url, Type = type }, savedItem.GetImages(type).Count()))
+                .Returns(Task.CompletedTask);
+            providerManager.Setup(manager => manager.SaveImage(item, "local-backdrop-2", ImageType.Backdrop, null, It.IsAny<CancellationToken>()))
+                .Callback<BaseItem, string, ImageType, int?, CancellationToken>((savedItem, url, type, _, _) =>
+                    savedItem.SetImage(new ItemImageInfo { Path = url, Type = type }, savedItem.GetImages(type).Count()))
+                .Returns(Task.CompletedTask);
+
+            var service = new TestableMovieMetadataService(providerManager.Object);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>());
+            var refreshResult = await service.Refresh(item, options, localProvider.Object);
+
+            Assert.Equal(0, refreshResult.Failures);
+            Assert.Equal(2, item.GetImages(ImageType.Backdrop).Count());
+            providerManager.Verify(manager => manager.SaveImage(item, "local-backdrop-1", ImageType.Backdrop, null, It.IsAny<CancellationToken>()), Times.Once);
+            providerManager.Verify(manager => manager.SaveImage(item, "local-backdrop-2", ImageType.Backdrop, null, It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task RefreshWithProviders_LocalFileImageTakesPrecedenceOverLocalRemoteImageUrl()
+        {
+            var previousFileSystem = BaseItem.FileSystem;
+            BaseItem.FileSystem = Mock.Of<IFileSystem>();
+            try
+            {
+                var item = new Movie();
+                var localResult = new MetadataResult<Movie>
+                {
+                    HasMetadata = true,
+                    Item = new Movie { Name = "Local metadata" }
+                };
+                localResult.Images.Add(new LocalImageInfo
+                {
+                    Type = ImageType.Primary,
+                    FileInfo = new FileSystemMetadata { FullName = "C:\\Media\\Movies\\Sample\\poster.jpg" }
+                });
+                localResult.RemoteImages.Add(("https://images.example/remote-poster.jpg", ImageType.Primary));
+
+                var localProvider = new Mock<ILocalMetadataProvider<Movie>>(MockBehavior.Strict);
+                localProvider.SetupGet(provider => provider.Name).Returns("LocalProvider");
+                localProvider.Setup(provider => provider.GetMetadata(It.IsAny<ItemInfo>(), It.IsAny<IDirectoryService>(), It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(localResult);
+
+                var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+                var service = new TestableMovieMetadataService(providerManager.Object);
+                var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>());
+                var refreshResult = await service.Refresh(item, options, localProvider.Object);
+
+                Assert.Equal(0, refreshResult.Failures);
+                Assert.Equal("C:\\Media\\Movies\\Sample\\poster.jpg", item.GetImagePath(ImageType.Primary, 0));
+                providerManager.Verify(
+                    manager => manager.SaveImage(item, It.IsAny<string>(), ImageType.Primary, null, It.IsAny<CancellationToken>()),
+                    Times.Never);
+            }
+            finally
+            {
+                BaseItem.FileSystem = previousFileSystem;
+            }
+        }
+
+        [Fact]
+        public async Task RefreshWithProviders_IdentifySearchProvider_PrioritizesSelectedProvider()
+        {
+            var item = new Movie();
+            var selectedProvider = new Mock<IRemoteMetadataProvider<Movie, MovieInfo>>(MockBehavior.Strict);
+            selectedProvider.SetupGet(provider => provider.Name).Returns("SelectedProvider");
+            selectedProvider.Setup(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new MetadataResult<Movie>
+                {
+                    HasMetadata = true,
+                    Item = new Movie { Overview = "Selected metadata" }
+                });
+
+            var otherProvider = new Mock<IRemoteMetadataProvider<Movie, MovieInfo>>(MockBehavior.Strict);
+            otherProvider.SetupGet(provider => provider.Name).Returns("OtherProvider");
+            otherProvider.Setup(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new MetadataResult<Movie>
+                {
+                    HasMetadata = true,
+                    Item = new Movie { Overview = "Other metadata" }
+                });
+
+            var service = new TestableMovieMetadataService(Mock.Of<IProviderManager>());
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                SearchResult = new RemoteSearchResult { SearchProviderName = "SelectedProvider" }
+            };
+            var lookupInfo = new MovieInfo();
+            lookupInfo.SetProviderId("SelectedProvider", "selected-id");
+
+            await service.RefreshRemote(item, lookupInfo, options, selectedProvider.Object, otherProvider.Object);
+
+            selectedProvider.Verify(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()), Times.Once);
+            otherProvider.Verify(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()), Times.Once);
+            Assert.Equal("Selected metadata", item.Overview);
+        }
+
+        [Fact]
+        public async Task RefreshWithProviders_IdentifySelectedProviderWithoutMetadata_FallsBackToOtherProvider()
+        {
+            var item = new Movie();
+            var selectedProvider = new Mock<IRemoteMetadataProvider<Movie, MovieInfo>>(MockBehavior.Strict);
+            selectedProvider.SetupGet(provider => provider.Name).Returns("SelectedProvider");
+            selectedProvider.Setup(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new MetadataResult<Movie>());
+
+            var otherProvider = new Mock<IRemoteMetadataProvider<Movie, MovieInfo>>(MockBehavior.Strict);
+            otherProvider.SetupGet(provider => provider.Name).Returns("OtherProvider");
+            otherProvider.Setup(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new MetadataResult<Movie>
+                {
+                    HasMetadata = true,
+                    Item = new Movie { Overview = "Fallback metadata" }
+                });
+
+            var service = new TestableMovieMetadataService(Mock.Of<IProviderManager>());
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                SearchResult = new RemoteSearchResult { SearchProviderName = "SelectedProvider" }
+            };
+            var lookupInfo = new MovieInfo();
+            lookupInfo.SetProviderId("SelectedProvider", "selected-id");
+
+            await service.RefreshRemote(item, lookupInfo, options, selectedProvider.Object, otherProvider.Object);
+
+            selectedProvider.Verify(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()), Times.Once);
+            otherProvider.Verify(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()), Times.Once);
+            Assert.Equal("Fallback metadata", item.Overview);
+        }
+
+        [Fact]
+        public async Task RefreshWithProviders_PrefersPreferredLanguageOverEarlierFallback()
+        {
+            var item = new Movie();
+            var englishProvider = new Mock<IRemoteMetadataProvider<Movie, MovieInfo>>(MockBehavior.Strict);
+            englishProvider.SetupGet(provider => provider.Name).Returns("EnglishProvider");
+            englishProvider.Setup(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new MetadataResult<Movie>
+                {
+                    HasMetadata = true,
+                    ResultLanguage = "en",
+                    Item = new Movie { Overview = "English overview", Tagline = "English tagline" }
+                });
+
+            var portugueseProvider = new Mock<IRemoteMetadataProvider<Movie, MovieInfo>>(MockBehavior.Strict);
+            portugueseProvider.SetupGet(provider => provider.Name).Returns("PortugueseProvider");
+            portugueseProvider.Setup(provider => provider.GetMetadata(It.IsAny<MovieInfo>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new MetadataResult<Movie>
+                {
+                    HasMetadata = true,
+                    ResultLanguage = "pt-BR",
+                    Item = new Movie { Overview = "Portuguese overview", Tagline = "Portuguese tagline" }
+                });
+
+            var service = new TestableMovieMetadataService(Mock.Of<IProviderManager>());
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>());
+            var refreshResult = await service.RefreshRemote(
+                item,
+                new MovieInfo { MetadataLanguage = "pt-BR" },
+                options,
+                englishProvider.Object,
+                portugueseProvider.Object);
+
+            Assert.Equal(0, refreshResult.Failures);
+            Assert.Equal("Portuguese overview", item.Overview);
+            Assert.Equal("Portuguese tagline", item.Tagline);
+        }
+
+        [Fact]
+        public async Task RefreshMetadata_ValidationOnly_DoesNotAdvanceDateLastRefreshed()
+        {
+            var lastRefreshed = DateTime.UtcNow.AddDays(-1);
+            var item = new Movie { DateLastRefreshed = lastRefreshed };
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetImageProviders(item, It.IsAny<MetadataRefreshOptions>()))
+                .Returns(Array.Empty<IImageProvider>());
+            providerManager.Setup(manager => manager.GetMetadataProviders<Movie>(item, It.IsAny<LibraryOptions>()))
+                .Returns(Array.Empty<IMetadataProvider<Movie>>());
+
+            var libraryManager = new Mock<ILibraryManager>(MockBehavior.Strict);
+            libraryManager.Setup(manager => manager.GetLibraryOptions(item)).Returns(new LibraryOptions());
+            libraryManager.Setup(manager => manager.GetLocalAlternateVersionIds(item)).Returns(Array.Empty<Guid>());
+            libraryManager.Setup(manager => manager.UpdateItemAsync(item, null, It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var itemRepository = new Mock<IItemRepository>(MockBehavior.Strict);
+            itemRepository.Setup(repository => repository.ItemExistsAsync(item.Id)).ReturnsAsync(true);
+
+            var service = new MovieMetadataService(
+                Mock.Of<IServerConfigurationManager>(),
+                Mock.Of<ILogger<MovieMetadataService>>(),
+                providerManager.Object,
+                Mock.Of<IFileSystem>(),
+                libraryManager.Object,
+                Mock.Of<IExternalDataManager>(),
+                itemRepository.Object);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                MetadataRefreshMode = MetadataRefreshMode.ValidationOnly,
+                ImageRefreshMode = MetadataRefreshMode.ValidationOnly
+            };
+
+            var previousRecordingsManager = Video.RecordingsManager;
+            var previousLibraryManager = BaseItem.LibraryManager;
+            Video.RecordingsManager = Mock.Of<MediaBrowser.Controller.LiveTv.IRecordingsManager>();
+            BaseItem.LibraryManager = libraryManager.Object;
+            try
+            {
+                await service.RefreshMetadata(item, options, CancellationToken.None);
+            }
+            finally
+            {
+                Video.RecordingsManager = previousRecordingsManager;
+                BaseItem.LibraryManager = previousLibraryManager;
+            }
+
+            Assert.Equal(lastRefreshed, item.DateLastRefreshed);
+        }
+
+        [Fact]
+        public async Task RefreshMetadata_NoRefresh_DoesNotAdvanceDateLastRefreshed()
+        {
+            var lastRefreshed = DateTime.UtcNow.AddDays(-1);
+            var item = new Movie { DateLastRefreshed = lastRefreshed };
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetImageProviders(item, It.IsAny<MetadataRefreshOptions>()))
+                .Returns(Array.Empty<IImageProvider>());
+            providerManager.Setup(manager => manager.GetMetadataProviders<Movie>(item, It.IsAny<LibraryOptions>()))
+                .Returns(Array.Empty<IMetadataProvider<Movie>>());
+
+            var libraryManager = new Mock<ILibraryManager>(MockBehavior.Strict);
+            libraryManager.Setup(manager => manager.GetLibraryOptions(item)).Returns(new LibraryOptions());
+            libraryManager.Setup(manager => manager.GetLocalAlternateVersionIds(item)).Returns(Array.Empty<Guid>());
+            libraryManager.Setup(manager => manager.UpdateItemAsync(item, null, It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var itemRepository = new Mock<IItemRepository>(MockBehavior.Strict);
+            itemRepository.Setup(repository => repository.ItemExistsAsync(item.Id)).ReturnsAsync(true);
+
+            var service = new MovieMetadataService(
+                Mock.Of<IServerConfigurationManager>(),
+                Mock.Of<ILogger<MovieMetadataService>>(),
+                providerManager.Object,
+                Mock.Of<IFileSystem>(),
+                libraryManager.Object,
+                Mock.Of<IExternalDataManager>(),
+                itemRepository.Object);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                MetadataRefreshMode = MetadataRefreshMode.None,
+                ImageRefreshMode = MetadataRefreshMode.None
+            };
+
+            var previousRecordingsManager = Video.RecordingsManager;
+            var previousLibraryManager = BaseItem.LibraryManager;
+            Video.RecordingsManager = Mock.Of<MediaBrowser.Controller.LiveTv.IRecordingsManager>();
+            BaseItem.LibraryManager = libraryManager.Object;
+            try
+            {
+                await service.RefreshMetadata(item, options, CancellationToken.None);
+            }
+            finally
+            {
+                Video.RecordingsManager = previousRecordingsManager;
+                BaseItem.LibraryManager = previousLibraryManager;
+            }
+
+            Assert.Equal(lastRefreshed, item.DateLastRefreshed);
+        }
+
+        [Fact]
+        public async Task RefreshMetadata_FullRefresh_PersistsRefreshStampWhenNoProviders()
+        {
+            var lastRefreshed = DateTime.UtcNow.AddDays(-1);
+            var item = new Movie { DateLastRefreshed = lastRefreshed };
+            item.PresentationUniqueKey = item.CreatePresentationUniqueKey();
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetImageProviders(item, It.IsAny<MetadataRefreshOptions>()))
+                .Returns(Array.Empty<IImageProvider>());
+            providerManager.Setup(manager => manager.GetMetadataProviders<Movie>(item, It.IsAny<LibraryOptions>()))
+                .Returns(Array.Empty<IMetadataProvider<Movie>>());
+
+            var libraryManager = new Mock<ILibraryManager>(MockBehavior.Strict);
+            libraryManager.Setup(manager => manager.GetLibraryOptions(item)).Returns(new LibraryOptions());
+            libraryManager.Setup(manager => manager.GetLocalAlternateVersionIds(item)).Returns(Array.Empty<Guid>());
+            libraryManager.Setup(manager => manager.UpdateItemAsync(item, null, It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var itemRepository = new Mock<IItemRepository>(MockBehavior.Strict);
+            itemRepository.Setup(repository => repository.ItemExistsAsync(item.Id)).ReturnsAsync(true);
+
+            var service = new MovieMetadataService(
+                Mock.Of<IServerConfigurationManager>(),
+                Mock.Of<ILogger<MovieMetadataService>>(),
+                providerManager.Object,
+                Mock.Of<IFileSystem>(),
+                libraryManager.Object,
+                Mock.Of<IExternalDataManager>(),
+                itemRepository.Object);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
+                ImageRefreshMode = MetadataRefreshMode.FullRefresh
+            };
+
+            var previousRecordingsManager = Video.RecordingsManager;
+            var previousLibraryManager = BaseItem.LibraryManager;
+            Video.RecordingsManager = Mock.Of<MediaBrowser.Controller.LiveTv.IRecordingsManager>();
+            BaseItem.LibraryManager = libraryManager.Object;
+            try
+            {
+                await service.RefreshMetadata(item, options, CancellationToken.None);
+            }
+            finally
+            {
+                Video.RecordingsManager = previousRecordingsManager;
+                BaseItem.LibraryManager = previousLibraryManager;
+            }
+
+            Assert.True(item.DateLastRefreshed > lastRefreshed);
+            libraryManager.Verify(
+                manager => manager.UpdateItemAsync(item, null, It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>()),
+                Times.Once);
+        }
+
+        [Fact]
+        public async Task RefreshMetadata_LocalImageValidationFailure_DoesNotAdvanceDateLastRefreshed()
+        {
+            var lastRefreshed = DateTime.UtcNow.AddDays(-1);
+            var item = new Movie { DateLastRefreshed = lastRefreshed };
+
+            var localImageProvider = new Mock<ILocalImageProvider>(MockBehavior.Strict);
+            localImageProvider.SetupGet(provider => provider.Name).Returns("FailingLocalImages");
+            localImageProvider.Setup(provider => provider.GetImages(item, It.IsAny<IDirectoryService>()))
+                .Throws(new IOException("Local image scan failed."));
+
+            var providerManager = new Mock<IProviderManager>(MockBehavior.Strict);
+            providerManager.Setup(manager => manager.GetImageProviders(item, It.IsAny<MetadataRefreshOptions>()))
+                .Returns(new[] { localImageProvider.Object });
+            providerManager.Setup(manager => manager.GetMetadataProviders<Movie>(item, It.IsAny<LibraryOptions>()))
+                .Returns(Array.Empty<IMetadataProvider<Movie>>());
+
+            var libraryManager = new Mock<ILibraryManager>(MockBehavior.Strict);
+            libraryManager.Setup(manager => manager.GetLibraryOptions(item)).Returns(new LibraryOptions());
+            libraryManager.Setup(manager => manager.GetLocalAlternateVersionIds(item)).Returns(Array.Empty<Guid>());
+            libraryManager.Setup(manager => manager.UpdateItemAsync(item, null, It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            var itemRepository = new Mock<IItemRepository>(MockBehavior.Strict);
+            itemRepository.Setup(repository => repository.ItemExistsAsync(item.Id)).ReturnsAsync(true);
+
+            var service = new MovieMetadataService(
+                Mock.Of<IServerConfigurationManager>(),
+                Mock.Of<ILogger<MovieMetadataService>>(),
+                providerManager.Object,
+                Mock.Of<IFileSystem>(),
+                libraryManager.Object,
+                Mock.Of<IExternalDataManager>(),
+                itemRepository.Object);
+            var options = new MetadataRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                MetadataRefreshMode = MetadataRefreshMode.None,
+                ImageRefreshMode = MetadataRefreshMode.FullRefresh
+            };
+
+            var previousRecordingsManager = Video.RecordingsManager;
+            var previousLibraryManager = BaseItem.LibraryManager;
+            Video.RecordingsManager = Mock.Of<MediaBrowser.Controller.LiveTv.IRecordingsManager>();
+            BaseItem.LibraryManager = libraryManager.Object;
+            try
+            {
+                await service.RefreshMetadata(item, options, CancellationToken.None);
+            }
+            finally
+            {
+                Video.RecordingsManager = previousRecordingsManager;
+                BaseItem.LibraryManager = previousLibraryManager;
+            }
+
+            Assert.Equal(lastRefreshed, item.DateLastRefreshed);
         }
 
         private static MovieMetadataService CreateMovieMetadataService(IProviderManager providerManager)
@@ -793,6 +1199,22 @@ namespace MulletaFlix.Providers.Tests.Manager
             public Task<RefreshResult> Refresh(Movie item, MetadataRefreshOptions options, IMetadataProvider provider)
             {
                 return RefreshWithProviders(new MetadataResult<Movie> { Item = item }, null!, options, new[] { provider }, ImageProvider, false, CancellationToken.None);
+            }
+
+            public Task<RefreshResult> RefreshRemote(
+                Movie item,
+                MovieInfo lookupInfo,
+                MetadataRefreshOptions options,
+                params IRemoteMetadataProvider<Movie, MovieInfo>[] providers)
+            {
+                return RefreshWithProviders(
+                    new MetadataResult<Movie> { Item = item },
+                    lookupInfo,
+                    options,
+                    providers.Cast<IMetadataProvider>().ToArray(),
+                    ImageProvider,
+                    false,
+                    CancellationToken.None);
             }
         }
     }

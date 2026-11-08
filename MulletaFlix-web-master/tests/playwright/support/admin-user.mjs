@@ -35,7 +35,11 @@ export function getAdminCredentials() {
 export async function readSharedUser() {
     try {
         const content = await fs.readFile(SHARED_USER_FILE, 'utf8');
-        return JSON.parse(content);
+        const user = JSON.parse(content);
+        if (!user) return null;
+        const info = await fetchStagePublicInfo().catch(() => null);
+        if (info?.Id && user.serverId && user.serverId !== info.Id) return null;
+        return user;
     } catch (error) {
         if (error?.code === 'ENOENT') {
             return null;
@@ -64,6 +68,8 @@ export async function loginWithManualForm(page, username, password) {
     await seedStageConnection(page);
     await openLogin(page);
     await waitForStageBridge(page);
+    const loginPage = page.locator('#loginPage:not(.hide)').first();
+    await loginPage.waitFor({ state: 'visible', timeout: 10_000 });
     const visibleCandidate = async locator => {
         for (let index = 0; index < await locator.count(); index++) {
             const candidate = locator.nth(index);
@@ -74,21 +80,35 @@ export async function loginWithManualForm(page, username, password) {
 
         return null;
     };
-    const usernameCandidates = page.locator(
-        '#txtManualName, #txtUsername, #loginPage input[autocomplete="username"], #loginPage input[type="email"]'
+    const usernameCandidates = loginPage.locator(
+        '#txtManualName, #txtUsername, input[autocomplete="username"], input[type="email"], input:not([type="hidden"]):not([type="password"]):not([type="checkbox"])'
     );
-    let usernameInput = await visibleCandidate(usernameCandidates)
-        || await visibleCandidate(page.getByRole('textbox').first());
+    let usernameInput = await visibleCandidate(usernameCandidates);
 
     if (!usernameInput) {
-        const manualLoginButton = page.locator('#loginPage .btnManual');
-        if (!(await manualLoginButton.isVisible().catch(() => false))) {
-            throw new Error('Login page exposes neither the username/password form nor a visible manual-login button.');
+        const manualLoginButton = loginPage.locator('.btnManual');
+        const userCard = loginPage.locator('.cardContent[data-username]').filter({ hasText: username }).first();
+
+        for (let attempt = 0; attempt < 20 && !usernameInput; attempt++) {
+            usernameInput = await visibleCandidate(usernameCandidates);
+            if (usernameInput) break;
+
+            const visibleManualButton = await visibleCandidate(manualLoginButton);
+            if (visibleManualButton) {
+                await visibleManualButton.click().catch(() => undefined);
+            } else {
+                const visibleUserCard = await visibleCandidate(userCard);
+                if (visibleUserCard) {
+                    await visibleUserCard.click().catch(() => undefined);
+                }
+            }
+
+            await page.waitForTimeout(250);
         }
 
-        await manualLoginButton.click();
-        usernameInput = page.locator('#txtManualName');
-        await usernameInput.waitFor({ state: 'visible', timeout: 10_000 });
+        if (!usernameInput) {
+            throw new Error('Login page did not expose a stable username/password form, manual-login button, or matching user card.');
+        }
     }
 
     if (!usernameInput) {
@@ -97,13 +117,12 @@ export async function loginWithManualForm(page, username, password) {
 
     await usernameInput.fill(username);
     await expect(usernameInput).toHaveValue(username);
-    const passwordCandidates = page.locator(
-        '#txtManualPassword, #txtPassword, #loginPage input[type="password"], #loginPage input[autocomplete="current-password"]'
+    const passwordCandidates = loginPage.locator(
+        '#txtManualPassword, #txtPassword, input[type="password"], input[autocomplete="current-password"]'
     );
-    const passwordInput = await visibleCandidate(passwordCandidates)
-        || await visibleCandidate(page.getByRole('textbox').nth(1));
-    const submitButton = await visibleCandidate(page.locator('#loginPage button[type="submit"]'))
-        || await visibleCandidate(page.getByRole('button', { name: /^(sign in|entrar)$/i }));
+    const passwordInput = await visibleCandidate(passwordCandidates);
+    const submitButton = await visibleCandidate(loginPage.locator('button[type="submit"]'))
+        || await visibleCandidate(loginPage.getByRole('button', { name: /^(sign in|entrar)$/i }));
     if (!passwordInput || !submitButton) {
         throw new Error('Login form did not expose visible password and submit controls.');
     }
@@ -140,14 +159,24 @@ export async function logoutViaDrawer(page) {
     await drawerButton.click();
     await page.locator('.btnLogout').waitFor({ state: 'visible', timeout: 10_000 });
     await page.locator('.btnLogout').click();
-    await page.locator('#loginPage').waitFor({ state: 'visible', timeout: 30_000 });
+    await Promise.race([
+        page.locator('#loginPage:not(.hide), #selectServerPage:not(.hide), #loginPage, #selectServerPage').first().waitFor({ state: 'visible', timeout: 30_000 }),
+        page.waitForURL(/#?\/(login|selectserver)/i, { timeout: 30_000 })
+    ]).catch(() => undefined);
 }
 
 export async function logoutViaDashboard(page) {
-    await page.evaluate(() => {
-        window.Dashboard.logout();
+    await page.evaluate(async () => {
+        if (window.Dashboard && typeof window.Dashboard.logout === 'function') {
+            window.Dashboard.logout();
+        } else if (window.ApiClient && typeof window.ApiClient.logout === 'function') {
+            await window.ApiClient.logout();
+        }
     });
-    await page.locator('#loginPage:not(.hide)').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await Promise.race([
+        page.locator('#loginPage:not(.hide), #selectServerPage:not(.hide), #loginPage, #selectServerPage').first().waitFor({ state: 'visible', timeout: 30_000 }),
+        page.waitForURL(/#?\/(login|selectserver)/i, { timeout: 30_000 })
+    ]).catch(() => undefined);
 }
 
 export async function createCommonUser(page) {
@@ -229,6 +258,7 @@ export async function openUserTab(page, userId, tab) {
     const tabLocator = page.getByRole('tab', { name: tabLabels[tab] || /Perfil|Profile/i }).first();
 
     if (!(await page.locator(selector).isVisible().catch(() => false))) {
+        await tabLocator.waitFor({ state: 'visible', timeout: 30_000 });
         await tabLocator.click({ force: true });
     }
 

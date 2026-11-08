@@ -171,6 +171,7 @@ public class ItemsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the items.</returns>
     [HttpGet("Items")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetItems(
         [FromQuery] Guid? userId,
@@ -262,6 +263,46 @@ public class ItemsController : BaseMulletaFlixApiController
         [FromQuery] bool enableTotalRecordCount = true,
         [FromQuery] bool? enableImages = true)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
+        if (minWidth.HasValue && minWidth.Value < 0)
+        {
+            return BadRequest("MinWidth must be greater than or equal to 0.");
+        }
+
+        if (minHeight.HasValue && minHeight.Value < 0)
+        {
+            return BadRequest("MinHeight must be greater than or equal to 0.");
+        }
+
+        if (maxWidth.HasValue && maxWidth.Value < 0)
+        {
+            return BadRequest("MaxWidth must be greater than or equal to 0.");
+        }
+
+        if (maxHeight.HasValue && maxHeight.Value < 0)
+        {
+            return BadRequest("MaxHeight must be greater than or equal to 0.");
+        }
+
+        if (parentId.HasValue && parentId.Value == Guid.Empty)
+        {
+            return BadRequest("Parent id must not be empty.");
+        }
+
         var isApiKey = User.GetIsApiKey();
         // if api key is used (auth.IsApiKey == true), then `user` will be null throughout this method
         userId = RequestHelpers.GetUserId(User, userId);
@@ -877,6 +918,8 @@ public class ItemsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the items that are resumable.</returns>
     [HttpGet("UserItems/Resume")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetResumeItems(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
@@ -894,6 +937,26 @@ public class ItemsController : BaseMulletaFlixApiController
         [FromQuery] bool? enableImages = true,
         [FromQuery] bool excludeActiveSessions = false)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
+        if (parentId.HasValue && parentId.Value == Guid.Empty)
+        {
+            return BadRequest("Parent id must not be empty.");
+        }
+
         var requestUserId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(requestUserId);
         if (user is null)
@@ -972,7 +1035,7 @@ public class ItemsController : BaseMulletaFlixApiController
         return new QueryResult<BaseItemDto>(
             startIndex,
             itemsResult.TotalRecordCount > 0 ? deduplicatedItems.Count : 0,
-            returnItems);
+            returnItems ?? Array.Empty<BaseItemDto>());
     }
 
     /// <summary>
@@ -1042,12 +1105,19 @@ public class ItemsController : BaseMulletaFlixApiController
     /// <returns>Return <see cref="UserItemDataDto"/>.</returns>
     [HttpGet("UserItems/{itemId}/UserData")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Tags("UserData")]
     public ActionResult<UserItemDataDto?> GetItemUserData(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var requestUserId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(requestUserId);
         if (user is null)
@@ -1098,6 +1168,8 @@ public class ItemsController : BaseMulletaFlixApiController
     /// <returns>Return <see cref="UserItemDataDto"/>.</returns>
     [HttpPost("UserItems/{itemId}/UserData")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Tags("UserData")]
     public ActionResult<UserItemDataDto?> UpdateItemUserData(
@@ -1105,6 +1177,16 @@ public class ItemsController : BaseMulletaFlixApiController
         [FromRoute, Required] Guid itemId,
         [FromBody, Required] UpdateUserItemDataDto userDataDto)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
+        if (userDataDto is null)
+        {
+            return BadRequest("User data is required.");
+        }
+
         var requestUserId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(requestUserId);
         if (user is null)

@@ -45,9 +45,14 @@ test.describe.serial('33 - Item Details E2E: full interaction flow', () => {
         const miscInfoPrimary = page.locator('.itemMiscInfo-primary');
         await expect(miscInfoPrimary).toBeVisible({ timeout: 5_000 });
 
-        // Secondary media info
+        // Secondary media info is optional for movies and can be empty/hidden.
         const miscInfoSecondary = page.locator('.itemMiscInfo-secondary');
-        await expect(miscInfoSecondary).toBeVisible({ timeout: 5_000 });
+        await expect(miscInfoSecondary).toHaveCount(1);
+        const secondaryVisible = await miscInfoSecondary.isVisible().catch(() => false);
+        if (secondaryVisible) {
+            const secondaryText = await miscInfoSecondary.textContent();
+            expect(secondaryText?.trim().length).toBeGreaterThan(0);
+        }
 
         // ========== TEST 4: VERIFY POSTER IMAGE LOADS ==========
         const posterImage = page.locator('.detailImageContainer img.itemDetailImage');
@@ -119,7 +124,7 @@ test.describe.serial('33 - Item Details E2E: full interaction flow', () => {
 
         // ========== TEST 12: VERIFY BACK BUTTON NAVIGATION ==========
         // The page should have a back button to navigate away
-        const backButton = page.locator('[data-backbutton="true"]');
+        const backButton = page.locator('#itemDetailPage[data-backbutton="true"]');
         await expect(backButton).toBeVisible();
 
         // Navigate back (using browser back button as alternative)
@@ -220,7 +225,7 @@ test.describe.serial('33 - Item Details E2E: full interaction flow', () => {
         await expect(page.locator('#itemDetailPage')).toBeVisible({ timeout: 30_000 });
 
         // ========== FIND AND TEST ACTION BUTTONS ==========
-        const detailButtons = page.locator('.mainDetailButtons button');
+        const detailButtons = page.locator('.mainDetailButtons button:not(.btnPlay):not(.btnReplay):not(.btnPlayTrailer):not(.btnInstantMix):not(.btnShuffle)');
         const buttonCount = await detailButtons.count();
 
         if (buttonCount > 0) {

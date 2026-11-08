@@ -55,9 +55,10 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
         public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
             var season = (Season)item;
-            var series = season?.Series;
-
-            var seriesTmdbId = Convert.ToInt32(series?.GetProviderId(MetadataProvider.Tmdb), CultureInfo.InvariantCulture);
+            var series = season?.Series ?? season?.FindParent<Series>();
+            var seriesTmdbId = series is null
+                ? 0
+                : await TmdbSeriesProvider.ResolveTmdbIdAsync(series, _tmdbClientManager, cancellationToken).ConfigureAwait(false);
 
             if (seriesTmdbId <= 0 || season?.IndexNumber is null)
             {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -124,7 +124,7 @@ namespace MediaBrowser.LocalMetadata.Images
                 .Where(i =>
                     (includeDirectories && i.IsDirectory)
                     || BaseItem.SupportedImageExtensions.Contains(i.Extension, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(i => Array.IndexOf(BaseItem.SupportedImageExtensions, i.Extension ?? string.Empty));
+                .OrderBy(i => Array.IndexOf(BaseItem.SupportedImageExtensions, (i.Extension ?? string.Empty).ToLowerInvariant()));
         }
 
         /// <inheritdoc />
@@ -163,7 +163,7 @@ namespace MediaBrowser.LocalMetadata.Images
             IEnumerable<FileSystemMetadata> files = paths.SelectMany(i => _fileSystem.GetFiles(i, BaseItem.SupportedImageExtensions, true, false));
 
             files = files
-                .OrderBy(i => Array.IndexOf(BaseItem.SupportedImageExtensions, i.Extension ?? string.Empty));
+                .OrderBy(i => Array.IndexOf(BaseItem.SupportedImageExtensions, (i.Extension ?? string.Empty).ToLowerInvariant()));
 
             var list = new List<LocalImageInfo>();
 
@@ -404,8 +404,8 @@ namespace MediaBrowser.LocalMetadata.Images
         {
             var seasonNumber = season.IndexNumber;
 
-            var series = season.Series;
-            if (!seasonNumber.HasValue || !series.IsFileProtocol)
+            var series = season.Series ?? season.FindParent<Series>();
+            if (series is null || !seasonNumber.HasValue || !series.IsFileProtocol)
             {
                 return;
             }
@@ -413,7 +413,7 @@ namespace MediaBrowser.LocalMetadata.Images
             var seriesFiles = GetFiles(series, false, directoryService).ToList();
 
             // Try using the season name
-            var prefix = season.Name.Replace(" ", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
+            var prefix = (season.Name ?? string.Empty).Replace(" ", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
 
             var filenamePrefixes = new List<string> { prefix };
 

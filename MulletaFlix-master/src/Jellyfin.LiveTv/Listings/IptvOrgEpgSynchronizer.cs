@@ -182,7 +182,10 @@ namespace MulletaFlix.LiveTv.Listings
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error retrieving channels from tuner host {TunerId}", tuner.Name);
+                    _logger.LogError(
+                        "Error retrieving channels from tuner host {TunerId}: {Error}",
+                        tuner.Name,
+                        LiveTvUrlRedactor.RedactText(ex.ToString()));
                 }
             }
 
@@ -244,7 +247,10 @@ namespace MulletaFlix.LiveTv.Listings
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to download EPG guide from: {Url}", LiveTvUrlRedactor.Redact(url));
+                    _logger.LogWarning(
+                        "Failed to download EPG guide from {Url}: {Error}",
+                        LiveTvUrlRedactor.Redact(url),
+                        LiveTvUrlRedactor.RedactText(ex.ToString()));
                 }
             });
 
@@ -434,7 +440,10 @@ namespace MulletaFlix.LiveTv.Listings
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching and caching remote resource from {Url}", LiveTvUrlRedactor.Redact(url));
+                _logger.LogError(
+                    "Error fetching and caching remote resource from {Url}: {Error}",
+                    LiveTvUrlRedactor.Redact(url),
+                    LiveTvUrlRedactor.RedactText(ex.ToString()));
                 if (File.Exists(localPath))
                 {
                     _logger.LogWarning("Using stale cache file for: {Path}", localPath);

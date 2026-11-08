@@ -1,10 +1,678 @@
-# T6.2 — admissão concorrente e exclusão do restore — reauditoria 2026-10-27 13:45 BRT
+# Runtime instalado 12.1.51 — restauração oficial concluída; aceite autenticado pendente — 2026-11-07 04:45 BRT
+
+- [x] Restauração oficial do backup de 04/11 concluída; o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às 04:34:56 BRT e `Startup complete` às 04:35:44 BRT.
+- [x] Runtime `12.1.51` em `C:/Program Files/MulletaFlix/Server` com datadir oficial `C:/ProgramData/MulletaFlix/Server`; `/health` 200 `Healthy`; `/System/Info/Public` confirma `Version=12.1.51`, `TargetAbi=12.1.51` e wizard concluído.
+- [x] Banco restaurado confirmado por leitura: `users=16`, `baseitems=194203`, `peoplebaseitemmap=850927`, `activitylogs=2671`; `Username='Raphael'` ocorre uma vez.
+- [~] Login real e navegação autenticada ainda pendentes: browser vault sem login salvo e solicitação de salvamento recusada; nenhuma credencial foi solicitada ou registrada.
+- [~] Homologação global permanece `PARTIAL`: Android instrumentado, Linux/POSIX, CI hospedada, integrações reais e aceite formal de produção continuam abertos.
+- [x] Portal e documentação atualizados; evento `runtime-installed-1251-official-backup-restore-complete-2026-11-07-0445`; contrato do portal passou 368/368.
+
+## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
+
+- [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.
+- [x] TDD do escopo passou RED/GREEN: diretórios de agentes/artefatos agora são excluídos; `checklist.py` consome o JSON do scanner e falha quando `summary.total_findings > 0`.
+- [x] TDD do detector de configuração passou RED/GREEN: o scanner reconhece middleware aninhado `SecurityHeadersMiddleware.cs`; o projeto real deixou de gerar falso positivo de headers ausentes.
+- [x] Regressão do scanner: dependências sem findings; configuração `[OK]`; após TDD do placeholder, a execução completa terminou em 12 padrões XSS, com o checklist parando em Security Scan em vez de declarar GREEN.
+- [x] O finding de secret foi revisado sem copiar o valor: é um placeholder Bearer conhecido em fixture de teste; o scanner agora ignora somente placeholders explícitos e continua reportando tokens não-placeholder.
+- [~] Os 12 padrões restantes são atribuições `innerHTML`: as superfícies GetAvatar usam `escapeHtml`; NebulaFTP usa texto/DOM nodes nos dados variáveis; o helper minificado do IntroSkipper ainda exige revisão manual. UX/SEO não foram reexecutados após o fail-closed porque o checklist para no gate P0.
+
+## Inventário estrutural read-only — 2026-11-07 11:05 BRT
+
+- [x] Componentes inventariados: Server 5.955 arquivos, Web 1.157, Android 1.744 e Packaging 45.
+- [x] Linhas de código observadas: Server 2.824 C# / 477.398; Web 1.015 TypeScript/TSX / 150.368; Android 790 Kotlin / 117.280; Packaging 20 PowerShell / 2.606.
+- [~] JSONs/fixtures dominam a contagem bruta de Server/Android; a métrica não deve ser usada como complexidade sem separar produção, testes e configuração. `pygount` não está instalado.
+
+## Métricas separadas de produção, testes e configuração — 2026-11-07 11:10 BRT
+
+- [x] Server: produção 2.329/389.663 linhas; testes 705/135.239; configuração 2.980/1.685.417.
+- [x] Web: produção 903/137.687; testes 116/12.844; configuração 140/139.691.
+- [x] Android: produção 380/52.706; testes 516/67.840; configuração 999/5.323.457.
+- [x] Packaging: produção 23/3.357; testes 6/786; configuração 17/2.727.
+- [~] Classificação heurística; métricas de configuração/fixtures não representam complexidade algorítmica e não substituem análise semântica.
+
+## Correção do falso positivo Bearer Token — 2026-11-07 11:15 BRT
+
+- [x] RED: TDD reproduziu 2 findings para um placeholder conhecido e um token não-placeholder.
+- [x] GREEN: `security_scan.py` passou a ignorar somente placeholders Bearer explícitos.
+- [x] Regressão: scanner TDD 6/6, `py_compile` e `git diff --check` passaram.
+- [x] Scanner completo: secrets 0, padrões `innerHTML` 3, críticos/altos 0; checklist global continua exit code 1 por revisão XSS pendente.
+
+## Triagem contextual de `innerHTML` — 2026-11-07 11:25 BRT
+
+- [x] TDD do scanner passou 7/7: 9 atribuições estáticas/limpezas deixaram de gerar falso positivo; construções dinâmicas continuam reportadas.
+- [x] As duas construções dinâmicas do GetAvatar foram corrigidas: `escapeHtml` agora codifica também aspas simples/duplas para uso em atributos; TDD DOM com payloads perigosos passou 2/2.
+- [~] O scanner ainda reporta as duas linhas por ser heurístico; permanece 1 risco aberto em `MulletaFlix.Plugin.IntroSkipper/Configuration/introskipper.js:1`.
+- [x] Alterações de produto limitaram-se à correção reproduzida do escaping de aspas no GetAvatar; nenhum código seguro foi alterado apenas para silenciar o scanner. Relatório: `docs/security/innerhtml-triage-2026-11-07.md`.
+- [x] TDD focal do GetAvatar passou 2/2: contratos de escaping para `id`, `name` e URL permanecem presentes nas duas construções dinâmicas.
+- [x] Auditoria AST do IntroSkipper concluída: não há source map nem fonte legível no checkout; o único sink `innerHTML` recebe apenas markup literal, `t.description`/`t.warning` de opções construídas por objetos literais e uma descrição computada local. Contrato estático `test_introskipper_sink.mjs` passou 1/1.
+- [~] Manter o sink do IntroSkipper em revisão de defesa em profundidade: o scanner continua conservador e o bundle permanece sem fonte/mapa para permitir uma correção estrutural pequena.
+- [x] Gate de artefato GetAvatar: o publish self-contained oficial foi refeito em scratch com `dotnet publish ... -r win-x64`; `MulletaFlix.Plugin.GetAvatar.dll` publicado contém `&quot;` e `&#39;`. Um publish anterior em `bin/.../publish` estava obsoleto e não conta como evidência.
+- [x] Regressão .NET focal GetAvatar/AvatarController/AvatarFileStore: **44 aprovados, 0 falhas, 3 ignorados**, exit 0; os 3 skips são testes Linux/POSIX e não contam como aceite multiplataforma.
+- [x] Smoke browser não autenticado do runtime 12.1.51: login renderiza sem erros de console; `/System/Info/Public`, `/users/public`, `/QuickConnect/Enabled`, `/Branding/Configuration` e splash respondem corretamente. `/System/Configuration/branding` retorna 401 como esperado sem sessão.
+- [x] Drift do runtime confirmado: `/GetAvatar/ClientScript` HTTP 200 ainda retorna `escapeHtml` sem `&quot;`/`&#39;`, enquanto source e publish scratch contêm ambos. `/web/ConfigurationPage?name=GetAvatar` exige autenticação HTTP 401. A correção não está aplicada na instalação.
+
+## Histórico: Runtime instalado 12.1.50 GREEN após correção da ordem de migrações — 2026-11-07 01:12 BRT
+
+- [x] Pacote `v12.1.50` aplicado pelo procedimento elevado; payload instalado conferido com `missing=0`, `mismatches=0` e SHA-256 de `MulletaFlix.dll` igual ao pacote.
+- [x] Runtime instalado iniciou com processo persistente, listener em `8096`, `/health` HTTP 200 (`Healthy`), `/System/Info/Public` versão `12.1.50` e `StartupWizardCompleted=true`; está executando com o datadir oficial `C:/ProgramData/MulletaFlix/Server`.
+- [x] Log confirmou `20260615195427_InitialMySqlCreate` aplicado antes das migrações de código e `Startup complete` às 01:12:47 BRT.
+- [~] A correção resolve o startup em schema vazio/parcial, mas a contagem read-only atual do banco é `users=0`, `baseitems=1`. O backup oficial de 04/11 contém `Database/Users.json` e `Database/BaseItems.json` grandes; não declarar preservação até executar o procedimento oficial de restauração/reconciliação, sem restauração destrutiva improvisada.
+- [~] Homologação global permanece `PARTIAL`: Android instrumentado, Linux/POSIX, CI hospedada, integrações reais, dados do runtime e aceite formal de produção continuam abertos.
+
+Evidência: release GitHub `v12.1.50`; log `C:/ProgramData/MulletaFlix/Server/log/log_20261107.log`; runtime em `C:/Program Files/MulletaFlix/Server`.
+
+# Regressão ampla GREEN após compatibilidade Vite/Kestrel — 2026-11-05 14:34 BRT
+
+- [~] Probe read-only do runtime instalado em 2026-11-05 21:33 BRT: `MulletaFlix.exe` é 12.1.46, mas `8096` está fechado e `/health` retorna HTTP 000. Iniciar, reparar, reinstalar ou aplicar bundle exige autorização operacional explícita.
+- [x] Regressão ampla válida após incluir o TDD movie-only: **21 specs / 40 testes, 40 aprovados, 0 falhas, 0 instáveis e 0 ignorados**, exit code 0, aproximadamente 14,45 min, usando o wrapper isolado, paths explícitos e Vite gerenciado.
+- [x] Criado TDD `21-media-recognition.spec.ts` para catalogação movie-only após refresh explícito; passou **3/3 consecutivos**, com `MovieCount=2`, `ItemCount=3` e dois filmes sintéticos `Movie`/`Video`. Isso fecha a pré-condição do stage/harness, não o aceite do scanner em produção.
+- [~] AdSense self-player reabriu risco residual: uma execução focal falhou aguardando `.adsenseInterstitialOverlay` por 120 s (**1 falha / 1 ignorado**, 195,2 s), mas **3 rechecagens consecutivas passaram 1/1**. Sem nova correção de produto; investigar timing/lifecycle do player self-managed antes de promover estabilidade.
+- [x] Corrigido o runner Playwright para iniciar Vite como `webServer` descartável e direcionar fixtures/módulos de desenvolvimento para uma origem Vite explícita, sem expor `/@fs` no Kestrel.
+- [x] TDD `tests/playwright/support/stage.test.mjs`: **3/3**, incluindo a seleção de `PW_FIXTURE_BASE_URL`.
+- [x] Regressão ampla válida com `MFLX_MOVIES_PATH` e `MFLX_SERIES_PATH` explícitos: **21 specs / 40 testes, 40 aprovados, 0 falhas, 0 timeouts, 0 instáveis e 0 ignorados**, exit code `0`, aproximadamente **14,45 min**, incluindo `21-media-recognition.spec.ts`.
+- [x] Os cenários `24`–`29` passaram **11/11** no runner amplo após a correção; a suíte inteira passou sem alterar produto/runtime instalado.
+- [~] Homologação global ainda permanece **PARTIAL** por runtime instalado parado, Android instrumentado, Linux/POSIX, CI hospedada, integrações reais e bundle instalado divergente.
+
+Evidência: `C:/Users/Raphael/AppData/Local/Temp/mflx-playwright-preserved-20261105-full-regression-after-vite-fixture-origin`.
+
+# Regressão ampla após serialização do refresh — 2026-11-05 13:33 BRT
+
+- [x] Reexecução completa com paths explícitos de filmes e séries: **20 specs / 39 testes, 28 aprovados, 11 falhas, 0 timeouts, 0 instáveis e 0 ignorados**, exit code `1`, aproximadamente **15,4 min**.
+- [x] Multi-user, AdSense, Unified Search e Pagination passaram; as 11 falhas continuam concentradas nos cenários `24`–`29` por incompatibilidade de fixtures/módulos Vite dev no runner Kestrel.
+- [~] Homologação global permanece `PARTIAL`; não converter os 28 aprovados em aceite formal.
+
+Evidência: `C:/Users/Raphael/AppData/Local/Temp/mflx-playwright-preserved-20261105-full-regression-after-refresh-sequencing-with-series`.
+
+# Próximo avanço — serialização do refresh de bibliotecas — 2026-11-05 12:58 BRT
+
+- [x] TDD `tests/playwright/support/media-library.test.mjs` passou para impedir scan automático concorrente no `addVirtualFolder`.
+- [x] `21 - Multi user playback` passou **1/1 em duas execuções consecutivas** em stage descartável após a correção do harness; a segunda execução reconheceu 2 filmes sintéticos e iniciou playback para 2 usuários.
+- [~] Tratar o resultado como GREEN focal de preparação/harness. Ainda falta repetir a regressão Kestrel completa e obter diagnóstico movie-only reproduzível antes de declarar o scanner do produto resolvido.
+- [~] Manter homologação global `PARTIAL` até fechar runtime instalado, Android instrumentado, Linux/POSIX, CI hospedada e integrações reais; a regressão Playwright ampla já está GREEN em 40/40.
+
+Evidências: `C:/Users/Raphael/AppData/Local/Temp/mflx-playwright-preserved-20261105-multiuser-refresh-sequencing-fix` e `...-pass2`.
+
+# Regressão Playwright ampla após GREEN do multi-user — 2026-11-05
+
+## Atualização crítica — catálogo de mídia não determinístico e multi-user — 2026-11-05 12:40 BRT
+
+- [x] Sete execuções instrumentadas independentes do diagnóstico movie-only terminaram **1/1** do ponto de vista do teste, mas somente **1/7** materializou itens: seis retornaram `MovieCount=0`, `SeriesCount=0`, `ItemCount=0` e `getItems=[]`; uma retornou `MovieCount=2` e `ItemCount=3`, com dois filmes sintéticos reconhecidos.
+- [x] O `movieFolder` foi criado de forma consistente (`Name=Filmes`, `CollectionType=movies`), portanto o RED está após a criação da biblioteca, no reconhecimento/materialização dos itens ou no timing do scanner; não é ausência do virtual folder.
+- [x] Duas novas execuções de `21 - Multi user playback` falharam esperando a segunda sessão (`Expected: 2`, `Received: 0`, timeout de 90 s). O snapshot da falha mostra o contexto secundário ainda na tela de login; evidência preservada em `mflx-playwright-preserved-20261105-multiuser-pathfix` e `mflx-playwright-preserved-20261105-multiuser-hls-instrumented`.
+- [x] Uma execução posterior passou **1/1** em 1,5 min, depois de uma rodada em que a mídia foi materializada. O GREEN permanece **não determinístico** e não deve fechar o gate de catálogo nem provar estabilidade do multi-user.
+- [~] Próximo TDD deve capturar o contrato de reconhecimento: `addVirtualFolder` + `RefreshLibrary` só podem liberar o cenário quando houver contagem/item real, e devem registrar diagnóstico quando a pasta existir sem itens.
+
+Evidências: `C:/Users/Raphael/AppData/Local/Temp/mflx-playwright-preserved-20261105-instrumented`, `...-instrumented-pass2`, `...-instrumented-pass3`, `...-instrumented-green`, `...-instrumented-green2`, `...-instrumented-green3`, `...-instrumented-green4`, `...-multiuser-pathfix`, `...-multiuser-hls-instrumented` e `...-hls-final`.
+
+## Regressão ampla após GREEN de AdSense — 2026-11-05
+
+- [x] Execução completa atual: **20 specs, 39 testes, 28 aprovados, 11 falhas, 0 timeouts, 0 instáveis e 0 ignorados**, exit code `1`, aproximadamente **15,4 min**.
+- [x] Multi-user playback passou **1/1**; AdSense passou **2/2**; Unified Search passou **1/1**; Pagination permanece GREEN focal.
+- [~] 11 falhas restantes nos cenários `24`–`29`, concentradas em fixtures/módulos Vite dev não servidos pelo runner Kestrel.
+- Evidências: `C:/Users/Raphael/AppData/Local/Temp/mflx-playwright-preserved-20261105-full-regression-after-unified-search`.
+
+## Unified Search GREEN focal após correção do harness — 2026-11-05
+
+- [x] RED reproduzido: `navigateStage` aguardava indefinidamente o `Promise` de `Dashboard.navigate`, embora a hash e a tela de busca já tivessem mudado.
+- [x] Correção mínima: o harness aguarda a hash alvo, limita a espera do Promise e propaga erros explícitos.
+- [x] TDD `stage.test.mjs`: **2/2**; `23 - Unified search`: **1/1** em 38,7 s.
+- [x] Regressão ampla pós-correção: Unified Search não reapareceu como falha; permanecem somente os 11 casos `24`–`29`.
+- Evidência: `C:/Users/Raphael/AppData/Local/Temp/mflx-playwright-preserved-20261105-unified-search-green`.
+
+
+- [x] Execução completa em stage descartável, via PTY, com fixtures sintéticas e `MFLX_MOVIES_PATH`/`MFLX_SERIES_PATH` explícitos.
+- [x] Resultado auditável: **20 specs, 39 testes, 24 aprovados, 13 falhas, 0 instáveis e 2 ignorados**, exit code `1`, duração aproximada de **15,5 min**.
+- [x] Falhas classificadas sem alterar produção: AdSense (1), scroll buttons (2), My Requests (2), request autocomplete (2), Nebula navigation (2), backup coverage (2), accessibility My Requests (1) e pagination (1).
+- [x] Multi-user playback não reapareceu como falha nesta rodada; o gate focal permanece **GREEN 1/1**.
+- [~] Próxima ação: triagem independente por contrato/fixture, começando por `24-scrollbuttons.spec.ts` e `99-pagination.spec.ts`; não enfraquecer asserções nem aplicar correção sem RED/GREEN/regressão focal.
+- Evidências: `MulletaFlix-web-master/reports/playwright/playwright-summary.json`, `raw-results.json` e snapshot `C:/Users/Raphael/AppData/Local/Temp/mflx-playwright-preserved-20261105-full-regression-after-multiuser`.
+
+## Scroll buttons e pagination — diagnóstico pós-regressão — 2026-11-05
+
+- [x] `24-scrollbuttons.spec.ts` passou **2/2** com `npm run test:playwright:scrollbuttons` em servidor Vite dedicado, em **10,6 s**.
+- [x] As duas falhas da suíte ampla foram classificadas como incompatibilidade do runner de stage: a fixture usa `@fs/.../searchresults.tsx` e `/elements/emby-scroller/emby-scroller.ts`, mas o servidor Kestrel do stage devolve 404 para esses endpoints de desenvolvimento. Nenhum patch de produto foi aplicado.
+- [x] `99-pagination.spec.ts` teve RED reproduzido e depois passou **2/2** em aproximadamente **2,4 min** após corrigir a navegação duplicada para `/home`, a asserção do nome do log e a consulta de folders do usuário comum.
+- [x] O trace de pagination não foi preservado porque continha metadados de autenticação do stage; screenshot, `error-context.md`, summary e raw results permanecem disponíveis.
+- [x] Configuração dedicada `npm run test:playwright:requests` passou **8/8**: My Requests, autocomplete, Nebula navigation e backup coverage.
+- [x] Configuração dedicada `npm run test:playwright:a11y` passou **3/3**: backup coverage e accessibility My Requests.
+- [x] Das 13 falhas brutas da suíte ampla, **11 foram reclassificadas como incompatibilidade do runner/configuração de fixtures**; pagination e AdSense agora possuem GREEN focal.
+- [~] AdSense permanece com evidência histórica 2/2, mas a nova execução focal teve 1 falha/1 ignorado e só depois 3 rechecagens 1/1; classificar como GREEN focal não determinístico até isolar o caminho self-managed. Não aplicar bundle ao runtime instalado.
+
+## AdSense playback — TDD GREEN — 2026-11-05
+
+- [x] RED reproduzido: o trace mostrou `intro playback failed, falling back to main item` sem `.adsenseInterstitialOverlay`.
+- [x] TDD RED/GREEN em `src/utils/playback/playIntroThenMain.test.ts`: callback de erro assíncrono aguardado antes do fallback; **4/4** aprovados.
+- [x] `playbackmanager.ts`: interstitial executado no fallback da intro e nos caminhos de parada de players locais/não locais, com continuidade segura se o script falhar.
+- [x] `22 - AdSense playback flow`: **2/2** em aproximadamente **2,4 min**, script normal e falha de script, stage descartável e fixtures sintéticas.
+- [x] Bundle reconstruído e copiado somente para `stage/MulletaFlix-web`; runtime instalado `12.1.46` intocado.
+- Evidência: `C:/Users/Raphael/AppData/Local/Temp/mflx-playwright-preserved-20261105-adsense-final-async-fallback`.
+
+# Playwright Search/Player — TDD GREEN — 2026-11-05
+
+- [x] RED reproduzido na suíte ampla: clique no link de detalhes interceptado pelo overlay de playback.
+- [x] Correção mínima no harness: clique disparado no próprio `<a>` e seletor compatível com `#itemDetailPage`/`#itemDetailsPage` visível.
+- [x] GREEN focado: `32-accessibility-search-and-player.spec.ts` **1/1 aprovado** em stage autenticado descartável.
+- [~] Reexecutar a suíte ampla para reconciliar a contagem histórica de **22 aprovados, 15 falhas e 2 ignorados**.
+
+Sessão: [[Sessões/2026-11-05 - MulletaFlix Search Player GREEN e regressão Playwright]].
+
+# TDD focal Multi-user playback — HLS lifecycle — 2026-11-05
+
+- [x] RED preservado no `21-multi-user-playback.spec.ts`: o segundo contexto não publicava `NowPlayingItem` nem `POST /Sessions/Playing`.
+- [x] Contrato de mídia isolado: o segundo `PlaybackInfo` exige HLS (`SupportsDirectPlay=false`, `SupportsDirectStream=false`, `TranscodingSubProtocol=hls`); `master.m3u8`, `main.m3u8` e segmentos responderam HTTP 200.
+- [x] Frontend isolado: o segundo contexto registra `playing url` HLS e carrega `playback/video/index.html`, mas não registra `Active player`, `playbackstart` ou `POST /Sessions/Playing`.
+- [x] Hipótese de duração descartada com fixture temporariamente alongada para seis repetições do arquivo de `20.021 s`; o segundo contexto continuou sem `NowPlayingItem`.
+- [x] Correção GREEN: eventos HLS locais alinhados para `hlsManifestParsed`/`hlsError`; listener registrado antes de `attachMedia`/`loadSource`; cleanup do player no erro propagado preservado no `playbackmanager`.
+- [x] TDD focal `htmlMediaHelper.test.ts` + `playbackmanager.intro-failure.test.ts`: **3/3 aprovados**; `npm run build:check`: passou.
+- [x] Regressão E2E final: `21 - Multi user playback` **1/1 aprovado** em stage descartável, PTY, fixtures sintéticas, em **1,5 min**. Bundle copiado somente para `stage/MulletaFlix-web`; runtime instalado não foi alterado.
+- [~] Reconhecimento geral de mídia e pagination continuam pendentes; o GREEN de multi-user foi validado com a fixture materializada nessa execução e não encerra os demais gates.
+
+# TDD focal — reconhecimento de mídia no Playwright stage — 2026-11-05
+
+- [x] RED reproduzido: o cenário podia prosseguir após o tempo de settle sem itens reconhecidos, levando a skip de multi-user playback.
+- [x] GREEN do harness: `ensureMediaLibrariesReady` aguarda `waitForMediaRecognition`; `media-library.test.mjs` passou **2/2**, incluindo o caso de biblioteca somente de filmes.
+- [x] `21-multi-user-playback.spec.ts` passou a solicitar somente `MOVIES_LIBRARY`; séries não são pré-condição do cenário.
+- [x] Dois diagnósticos movie-only independentes concluíram **1/1** na porta `18096`, usando fixtures longa e completa: biblioteca criada, mas `MovieCount=0`, `SeriesCount=0`, `ItemCount=0` e `getItems` vazio em ambos; uma rodada histórica reconheceu as fixtures, então a causa do scanner é reproduzível nas rodadas atuais, mas permanece inconclusiva.
+- [~] Fixture de 300 s terminou por timeout em `waitForMediaRecognition`, sem criar usuários ou iniciar playback. Uma tentativa posterior de refresh direto foi bloqueada pelo mutex MariaDB do stage. Não classificar o multi-user playback como falha nova de lifecycle até a mídia sintética ser materializada de forma estável.
+
+Sessões: [[Sessões/2026-11-05 - Diagnóstico Multi-user playback]] e [[Sessões/2026-11-05 - Revalidação reconhecimento mídia e multi-user playback]].
+
+# TDD focal de persistência após bloqueio do Item Details — 2026-11-04 17:54 BRT
+
+- [x] `IntroSkipper.Integration.Tests`, filtro `ItemRepositoryTransientRetryTests`: **17 aprovados, 0 falhas, 0 ignorados**.
+- [x] Cobertos erros transitórios MariaDB `1205`/`1213`, retry da substituição completa, falha permanente sem retry e preservação de linhas anteriores após o limite de tentativas.
+- [x] Regressão MariaDB descartável real `ServerPersistenceMariaDbTests`: **34 aprovados, 0 falhas, 1 ignorado**. A primeira tentativa falhou por `Too many connections` causado pelo limite padrão do scratch; a repetição com `max_connections=512` passou.
+- [x] A persistência isolada está verde no foco e na suíte MariaDB; o Item Details stage foi revalidado depois que o helper passou a filtrar `IsFolder=false`/`IncludeItemTypes=Movie` e o spec deixou metadata secundária opcional conforme o frontend.
+- [x] TDD/E2E Item Details: spec 33 passou **3/3** em stage autenticado descartável; a suíte Playwright completa ainda registra **22 aprovados, 15 falhas e 2 ignorados**, mantendo a homologação global parcial.
+
+Sessão: [[Sessões/2026-11-04 - MulletaFlix retry de persistência e visibilidade Item Details]].
+
+# Testes focais de RemoteImages e payload — 2026-11-04 12:50 BRT
+
+- [x] `Jellyfin.Api.Tests`, filtro `RemoteImageController`: **5 aprovados, 0 falhas, 0 ignorados**.
+- [x] `Jellyfin.Providers.Tests`, filtros `RemoteImagePayloadValidator` e `ProviderManagerRemoteImageValidation`: **9 aprovados, 0 falhas, 0 ignorados**.
+- [x] Rodada anterior de `ItemImageProviderTests` + `ImageSaverTests`: **98 aprovados, 0 falhas, 0 ignorados**.
+- [x] Contrato de RemoteImages, autorização e validação de payload possuem cobertura focal verde.
+- [~] Item Details visual continua bloqueado/inconclusivo: paths sintéticos foram fornecidos em scratch, bibliotecas criadas e `ItemId` normalizado no helper, mas `/Users/{userId}/Items` retornou coleção vazia enquanto o log registrou scanner/IntroSkipper e deadlocks MariaDB.
+- [~] Bundle web instalado continua divergente do bundle fonte; aplicação requer autorização operacional explícita.
+
+Sessão: [[Sessões/2026-11-04 - MulletaFlix testes focais de RemoteImages e payload]].
+
+# Auditoria upstream e execução Playwright com PTY — 2026-11-04 05:33 BRT
+
+- [x] Isolado `stdin is not a tty`: runner sem PTY falhava antes de fornecer evidência; execução com PTY completou o stage.
+- [x] Playwright Wizard: **2/2 aprovados**.
+- [x] Playwright Unified search: **1/1 aprovado (51,5 s)**.
+- [x] Servidor: testes focais de imagens **98/98 aprovados** (`ItemImageProviderTests` + `ImageSaverTests`).
+- [x] Comparação read-only com Jellyfin upstream: controller local preserva o contrato e acrescenta cancelamento da requisição, validação de URL remota e metadados de provider/idioma; fallback TMDb por título/ano e filtro de idioma são melhorias locais deliberadas.
+- [~] Item Details continua bloqueado/inconclusivo mesmo com `MFLX_MOVIES_PATH` e `MFLX_SERIES_PATH` sintéticos; não inferir caminhos nem usar produção. A API autenticada não retornou item utilizável.
+
+Sessão: [[Sessões/2026-11-04 - MulletaFlix Playwright PTY e auditoria upstream de imagens]].
+
+# Homologação E2E: pré-condições de mídia e login — 2026-11-04 05:17 BRT
+
+- [x] Endurecido `tests/playwright/support/admin-user.mjs`: candidatos de usuário/senha agora são procurados dentro do `#loginPage` visível, tolerando o formulário moderno sem IDs legados.
+- [x] Endurecido `tests/playwright/support/wizard.mjs`: o teste aguarda e valida a resposta de `POST /Startup/User` antes de prosseguir.
+- [x] Corrigido `tests/playwright/support/media-library.mjs`: removidos caminhos hardcoded `D:\\Users\\Raphael\\Videos\\Filmes/Series`; o stage agora exige `MFLX_MOVIES_PATH` e `MFLX_SERIES_PATH` e valida existência local antes de chamar `POST /Library/VirtualFolders`.
+- [x] Verificação estática/build: `node --check` dos três helpers, `npm run build:check`, `npm run lint:changed`, `npm run build:production` e `npm run verify:build` aprovados; 1.929 artefatos e 294,3 KB gzip dentro do budget de 420 KB.
+- [~] E2E `Item Details` avançou além do login e foi reexecutado com fixtures sintéticas; continua parcial porque a API autenticada responde vazia apesar de logs internos do scanner. Não inferir diretórios nem usar produção.
+- [~] A reexecução posterior após adicionar a asserção de `POST /Startup/User` expirou no terminal; não conta como aprovação.
+
+Sessão: [[Sessões/2026-11-04 - MulletaFlix E2E pre-condições de mídia e login]].
+
+# Homologação de palco isolado (14 specs E2E) e alinhamento TMDb TV upstream — 2026-11-04 04:35 BRT
+
+- [x] **Suítes Playwright Stage E2E e UI (`MulletaFlix-web-master`)**:
+  - `00-wizard.spec.ts`: **2/2 aprovados (11.5s)**.
+  - `01-bootstrap.spec.ts`: **1/1 aprovado (14.1s)**.
+  - `10-admin.spec.ts`: **4/4 aprovados (33.0s)** (sincronizada navegação pós-edição de usuário e filtro de alerts de sucesso).
+  - `11-admin-extended.spec.ts`: **3/3 aprovados**.
+  - `12-admin-surfaces.spec.ts`: **3/3 aprovados**.
+  - `20-user.spec.ts`: **3/3 aprovados (29.8s)** (invalidação automática de credenciais residuais com `serverId` distinto em instâncias isoladas).
+  - `23-search.spec.ts`: **1/1 aprovado (1.1m)** (resiliência em `logoutViaDashboard` cobrindo hash routes e `#selectServerPage`).
+  - `24-scrollbuttons.spec.ts`: **2/2 aprovados (22.1s)**.
+  - `25-myrequests.spec.ts`: **2/2 aprovados** (390px e 1280px).
+  - `26-request-autocomplete.spec.ts`: **2/2 aprovados** (seleção por teclado e debounce).
+  - `27-nebula-navigation.spec.ts`: **2/2 aprovados** (390px e 1280px).
+  - `28-backup-coverage.spec.ts`: **2/2 aprovados** (390px e 1280px).
+  - `29-accessibility.spec.ts`: **1/1 aprovado** (WCAG 2.2 AA automatizado com `axe-core`).
+  - `30-playlists.spec.ts`: **1/1 aprovado (1.2m)** (criação, persistência e navegação com restart real do palco).
+  - Total homologado na camada de palco e UI: **14 specs / 29 casos de teste aprovados (0 falhas)**.
+- [x] **Endurecimento TMDb TV e Alinhamento Upstream (`MulletaFlix-master`)**:
+  - `TmdbSeasonImageProvider.cs` e `TmdbEpisodeImageProvider.cs`: fallback `FindParent<Series>()` para temporadas e episódios desanexados sem navegação relacional ativa.
+  - `TmdbEpisodeImageProvider.cs`: null-guard em `series?.DisplayOrder`.
+  - `TmdbClientManager.cs`: parâmetros `string? displayOrder` explicitamente anuláveis com `string.IsNullOrEmpty(displayOrder)` em `GetSeriesGroupAsync`, `GetEpisodeAsync` e `GetEpisodeImagesAsync`.
+  - Suíte `Jellyfin.Providers.Tests`: **950 aprovados, 0 falhas, 13 ignorados/963**.
+- [x] **Contrato e Integridade de Produção**:
+  - `node --test portal-site/tests/homologacao.test.mjs`: **367/367 aprovados**.
+  - Servidor de produção (`127.0.0.1:8096`), MariaDB de produção (`127.0.0.1:3306`) e MongoDB de produção (`127.0.0.1:27017`) permaneceram 100% operacionais e intocados.
+
+Sessão: [[Sessões/2026-11-04 - MulletaFlix mapeamento e homologacao integrada]].
+
+# Atualização da homologação E2E e resiliência de login — 2026-11-04 03:55 BRT
+
+- [x] Diagnóstico da falha ampliada: wizard do stage reportou `StartupWizardCompleted=true` embora o teste de limpeza exigisse `false`; admin/usuário falharam porque `.btnManual` estava oculto após `showVisualForm()` carregar usuários públicos.
+- [x] Corrigido helper E2E `loginWithManualCredentials` em `MulletaFlix-web-master/e2e/support/utils.ts`; `10-admin.spec.ts` e `20-user.spec.ts` usam o fluxo resiliente sem alterar produção.
+- [x] `npm run build:check`, `npm run lint:changed`, `npm run build:production` e `npm run verify:build` aprovados; testes focais **6/6**; bundle **1.929 artefatos / 294,3 KB gzip / budget 420 KB**.
+- [x] Comparação read-only manual com Jellyfin upstream concluída após falha das duas delegações (`HTTP 401: User not found`): `RemoteImageController` local preserva contrato upstream; fallback TMDb por `Name`/`OriginalTitle`/ano é melhoria intencional para itens sem `ProviderId`; nenhum novo patch de provider/controller indicado.
+- [~] E2E autenticado ainda não reexecutado: ambiente não possui `MFLX_ADMIN_PASSWORD`, `MFLX_COMMON_PASSWORD` nem caminhos de biblioteca; não solicitar nem registrar credenciais.
+
+Sessões: [[Sessões/2026-11-04 - MulletaFlix capas imagens idioma e fallback TMDb]]; [[Sessões/2026-11-04 - MulletaFlix imagens TMDb series seasons episodes]]; [[Sessões/2026-11-04 - MulletaFlix auditoria bundle web instalado e imagens]]; [[Sessões/2026-11-04 - MulletaFlix Playwright stage login resilience]]; [[Sessões/2026-11-04 - MulletaFlix comparação Jellyfin upstream imagens]].
+
+- [x] **Qualidade Web (Frontend Quality Gate `W4.4`)**:
+  - Corrigido tratamento de exceção em `MulletaFlix-web-master/vite.config.ts` (`sonarjs/no-ignored-exceptions` e `@typescript-eslint/no-unused-vars`).
+  - Atualizado `MulletaFlix-web-master/.escheckrc` de `es5` legado para `ecmaVersion: "es2022"`, `module: true` conforme a arquitetura moderna Vite/React 18.
+  - `npm run lint:changed`: **4/4 arquivos modificados aprovados (0 erros, 0 avisos)**.
+  - `npm run stylelint`: **Aprovado (0 erros)**.
+  - `npm run escheck`: **642/642 arquivos de distribuição verificados e 100% compatíveis com ES13/ES2022**.
+  - `npm run verify:build`: **1.929 artefatos válidos**, payload inicial **294,3 KB gzip** (dentro do budget de **420 KB gzip**).
+  - `npm run build:check`: `tsc --noEmit` concluído com **0 erros** de TypeScript em todo o frontend.
+- [x] **Sincronização e Integridade de Stage (`stage/` e `.build/server-publish`)**:
+  - Diagnosticada defasagem de binários em `stage/` (estavam estagnados desde 19/10/2026 antes da introdução dos mutexes isolados de MariaDB e suporte a E2E).
+  - Publicado `Jellyfin.Server` em Release `net10.0` para `.build/server-publish` e sincronizado com `stage/`.
+  - Sincronizados artefatos de runtime de `Tools/NebulaPython` (`upload_checkpoint.py`, `requirements.lock`, etc.) e `MulletaFlix-web/` (dist build).
+  - Executado `MulletaFlix-packaging-master/scripts/validate-stage.ps1`: **Stage integrity validation passed: 100% aprovado**.
+- [x] **Playwright E2E em Servidor Stage Real (`W4.1`..`W4.4`, `T6.1.22`)**:
+  - Diagnosticada restrição de DACL do `BackupRestoreAclValidator` no Windows: o disco `D:\` possui ACE herdada de `Usuários autenticados:(M)` e `%TEMP%` possui `CodexSandboxUsers:(M)`, acionando `UnauthorizedAccessException`.
+  - Isolado `stage-data` em diretório temporário limpo dentro do perfil do usuário (`C:\Users\Raphael\.mulletaflix-tmp\mflx-playwright-stage-...`), cujos ancestrais contêm estritamente `Raphael`, `SYSTEM` e `Administradores`.
+  - Executado `node ./scripts/playwright/run-suite.mjs --grep="wizard"` contra o stage server real (`12.1.46`) em porta isolada `18096` com MariaDB embarcado na porta `33100`:
+    - `ok 1 [chromium] › 00 - Wizard › stage starts clean and wizard pages are reachable`
+    - `ok 2 [chromium] › 00 - Wizard › completes the wizard end-to-end (7.8s)`
+    - **2 passed (11.5s)** com Chromium real headless!
+    - Relatórios salvos em `MulletaFlix-web-master/reports/playwright/playwright-summary.json` e `.md` com status `"success"`.
+  - Processo de stage e MariaDB encerrados de forma limpa; servidor de produção (`8096`/`3306`) permaneceu totalmente online e intocado durante todo o teste.
+
+Sessão: [[Sessões/2026-11-04 - MulletaFlix mapeamento e homologacao integrada]].
+
+# Correção de opções de capas e fallback de idioma — 2026-11-04 02:01 BRT
+
+- [x] Diagnóstico read-only do item exibido: `PreferredMetadataLanguage=pt-BR`, `MetadataCountryCode=BR`, ano `1995`, mas sem `ProviderId` TMDb/IMDb persistido; isso fazia `TmdbMovieImageProvider` retornar vazio e a tela mostrar `0-0 de 0`.
+- [x] TDD RED/GREEN: `TmdbMovieImageProvider` agora procura o filme por título/ano quando não há IDs válidos e só então consulta posters/backdrops/logos.
+- [x] TDD RED/GREEN: refresh automático não inclui mais imagens `en` como fallback para bibliotecas em `pt-BR`; imagens neutras e no idioma preferido continuam elegíveis. Imagens manuais/existentes não foram apagadas.
+- [x] Providers: **946 aprovados, 13 ignorados, 0 falhas/959**; testes focais de imagem/idioma **104/104**; build Release da solução **0 erros** (avisos existentes).
+- [x] Hotfix aplicado pelo procedimento elevado em `MulletaFlix.dll` e `MediaBrowser.Providers.dll`; hashes do payload e instalação conferidos; runtime reiniciado como usuário normal no PID `38304`.
+- [x] Runtime pós-hotfix: versão/ABI `12.1.46`, wizard concluído, `/health` HTTP 200, `Startup complete` no log.
+- [~] Aplicação visual ainda requer recarregar a página e repetir a busca/refresh; imagens inglesas já persistidas não são removidas automaticamente para preservar arte manual e evitar mutação destrutiva.
+- [~] Homologação autenticada de item real/provedor externo continua parcial; nenhum refresh/download real foi executado nesta sessão.
+- [x] Auditoria read-only confirmou que `TmdbSeriesImageProvider`, `TmdbSeasonImageProvider` e `TmdbEpisodeImageProvider` dependiam do `ProviderId` TMDb da série; criado resolver compartilhado por `Name`/`OriginalTitle` e ano, mantendo ID positivo como prioridade.
+- [x] TDD focal de série/temporada/episódio: **3/3**; Providers: **950 aprovados, 13 ignorados, 0 falhas/963**; build Release: **0 erros**.
+- [x] Novo conjunto reaplicado pelo procedimento elevado oficial; `copy_exit=3`; hashes payload/instalação coincidem; runtime reiniciado no PID `36704`; versão/ABI `12.1.46`; `/health` HTTP 200.
+- [~] Nenhum refresh/download autenticado foi executado; validação visual de série/temporada/episódio ainda requer recarga do navegador e item real.
+- [x] Auditoria web confirmou divergência de artefato: `dist/index.html` referencia `index-zMNR1fFC.js`; instalação referencia `index-C2qZimXg.js` e contém 1.422 JS contra 639 no `dist` atual. `npm run build:check`, testes focais **6/6**, `npm run build:production` e `npm run verify:build` passaram.
+- [~] Bundle web atual ainda não foi aplicado ao runtime; validação visual autenticada permanece pendente.
+
+Sessões: [[Sessões/2026-11-04 - MulletaFlix capas imagens idioma e fallback TMDb]]; [[Sessões/2026-11-04 - MulletaFlix imagens TMDb series seasons episodes]]; [[Sessões/2026-11-04 - MulletaFlix auditoria bundle web instalado e imagens]]; [[Sessões/2026-11-04 - MulletaFlix Playwright stage login resilience]].
+
+# Mapeamento completo das partes não homologadas, lista de tarefas e homologação local de runtime isolado + Playwright/a11y — 2026-11-04 00:30 BRT
+
+## 1. Mapeamento completo do que ainda não foi homologado no sistema
+
+- **Trilha 1 — Servidor Windows/Linux (`server` — formal `2/7` = `28,6%`, `5/7` áreas pendentes)**:
+  - **7 itens `in_progress` no roadmap**: `T0.1` (matriz de ambientes de teste), `T0.3` (gates de homologação contínua por entrega), `T2.2` (máquina de estados de transferência Nebula em serviço real), `T4.2` (fluxo unificado de solicitações em produção), `T5.6` (limites de concorrência FFmpeg/Trickplay sob carga real), `T6.1` (métricas Prometheus/OpenTelemetry em runtime), `T6.2` (health checks granulares e degradação controlada).
+  - **40 itens `pending` de Servidor/Persistência/Observabilidade no roadmap**:
+    - *Dependência externa Telegram/Supabase/Provedores/Produção*: `ROADMAP.005`, `ROADMAP.006`, `T2.1.4`, `T2.1.5`, `T2.3.5`, `T2.3.6`, `T2.4.6`, `T2.5.4`, `T2.6.5`, `T6.4.12`, `T6.4.16`, `T9.5.15`.
+    - *Dependência de host Linux/POSIX (`O_NOFOLLOW`/`openat2`/`statx`/bind mounts/POSIX ACL) ou CI hospedada GitHub Actions (billing)*: `ROADMAP.011`, `ROADMAP.015`, `T0.1.5`, `T6.2.15`, `T6.2.19`, `T6.2.21`.
+    - *Dependência de carga representativa/benchmark em biblioteca de escala*: `T1.1.3`, `T1.1.4`, `T1.2.4`, `T1.3.4`, `T3.1.4`, `T3.2.5`, `T5.6.3`, `T6.2.11`, `T6.2.12`, `T6.2.13`, `T6.5.9`.
+    - *Itens executáveis localmente (homologados nesta rodada)*: `ROADMAP.010`, `ROADMAP.014` (`Jellyfin.Server.Integration.Tests` 146/146 em 26 classes contra MariaDB descartável), isolamento de mutex MariaDB por porta não padrão (`MariaDbProcessManager.ResolveStartupMutexNames`), guarda `SecureConnectionProcessManager.ShouldSkipForIsolatedTestEnvironment` e smoke live isolado de `MulletaFlix.dll` (`18096`/`33188`) validando `/health`, `/System/Info/Public` e redaction de `/metrics` lado a lado com a produção (`8096`/`3306`).
+- **Trilha 2 — Frontend Web (`web` — status `monitoring`, 32 itens `pending` em `W1..W4` e `T9.1..T9.5`)**:
+  - *Itens executáveis localmente via Playwright + axe-core + bundle budget (homologados nesta rodada)*: `W1.1` (`25-myrequests.spec.ts` e `26-request-autocomplete.spec.ts` em `390px` e `1280px`), `W1.2`/`T4.4` (`27-nebula-navigation.spec.ts` e `28-backup-coverage.spec.ts` em `390px` e `1280px`), `W1.3` (`24-scrollbuttons.spec.ts` teclado, foco visível, LTR/RTL e estado `disabled`), `W2.1`/`W2.2`/`W2.3` (`29-accessibility.spec.ts` WCAG 2.2 AA automatizado com `axe-core` em estados `success`, `loading`, `error` e `empty` em `390px` e `1280px`), `W3.1`/`W3.2` (`npm run verify:build` 294,3 KB gzip / budget 420 KB).
+  - *Itens pendentes dependentes de stack E2E completa autenticada com mídia/playback real ou refatoração estrutural ampla*: `W1.5` (consolidação integral de tokens/componentes legados), `W2.4`/`W2.4.1` (legendas/contraste em player real), `W3.3`/`W3.3.1` (virtualização e paginação em bibliotecas gigantes reais), `W4.1`..`W4.5.4` e `T9.1`..`T9.4` (jornadas E2E completas com playback HLS, multiusuário e catálogo real).
+- **Trilha 3 — Aplicativo Android APK (`android` — formal `10/21` = `47,6%`, `2` `in_progress`, `9` `pending`, `47` checkboxes abertos em `MulletaFlix-android/TODO-APP.md`)**:
+  - *Em validação (`in_progress`)*: `APK-H02` (Autenticação, sessão e troca de conta/servidor — `MainActivitySessionNavigationTest` 12/12 em PHONE/TABLET API 35, pendente servidor e hardware reais) e `APK-H12` (Downloads offline e sincronização — pendente validação em aparelho real).
+  - *Pendentes (`pending`)*: `APK-H13` (Live TV e guia EPG real), `APK-H14` (Android TV / D-pad / Leanback em TV física), `APK-H15` (Player nativo ExoPlayer/Media3 com HLS/legendas/áudio real), `APK-H16` (Cast para receiver Chromecast/Web real), `APK-H17` (Downloads sob falha/espaço limitado em aparelho), `APK-H18` (Instalação, atualização e assinatura com keystore de produção), `APK-H19` (Aceite em dispositivos físicos — celular, tablet e TV), `APK-H20` (Aceite formal do responsável pelo produto), `APK-H21` (Leitura de EPUB/CBZ/AZW3 servidos pela instância real).
+
+## 2. Lista de tarefas priorizada e execução nesta sessão
+
+- [x] **Tarefa 1 (Servidor — Concorrência de instância isolada lado a lado com produção)**: `MariaDbProcessManager.ResolveStartupMutexNames(bool requireEmbeddedProcess, int port)` agora usa `"Global\\MulletaFlix.EmbeddedMariaDb.Port.{port}"` quando `port != 3306`, eliminando o bloqueio do mutex global de produção (`3306`) registrado em `server-metrics-runtime-smoke-mariadb-lock-2026-11-03-2335`.
+- [x] **Tarefa 2 (Servidor — Isolamento de Nginx/DuckDNS em modo de teste/smoke)**: `SecureConnectionProcessManager.ShouldSkipForIsolatedTestEnvironment` ignora o bootstrap externo quando `MFLX_E2E_TEST_MODE=true` ou `MFLX_DISABLE_EXTERNAL_BOOTSTRAP=true`. `MetricsLabelRedactionTests` ampliado e aprovado **14/14** em Release.
+- [x] **Tarefa 3 (Servidor — Smoke live isolado `18096`/`33188` e prova de redaction de `/metrics`)**: `MulletaFlix.dll` (`12.1.46`) iniciado em diretório isolado com MariaDB embarcado na porta `33188` e HTTP na porta `18096` sem tocar a produção (`8096`/`3306`). `/System/Info/Public` respondeu HTTP 200 (`Version=12.1.46`), `/health` respondeu HTTP 200 (`Healthy`), e `/metrics` respondeu HTTP 200 (**326 linhas / 28.317 bytes**) com **0 ocorrências** de `mysqlconnector`, `pool_name`, `User ID`, `Server=` ou `33188`. Instância isolada encerrada e limpa (`Port 18096 listening: False`, `Port 33188 listening: False`).
+- [x] **Tarefa 4 (Frontend Web — Correção do scan de dependências Vite + homologação Playwright E2E e WCAG 2.2 AA)**: corrigido `MulletaFlix-web-master/vite.config.ts` (`htmlPlugin.resolveId` retorna `{ id: source, external: true }` quando `options?.scan` é verdadeiro e `resolve.dedupe` unifica `react`, `react-dom`, `@emotion/react` e `@emotion/styled`), eliminando a falha do scan esbuild em `*.template.html` e a duplicação de instância React em dev server.
+- [x] **Tarefa 5 (Frontend Web — Execução das 3 suítes Playwright + bundle budget)**:
+  - `npx playwright test -c playwright.a11y.config.ts`: **3/3 aprovados** (`28-backup-coverage.spec.ts` 390px/1280px e `29-accessibility.spec.ts` WCAG 2.2 AA `axe-core` em `success`/`loading`/`error`/`empty` em 390px/1280px).
+  - `npx playwright test -c playwright.scrollbuttons.config.ts`: **2/2 aprovados** (`24-scrollbuttons.spec.ts` navegação por teclado, `:focus-visible`, LTR/RTL e estado `disabled`).
+  - `npx playwright test -c playwright.requests.config.ts`: **8/8 aprovados** (`25-myrequests.spec.ts` 390px/1280px, `26-request-autocomplete.spec.ts` teclado/debounce/stale response, `27-nebula-navigation.spec.ts` 390px/1280px, `28-backup-coverage.spec.ts` 390px/1280px).
+  - `npm run verify:build`: **1.929 artefatos válidos**, payload inicial **294,3 KB gzip** (dentro do budget de **420 KB gzip**).
+- [ ] **Tarefa 6 (Bloqueios externos / infraestrutura / hardware humano)**:
+  - [x] Contrato local do workflow CI revalidado em **15/15** testes estáticos; jobs e filtros esperados estão declarados, mas isso não credita execução hospedada.
+  - [x] Probe local reexecutado: `adb` sem devices, WSL sem distribuição, Docker indisponível e `Tools/NebulaPython/venv/bin/python` ausente; nenhum workaround falso foi criado.
+  - Resolver bloqueio de billing no GitHub Actions e executar jobs Linux privilegiados (`O_NOFOLLOW`/`openat2`/POSIX ACL/bind mount).
+  - Validar provedores externos reais (TMDb, OMDb, Fanart, AudioDB, OpenLibrary) com opt-in `MULLETAFLIX_RUN_LIVE_PROVIDER_TESTS=1` e credenciais válidas.
+  - Validar ciclo real Telegram Bot API + Supabase + MongoDB em homologação operacional.
+  - Executar matriz Android (`APK-H02`, `APK-H12`..`APK-H21`) em dispositivos físicos (celular, tablet, Android TV com controle D-pad e receiver Cast) e assinar APK de release com keystore de produção.
+
+# Homologação local integrada: MongoDB descartável, MariaDB descartável, LocalMetadata, NebulaPython e Web — 2026-11-03 23:45 BRT
+
+- [x] MongoDB 8.3 descartável (`127.0.0.1:27099`) + Python 3.10 locked venv: corrigido cursor UUID em `NebulaSupabaseRestoreMongoTests.cs`; suíte `Category=RequiresMongo` em `Jellyfin.Server.Implementations.Tests` passou **38/38 (0 falhas, 0 ignorados)** (`NebulaQueueConcurrencyMongoTests` 31/31 com cross-initializer C#/Python, `NebulaSupabaseRestoreMongoTests` 2/2, `NebulaSupabaseBackupBotTokensMongoTests` 2/2, `NebulaPlaybackRecoveryMongoTests` 1/1, `MongoTopologyCapabilityTests` 2/2).
+- [x] MariaDB 11.4.4 descartável (`127.0.0.1:33189`): corrigido `BackupRestoreMariaDbTests.CreateDisposableConnection` para encaminhar `disposableInstanceConfirmed: true` a `MariaDbTestEnvironment.Validate`.
+- [x] `IntroSkipper.Integration.Tests` contra MariaDB descartável: **96/96 aprovados (0 falhas, 0 ignorados)**, incluindo `BackupRestoreMariaDbTests` **4/4** e `SaveImagesAsync_RetriesAfterMariaDbProcessRestartDuringDelete` **1/1** (com restart real do `mysqld.exe` descartável bloqueado em trigger `BEFORE DELETE`).
+- [x] Suítes MariaDB de `Users` em `Jellyfin.Server.Implementations.Tests`: **64 aprovados, 1 ignorado (Linux `lower_case_table_names == 0`), 0 falhas/65**; `MariaDbProcessManagerLifecycleTests` em `Jellyfin.Server.Tests`: **3/3 aprovados**.
+- [x] `Jellyfin.Server.Integration.Tests` (`ROADMAP.010` e `ROADMAP.014`) executada por classe isolada contra MariaDB descartável com `mysqldump` no `PATH`: **146/146 casos únicos aprovados (0 falhas, 0 ignorados)** nas 26 classes, incluindo `ImageControllerProfileUploadTests` **1/1** e `StartupBackupRecoveryTests` **1/1**.
+- [x] TDD RED/GREEN em `MediaBrowser.LocalMetadata`: `EpisodeLocalImageProvider` compara subpasta `metadata` com `OrdinalIgnoreCase`; `LocalImageProvider` normaliza `Extension.ToLowerInvariant()` ao ordenar por `BaseItem.SupportedImageExtensions`; `LibraryManagerImageConversionTests` passou **6/6**.
+- [x] `Tools/NebulaPython` (`pytest` na venv Python 3.10 locked): **726 aprovados, 2 ignorados (POSIX), 0 falhas**; scripts PowerShell de packaging **5/5**; testes Node de release **33/33**; `MulletaFlix-web-master` Vitest **76 arquivos / 421 testes aprovados** e `tsc --noEmit` **0 erros**.
+- [x] Instâncias descartáveis `127.0.0.1:27099` e `127.0.0.1:33189` encerradas e diretórios temporários limpos; runtime de produção (`8096`), MariaDB operacional (`3306`) e MongoDB operacional (`27017`) intocados.
+- [~] Homologação formal permanece 2/7 (28,6%) até validação em Linux/POSIX, CI hospedada, provedores externos reais e aceite de produção.
+
+# Auditoria comparativa Jellyfin: imagens, capas, subpastas e TMDb — 2026-11-03 22:12 BRT
+
+- [x] TDD RED/GREEN para `MetadataService.RefreshWithProviders`: precedência de `localItem.Images` sobre `localItem.RemoteImages` e preservação de múltiplos backdrops em `localItem.RemoteImages`.
+- [x] TDD RED/GREEN para `ItemImageProvider.MergeImages`: helper `IsImageStoredWithMedia` reconhece subpastas (`extrafanart`, `extrathumbs`, `metadata`) e rejeita caminhos relativos/prefixos colidentes.
+- [x] TDD RED/GREEN para provedores TMDb (`TmdbPersonImageProvider`, `TmdbMovieProvider`, `TmdbSeriesProvider`, `TmdbSeasonProvider`, `TmdbEpisodeProvider`, `TmdbBoxSetProvider`, `TmdbPersonProvider`, `Tmdb*ImageProvider`): validação `int.TryParse > 0`, idioma `MetadataLanguage` em `FindByExternalIdAsync`, fallback quando `/find` retorna lista vazia e correção de precedência `??`.
+- [x] TDD RED/GREEN para `LibraryManager.ConvertImageToLocal` e `ImageController.GetImageInternal`: fallback entre todas as URLs separadas por `|`, preservação de stub em falha transitória (`5xx`/rede) e retorno `204 NoContent` (com tentativa de recuperação de capa de livro) em vez de HTTP 500.
+- [x] Evidência Release serial: `Jellyfin.Providers.Tests` **944 aprovados, 13 ignorados, 0 falhas/957**; `Jellyfin.Server.Implementations.Tests` **1.755 aprovados, 95 ignorados, 0 falhas/1.850**; `Jellyfin.Api.Tests` **831 aprovados, 3 ignorados, 0 falhas/834**; build `MulletaFlix.sln` **0 erros**.
+- [~] Runtime instalado `12.1.45` validado somente por leitura (`/health` e `/System/Info/Public` HTTP 200); correções estão apenas na working tree e homologação formal permanece 2/7 (28,6%).
+
+# Probe pós-pacote 12.1.46 — 2026-11-03 22:25 BRT
+
+- [x] Probe read-only confirmou processo ativo PID `24732`, versão **12.1.45**.
+- [x] `/health`, `/System/Info/Public` e `/Users/Public`: HTTP 200.
+- [!] `/metrics`: HTTP 200, **477.526 bytes**, ainda com `pool_name` 158, `User ID` 158, `Server=` 158 e host 160.
+- [~] Pacote 12.1.46 ainda não aplicado; homologação pós-release não começou.
+
+# Pacote release 12.1.46 — 2026-11-03 22:17 BRT
+
+- [x] Build Release serial da solução concluído com **0 erros e 4 avisos**.
+- [x] ZIP gerado: `dist/mulletaflix-update-win-x64.zip`, 128.092.167 bytes, SHA-256 `B9DA1ED28ED281A8FD89A28EC885B0BD167D61CBF49BEE148E932795D88C70B6`.
+- [x] ZIP validado: 2.524 entradas, `MulletaFlix.dll`, `apply-update.ps1`, `Tools/NebulaPython/stream_service.py` e 1.970 entradas web.
+- [x] Instalador NSIS gerado: `dist/mulletaflix_12.1.46_windows-x64.exe`, 415.470.877 bytes, SHA-256 `2937C7D3958C75EA156FB381CF5B69CD93E4D677AAE06521F0902E503268734B`.
+- [~] Runtime instalado permanece em 12.1.45; aplicação, restart e probe pós-atualização dependem da aplicação manual pelo operador.
+
+# Revalidação runtime e inventário SaveImage — 2026-11-03 19:42 BRT
+
+- [x] Probe read-only: processo ativo, versão **12.1.45**, `/health`, `/System/Info/Public` e `/Users/Public` HTTP 200.
+- [x] `/Items?Limit=1` respondeu HTTP 401 sem credencial; nenhuma credencial foi inferida.
+- [!] `/metrics` respondeu HTTP 200 com **339.050 bytes** e labels potencialmente sensíveis: `pool_name` 186, `User ID` 186, `Server=` 186, host 188.
+- [x] Inventário read-only de `SaveImage`, `SetImageSource`, `RemoteImageInfo` e `ProviderName` não encontrou novo gap confirmado.
+- [~] Runtime instalado não contém correções da working tree; validação autenticada de item/capa/refresh continua bloqueada.
+
+# Regressão ampla API — 2026-11-03 19:32 BRT
+
+- [x] `dotnet test tests/Jellyfin.Api.Tests/Jellyfin.Api.Tests.csproj --configuration Release --no-restore --filter 'FullyQualifiedName!~Integration' --verbosity minimal -m:1` passou **830/833**, com **3 ignorados e 0 falhas**.
+- [x] Cobertura inclui controllers, autorização, imagens remotas, persistência de imagens, cancelamento HTTP e rotas administrativas.
+- [~] Três testes Linux/ACL/concurrency permanecem ignorados; runtime instalado, MariaDB real, CI hospedada e produção continuam sem aceite.
+
+# Regressão ampla Server Implementations — 2026-11-03 18:43 BRT
+
+- [x] `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter 'FullyQualifiedName!~Integration' --verbosity minimal -m:1` passou **1.753/1.848**, com **95 ignorados e 0 falhas**.
+- [x] Resultado cobre ampla área do servidor em Release serial; casos ignorados permanecem explícitos e não contam como aprovados.
+- [x] Comparação read-only com Jellyfin upstream revisada para providers, imagens e metadata.
+- [~] Não valida runtime instalado, Linux/ACL, MariaDB real, providers externos, item/capa reais ou CI hospedada.
+
+# Contorno seguro MariaDB e locks — 2026-11-03 18:02 BRT
+
+- [x] `ItemPersistenceServiceTests` Release serial passou **39/39**, 0 falhas, 0 ignorados.
+- [x] Harness de integração rechecado: exige `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`, loopback, porta não padrão e confirmação `I_ACKNOWLEDGE_TESTS_CREATE_AND_DROP_SCHEMAS`.
+- [x] Variáveis ausentes; binaries standalone conhecidos não encontrados.
+- [x] Proxy para `3306` recusado: burlaria o fail-closed e poderia criar/apagar schemas na base operacional.
+- [~] Integração MariaDB permanece bloqueada até instância descartável real em porta não padrão; alternativas seguras: Docker/Podman/WSL ou binário standalone.
+
+# Revalidação ampla Providers — 2026-11-03 17:57 BRT
+
+- [x] `dotnet test tests/Jellyfin.Providers.Tests/Jellyfin.Providers.Tests.csproj --configuration Release --no-restore --filter 'FullyQualifiedName!~Integration' --verbosity minimal -m:1` passou **931/931**, 0 falhas, 0 ignorados.
+- [x] Resultado cobre evidência local ampla de providers/fallbacks e substitui o filtro focal 84/84 como registro principal.
+- [~] Resultado não concede crédito ao runtime instalado nem valida TMDb/item real/capa persistida.
+
+# Revalidação provider/fallback — 2026-11-03 17:54 BRT
+
+- [x] Grafo existente consultado para providers, idioma, fallback e proveniência: **65.443 nós**.
+- [x] Código confirma `RemoteImageInfo.ProviderName`/`Language` por imagem; TMDb neutro (`xx`) não recebe idioma solicitado.
+- [x] `GetImageLanguagesParam` mantém preferência, `null` e inglês sem duplicar fallback.
+- [x] Filtro focal Release passou **84/84**, 0 falhas; build do projeto concluído com **0 erros e 19 avisos existentes**.
+- [~] `/Items` do runtime instalado exige autenticação: HTTP **401**; `/Users/Public` HTTP **200** com `[]`.
+- [ ] Repetir consulta de item real, capa persistida e refresh após autorização/credencial de homologação; não inferir credenciais.
+
+# Verificação da redaction local de métricas — 2026-11-03 17:44 BRT
+
+- [x] Auditoria confirmou `Jellyfin.Server/Startup.cs` conectado a `MetricsLabelRedactor.ShouldPublishInstrument` no `MeterAdapter`.
+- [x] `MetricsLabelRedactionTests` passou **8/8** em Release; o teste cobre remoção de host/porta/usuário e exclusão do meter `MySqlConnector`.
+- [~] O binário instalado `12.1.45` ainda expõe labels sensíveis em `/metrics`; teste local não concede crédito ao runtime.
+- [ ] Instalar working tree por procedimento controlado e autorizado; repetir probe read-only.
+
+# Probe read-only do runtime instalado — 2026-11-03 17:33 BRT
+
+- [x] Runtime instalado confirmado: `MulletaFlix.exe` versão **12.1.45**, PID **24732**; `/health` e `/System/Info/Public` responderam HTTP **200**.
+- [!] `/metrics` respondeu HTTP 200 com **363.566 bytes** e ainda publicou `pool_name` em **158** ocorrências, `User ID` em **158**, `Server=` em **158** e `127.0.0.1` em **160**; valores foram redigidos e não preservados.
+- [~] Probe foi somente leitura. A working tree continua sem crédito no runtime; não houve instalação, restart, refresh, alteração de configuração/banco, mutação de mídia, commit, push ou release.
+- [ ] Repetir probe após instalação controlada e autorizada para validar redaction de métricas e correções de imagens/metadata.
+
+# Cancelamento em metadata savers — 2026-11-03 16:33 BRT
+
+- [x] RED reproduziu contrato sem token em `IProviderManager.SaveMetadataAsync`; testes focais foram adicionados antes da correção.
+- [x] GREEN adicionou overload compatível com `CancellationToken`, encaminha o token a `IMetadataSaver.SaveAsync` nos ramos com e sem arquivo e preserva `OperationCanceledException`; `LibraryManager` usa o overload cancelável.
+- [x] Evidência: testes focais `SaveMetadataAsync` **2/2**; `Jellyfin.Providers.Tests` sem Integration **930/930**; regressão serial **5.557 aprovados, 98 ignorados, 0 falhas/5.655 casos**, 15 assemblies; build Release **0 erros e 600 avisos existentes**.
+- [~] Correção somente na working tree; runtime instalado 12.1.45, providers remotos reais, CI hospedada, Linux/POSIX, instalação persistente e produção continuam sem aceite.
+
+# Fallback após identificação por provider — 2026-11-03 16:12 BRT
+
+- [x] RED reproduziu `SearchProviderName` filtrando os demais providers; teste falhou porque `OtherProvider` não era chamado.
+- [x] GREEN preserva todos os providers e ordena o provider selecionado primeiro; resultado identificado continua prioritário, mas provider vazio/falho permite fallback.
+- [x] Atualizados testes `RefreshWithProviders_IdentifySearchProvider_PrioritizesSelectedProvider` e `RefreshWithProviders_IdentifySelectedProviderWithoutMetadata_FallsBackToOtherProvider`.
+- [x] Evidência: TDD focal **2/2**; `MetadataServiceTests` **50/50**; `Jellyfin.Providers.Tests` sem Integration **928/928**; regressão serial **5.555 aprovados, 98 ignorados, 0 falhas/5.653 casos**; build Release **0 erros, 594 avisos existentes**.
+- [~] Correção somente na working tree; providers remotos reais, runtime instalado, CI hospedada e Linux/POSIX continuam sem aceite.
+
+# Contrato de falha em providers remotos — 2026-11-03 15:55 BRT
+
+- [x] RED reproduziu provider remoto indisponível convertido em coleção vazia por `ProviderManager.GetImages`; teste falhou porque nenhum erro chegava ao caller.
+- [x] GREEN preserva falhas por provider, lança `AggregateException` apenas quando nenhum provider retorna imagem e mantém fallback quando outro provider responde.
+- [x] `ItemImageProvider.RefreshImages` captura falha agregada como `RefreshResult.Failures`, sem avançar o refresh; `OperationCanceledException` continua propagada.
+- [x] Evidência: testes focais ProviderManager **2/2** e ItemImageProvider **1/1**; Providers sem Integration **927/927**; regressão serial atual **5.554 aprovados, 98 ignorados, 0 falhas/5.652 casos**; build Release **0 erros, 594 avisos existentes**; `git diff --check` passou.
+- [~] Resultado `5.549/5.647` de execução no-background foi superseded por regressão atual após build; resultado `82/82` cobriu apenas último TRX por sobrescrita de arquivo, não suíte completa.
+- [~] Correção somente na working tree; runtime instalado, providers remotos reais, CI hospedada, Linux/POSIX e produção continuam sem aceite.
+
+# Proveniência em imagens dinâmicas — 2026-11-03 15:37 BRT
+
+- [x] RED reproduziu perda de `ProviderName` em imagens HTTP e stream de `IDynamicImageProvider`: testes exigiram `MockDynamicProvider` e falharam com `null`.
+- [x] GREEN gravou `provider.Name` em imagens HTTP e nas imagens salvas por stream/arquivo em `ItemImageProvider.RefreshFromProvider`.
+- [x] Evidência: testes focais **3/3**; `Jellyfin.Providers.Tests` sem Integration **924/924**; build Release serial **0 erros, 20 avisos existentes**; `git diff --check` passou.
+- [~] Correção somente na working tree; runtime instalado `12.1.45`, providers remotos reais, CI hospedada, Linux/POSIX e produção continuam sem aceite.
+
+# Proveniência em image stubs remotos — 2026-11-03 15:18 BRT
+
+- [x] RED reproduziu perda de proveniência quando `RemoteImageInfo.ProviderName` vinha vazio: `SaveImageStub` chamava `SetImageSource` sem o provider atual.
+- [x] GREEN passou o `IRemoteImageProvider` aos caminhos singular e múltiplo de `SaveImageStub`; `SetImageSource` agora aplica `provider.Name` como fallback, mantendo `Language` recebido.
+- [x] Evidência: `RefreshImages_RemoteStubWithoutProviderName_UsesRemoteProviderName` passou **1/1**; `Jellyfin.Providers.Tests` Release passou **924 aprovados, 13 ignorados, 0 falhas/937**; `git diff --check` passou.
+- [x] Tentativa concorrente encontrou lock de `MediaBrowser.Controller.dll` por `testhost`; build Release serial posterior passou com **0 erros e 565 avisos existentes**. Runtime instalado `12.1.45` continua sem a correção.
+- [x] Build Release serial repetido após a regressão concorrente; `git diff --check` passou.
+- [x] Regressão serial completa sem Integration recuperada do log `mulletaflix-regression-20261103-live-cancel-final.log`: **5.551 aprovados, 98 ignorados, 0 falhas/5.649 casos**, 15 assemblies, exit 0.
+
+# Revisão adversarial do cancelamento Live TV — 2026-11-03 15:18 BRT
+
+- [x] RED reproduziu dois gaps: ausência do método público de três argumentos e cancelamento durante geração de NFO não era relançado.
+- [x] GREEN preservou overload de três argumentos, propagou token a `SaveSeriesNfoAsync`/`SaveVideoNfoAsync`, verificou cancelamento após carregar configuração NFO e tratou cancelamento normal no callback assíncrono de `RecordingsManager` sem log de erro.
+- [x] Evidência: `RecordingsMetadataManagerTests` **4/4**; projeto `Jellyfin.LiveTv.Tests` **84/84**; build Release da solução **0 erros, 565 avisos existentes**.
+- [x] Regressão serial completa sem Integration foi concluída após o patch: **5.551 aprovados, 98 ignorados, 0 falhas/5.649 casos**, 15 assemblies, exit 0.
+- [~] Runtime instalado `12.1.45` não contém a correção. Não houve instalação, restart, refresh ou mutação de produção.
+
+# Cancelamento nas imagens de gravações Live TV — 2026-11-03 15:18 BRT
+
+- [x] RED reproduziu a ausência de token em `RecordingsMetadataManager.SaveRecordingMetadata`; o novo teste não compilou enquanto a API pública aceitava somente três argumentos.
+- [x] GREEN adicionou `CancellationToken` opcional, propagou o token da gravação em `RecordingsManager`, encaminhou-o a todas as conversões de imagens e preservou `OperationCanceledException` nos ramos de imagem.
+- [x] Evidência: `RecordingsMetadataManagerTests` **82/82**; build Release da solução **0 erros, 565 avisos existentes**; `git diff --check` aprovado. Busca de twins por `ConvertImageToLocal` encontrou callers de produção com token; usos sem token restantes estão nos testes de compatibilidade.
+- [~] Runtime instalado `12.1.45` não contém a correção. Não houve instalação, restart, refresh ou mutação de produção.
+- [ ] PENDING: instalar a correção por procedimento autorizado e repetir probe read-only do runtime — awaiting your authorization.
+
+# Atualização de imagens: propagação de cancelamento — 2026-11-03 14:38 BRT
+
+- [x] RED reproduziu contrato ausente: `ImageControllerIndexTests` não compilava ao exigir `CancellationToken` em `ILibraryManager.UpdateImagesAsync`.
+- [x] GREEN adicionou token opcional a `UpdateImagesAsync` e `RunMetadataSavers`; `LibraryManager` encaminha cancelamento a `ConvertImageToLocal` e `SaveImagesAsync`, com verificação por imagem.
+- [x] Propagados tokens disponíveis em `ImageController`, `BaseItem.RefreshMetadata`, `Folder` e `UpdateItemsAsync`.
+- [x] Evidência: `ImageControllerIndexTests` **3/3**; `LibraryManagerImageConversionTests` **2/2**; `Jellyfin.Api.Tests` sem Integration **830 aprovados, 3 ignorados, 0 falhas/833**; regressão serial sem Integration **5.545 aprovados, 98 ignorados, 0 falhas/5.643 casos observados**; build Release **0 erros, 600 avisos existentes**; `git diff --check` aprovado. O agregado histórico do portal **5.642/5.740** foi preservado, sem mistura de denominadores.
+- [~] Runtime instalado `12.1.45` não contém a correção. Não houve instalação, restart, refresh ou mutação de produção.
+- [ ] PENDING: instalar a correção por procedimento autorizado e repetir probe read-only do runtime — awaiting your authorization.
+
+# Auditoria — cancelamento na conversão de imagem — 2026-11-03 14:20 BRT
+
+- [x] Adicionar teste TDD para exigir o mesmo `CancellationToken` em `SaveImage` e `UpdateToRepositoryAsync` durante `ConvertImageToLocal`; RED anterior falhou por contrato de interface ausente.
+- [x] Alterar `ILibraryManager.ConvertImageToLocal` com token opcional e encaminhar o token no `LibraryManager`.
+- [x] Propagar tokens disponíveis em `ImageController` e `GuideManager`.
+- [x] Validar `LibraryManagerImageConversionTests`: **2/2**; build Release da solução: **0 erros, 600 avisos existentes**.
+- [~] Runtime instalado 12.1.45 não contém a correção; instalação/restart seguem bloqueados sem autorização e procedimento controlado.
+
+# Probe read-only de produção e comparação upstream — 2026-11-03 14:04 BRT
+
+- [x] Runtime instalado confirmado: `MulletaFlix.exe` versão `12.1.45`, PID `24732`; MariaDB empacotado versão `11.4.4`, PID `8792`, ouvindo somente em `127.0.0.1:3306`. `/health`, `/System/Info/Public` e `/metrics` responderam HTTP 200.
+- [!] `/metrics` do binário instalado publicou `pool_name` em **158** linhas, com **158** ocorrências de `User ID`, **158** de `Server=` e **188** de `127.0.0.1`; valores foram redigidos e não preservados. Isso corrige a observação anterior de 130 linhas: a correção local não está instalada.
+- [x] Consultas MariaDB read-only passaram: versão `11.4.4-MariaDB`, `max_connections=300`, buffer pool `256 MiB`, **0 transações ativas** e três conexões de aplicação em `Sleep` no instante do probe.
+- [!] `SHOW ENGINE INNODB STATUS` confirmou o mecanismo do deadlock: uma transação fazia `INSERT` em lote em `BaseItemImageInfos` enquanto outra executava `DELETE ... WHERE ItemId = ...`; ambas disputaram o índice `IX_BaseItemImageInfos_ItemId_ImageType`. MariaDB reverteu a transação de inserção.
+- [x] A working tree atual já serializa `SaveImagesAsync` e `DeleteItem` com stripes locais + lock MariaDB, além de retry; o binário instalado 12.1.45 ainda não contém essa proteção nem a redaction de métricas.
+- [x] Verificação local serial: `MetricsLabelRedactionTests` **8/8** e `ItemPersistenceServiceTests` **39/39**. Isso não concede crédito ao runtime instalado.
+- [x] Comparação read-only com Jellyfin upstream: o upstream atual mantém `DELETE` + `INSERT` em `SaveImagesAsync` sem a serialização/retry local; o refresh upstream preserva prune parcial de backdrops somente após novos downloads. A divergência local é uma mitigação deliberada, não uma incompatibilidade acidental. Fontes: `Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs` e `MediaBrowser.Providers/Manager/ItemImageProvider.cs` no repositório oficial.
+- [~] Incidente operacional permanece aberto. Não houve restart, instalação, refresh, alteração de configuração, alteração de banco ou mutação de mídia.
+
+# Log de produção: deadlocks, contenção de arquivos e starvation — 2026-11-03 13:59 BRT
+
+- [x] Analisado log anexado com **5.981 linhas**, **732 entradas estruturadas** no intervalo `07:10:15.464`–`11:28:56.252`: **279 ERR, 312 WRN, 141 INF**.
+- [!] P0/P1 operacional: **182** ocorrências de deadlock MariaDB; **124** comandos SQL falharam, repetidamente em `DELETE FROM BaseItemImageInfos`; houve **96** retries de imagens e **29** retries de persistência de itens. O log termina durante novo retry; não prova sucesso posterior nem exaustão.
+- [!] P1: **21** avisos de heartbeat do Kestrel, com atraso máximo observado de **1m14,232s**, compatível com starvation/contensão grave durante a carga.
+- [!] P1: **59** falhas de gravação de imagens por arquivo em uso, além de falhas de blurhash/dimensões; **16** erros de metadata saver por arquivos temporários MariaDB ausentes (`#sql-temptable-*`).
+- [~] **23** autenticações falharam porque `request.AppVersion` chegou vazio; **13** tentativas posteriores foram bloqueadas pelo rate limit. Indício de cliente/probe inválido em loop, não de credencial preservada.
+- [x] Não foram encontrados `pool_name`, connection string, senha, `UnauthorizedAccessException`, startup ou shutdown no recorte fornecido.
+- [~] O log de produção não contém `processId`/`assemblyVersion` no retry de imagens, enquanto a working tree atual já os registra em `ItemPersistenceService.cs`; isso é consistente com runtime anterior às correções atuais, mas não substitui prova de versão do processo.
+- [~] Nenhuma mutação foi executada no runtime. Aceite de produção permanece aberto até correlacionar deadlocks com `SHOW ENGINE INNODB STATUS`, processos/conexões e resultado final dos retries.
+
+# Cancelamento em ItemLookup e regressão sistêmica — 2026-11-03 13:45 BRT
+
+- [x] RED reproduziu `ItemLookupController` ignorando cancelamento HTTP em buscas remotas e `ApplySearchCriteria`.
+- [x] GREEN substituiu todos os `CancellationToken.None` do controller por `HttpContext.RequestAborted`; buscas remotas, refresh, fallback de imagem e persistência agora respeitam abort do request.
+- [x] TDD focal passou **3/3**; busca confirmou **0** ocorrências de `CancellationToken.None` em `ItemLookupController.cs` e `RemoteImageController.cs`.
+- [x] API sem Integration passou **828 aprovados, 3 ignorados, 0 falhas/831**; build Release passou **0 erros**; regressão serial sem Integration passou **5.642 aprovados, 98 ignorados, 0 falhas/5.740**.
+- [~] Runtime instalado não contém a correção; providers reais, CI/Linux, instalação persistente e homologação formal global permanecem pendentes.
+
+# Runtime instalado expõe label sensível em `/metrics` — 2026-11-03 13:34 BRT
+
+- [x] Probe read-only confirmou runtime instalado `12.1.45` em `C:\\Program Files\\MulletaFlix\\Server\\MulletaFlix.exe`, PID `24732`; `/health` e `/System/Info/Public` responderam HTTP 200.
+- [x] `/metrics` respondeu HTTP 200, mas publicou `pool_name` do MySqlConnector em **130 linhas**; os valores foram redigidos e não foram preservados.
+- [x] A working tree contém `MetricsLabelRedactor`; `MetricsLabelRedactionTests` passou **8/8** em Release.
+- [~] Correção local ainda não foi instalada. Não creditar runtime 12.1.45; novo probe após instalação autorizada permanece necessário. Nenhuma mutação de produção foi executada.
+
+# Cancelamento HTTP em imagens remotas e regressão sistêmica — 2026-11-03 13:20 BRT
+
+- [x] RED confirmou que `RemoteImageController` enviava `CancellationToken.None` ao lookup de `RemoteImageInfo`.
+- [x] GREEN usa `HttpContext.RequestAborted` em `GetRemoteImages` e `DownloadRemoteImage`, incluindo busca de candidatos, `SaveImage` e persistência.
+- [x] TDD focal de cancelamento passou **2/2**; `RemoteImageControllerTests` passou; API sem Integration passou **826 aprovados, 3 ignorados, 0 falhas/829**.
+- [x] Build Release passou com 0 erros; regressão serial sem Integration passou **5.640 aprovados, 98 ignorados, 0 falhas/5.738**; portal passou **361/361**.
+- [~] Runtime instalado 12.1.45, provider remoto real, CI/Linux, instalação persistente, produção e homologação formal global permanecem pendentes.
+
+# Fallback de providers após falha não-HTTP — 2026-11-03 12:57 BRT
+
+- [x] RED reproduziu `IOException` no primeiro candidato interrompendo `RefreshImages` singular.
+- [x] GREEN continua para o próximo candidato em falhas não-HTTP e propaga cancelamento sem converter `OperationCanceledException` em sucesso vazio.
+- [x] Evidência: teste focal 1/1; Providers sem Integration 923/923; regressão serial sem Integration 5.638 aprovados, 98 ignorados, 0 falhas/5.736; build Release 0 erros.
+- [~] Runtime instalado 12.1.45, providers remotos reais, CI/Linux, instalação persistente, produção e homologação formal global permanecem pendentes.
+
+# Download manual de imagens remotas e isolamento da suíte API — 2026-11-03 12:43 BRT
+
+- [x] RED reproduziu perda de `ProviderName`/`Language` em `RemoteImageController.DownloadRemoteImage` após `SaveImage`.
+- [x] GREEN resolve `RemoteImageInfo` pela URL/tipo selecionados, copia proveniência para `ItemImageInfo` e mantém persistência via `UpdateToRepositoryAsync`.
+- [x] TDD focal: `RemoteImageControllerTests.DownloadRemoteImage_PersistsSelectedRemoteImageProvenance` passou 1/1 após RED.
+- [x] Corrida de `BaseItem.LibraryManager` corrigida com coleção não paralela `LibraryManagerTests`; filtro combinado de quatro classes passou 5/5.
+- [x] API sem Integration: 824 aprovados, 3 ignorados, 0 falhas/827. Build Release: 0 erros, 576 avisos existentes.
+- [~] O runtime instalado 12.1.45 não contém a working tree; falta integração real com repositório/provider remoto e aceite sistêmico global.
+
+# Seleção exclusiva do provider identificado e regressão sistêmica — 2026-11-03 11:28 BRT
+
+- [x] RED reproduziu execução de provider não selecionado quando `SearchResult.SearchProviderName` estava preenchido em `MetadataService.RefreshWithProviders`.
+- [x] GREEN restringiu a lista de metadata providers ao provider identificado, com comparação ordinal case-insensitive; sem nome identificado, mantém a lista completa.
+- [x] Evidência: teste focal `RefreshWithProviders_IdentifySearchProvider_OnlyRunsSelectedProvider` 1/1; `MetadataServiceTests` 49/49; Providers sem Integration 921/921; regressão serial 5.537 aprovados, 98 ignorados, 0 falhas/5.635; build Release 0 erros/593 avisos existentes.
+- [x] Revalidado o caso anteriormente observado como falha `SaveRemoteResultImages_SingularFailureRecoveredByNextProvider_DoesNotRemainFailed`: 1/1 isolado; a falha não reproduziu após serialização.
+- [~] Comparação com Jellyfin upstream concluída em modo read-only; a restrição local é mais estrita que a ordenação upstream e ainda precisa de validação com providers remotos reais.
+- [~] Homologação sistêmica permanece aberta: runtime instalado 12.1.45 sem a working tree, CI/Linux, instalação persistente, providers reais, segurança, carga, telemetria, autorização ponta a ponta e produção sem aceite formal.
+
+# Rodada de proteção de imagens, referências compartilhadas e fallback inglês — 2026-11-03 10:47 BRT
+
+- [x] Reproduzido em RED e corrigido em GREEN o prune parcial que removia stale sem replacement; refresh agora poda somente replacements efetivos e prioriza stale não-inglês no fallback inglês.
+- [x] Reproduzido em RED e corrigido em GREEN o risco de perda de dados por path compartilhado entre tipos/entidades; delete físico exige índice global disponível e ausência de referência em qualquer tipo/entidade. Sem índice ou em erro, fluxo fica detach-only.
+- [x] Reproduzido em RED e corrigido em GREEN o erro de filesystem; `IOException` gera warning e não impede `RemoveImages` lógico.
+- [x] Coberto branch de stream de provider dinâmico; `ProviderName` é preservado após `SaveImage` em HTTP, arquivo e stream.
+- [x] Evidência: `ItemImageProviderTests` 85/85; `Jellyfin.Providers.Tests` sem Integration 920 aprovados, 0 ignorados, 0 falhas; build Release 0 erros/593 avisos existentes; regressão serial 5.536 aprovados, 98 ignorados, 0 falhas/5.634 casos; `git diff --check` aprovado.
+- [~] Homologação sistêmica permanece aberta: runtime instalado 12.1.45 não contém a working tree; providers remotos reais, fallback entre múltiplos providers, CI hospedada, Linux/POSIX, instalação persistente, produção, segurança, carga, telemetria e autorização ponta a ponta ainda não possuem aceite formal.
+
+## PR #1 — recuperar logs antes de corrigir — 2026-11-02
+
+
+- [x] Confirmado PR aberto, head `9a14e93b15e20deabdca159c04f8867d2a8292bb`, 77 commits, 401 arquivos e run `41005367220` com 16 jobs falhos.
+- [x] Worktree local solicitado recriado na branch `codex/fail-closed-inplace-updater`; nenhum código alterado.
+- [x] Annotations dos 16 jobs do run mais recente e do job de build do run `41005367220` confirmam um bloqueio de billing da conta GitHub; os jobs não iniciaram.
+- [ ] Após o operador resolver o bloqueio de billing, repetir a CI; corrigir somente falhas de código demonstradas pelos jobs que efetivamente iniciarem.
+- [ ] Homologação formal continua em 2/7 (28,6%). Não criar release ou publicar portal antes da evidência e dos gates.
+## Retomada e revalidação após encerramento forçado — 2026-11-02 22:25 BRT
+
+Reabri `main` (`fa1289b6`) e confirmei ausência de processos `dotnet`/`testhost` remanescentes. Os processos Python encontrados pertencem ao Nebula (`main.py`) e à rotina `clean_already_sent.py`; foram preservados. O estado atual contém os retries transacionais em `ChapterRepository`, `MediaStreamRepository` e `PeopleRepository`; a errata abaixo de 21:35 descreve estado histórico anterior às implementações das 21:42–21:58.
+
+`dotnet test MulletaFlix-master/tests/IntroSkipper.Integration.Tests/IntroSkipper.Integration.Tests.csproj --no-restore --configuration Release --filter FullyQualifiedName~ItemRepositoryTransientRetryTests` terminou com exit 0: 17 aprovados, 0 ignorados/falhas, cerca de 12 s incluindo build. Nenhum banco/serviço operacional foi acessado. O teste MariaDB descartável 1/1 das 22:18 é evidência anterior, não repetida. MariaDB documenta que 1205 reverte a instrução por padrão, e não necessariamente a transação inteira; o código descarta contexto/transação e repete a unidade completa. Homologação 2/7 (28,6%), sem crédito; sem release. Linux, CI hospedada, runtime instalado e produção pendentes.
+
+# Retries transacionais de capítulos, streams e pessoas — 2026-11-02 21:58 BRT
+
+Implementados em `ChapterRepository.SaveChapters/SaveChaptersAsync`, `MediaStreamRepository.SaveMediaStreams/SaveMediaStreamsAsync` e `PeopleRepository.UpdatePeople`: cada tentativa refaz a unidade transacional completa com contexto novo, aceita apenas códigos MariaDB 1205/1213, limita a três tentativas com pausas de 150/300 ms e registra warning. Em PeopleRepository, o lock do item é mantido durante o ciclo de retry; construtores de dois argumentos continuam compatíveis.
+
+Validação focal total: `ItemRepositoryTransientRetryTests` passou 17/17 no Windows/.NET 10; cobre 1205/1213, até três tentativas, preservação da relação antiga e não-retry de erro permanente. `dotnet format whitespace ... --verify-no-changes` e `git diff --check` passaram. MariaDB descartável, Linux, CI hospedada, runtime instalado e produção não foram validados. Homologação formal segue 2/7 (28,6%), sem crédito; nenhuma release.
+
+## MariaDB real: retry após lock wait timeout — 2026-11-02 22:18 BRT
+
+O teste `SaveChaptersAsync_RetriesAfterRealMariaDbLockTimeout` agora configura `innodb_lock_wait_timeout=1` por sessão, via interceptor EF Core e factory de contexto exclusiva do teste. Executado em MariaDB 11.4.4 descartável na porta 33179 com timeout global 50 s: obteve 1205, observou o warning de retry, liberou o lock e confirmou a substituição concluída; global permaneceu 50 s. Integração real 1/1; `ItemRepositoryTransientRetryTests` 17/17; format focal e `git diff --check` passaram. Instância descartável foi encerrada. Dados/logs temporários ficaram em `%TEMP%`; MariaDB operacional na 3306 não foi acessado. Sem crédito formal (2/7), sem release; Linux, CI hospedada, runtime instalado e produção pendentes.
+
+## Revisão da evidência de rollback — 2026-11-02 22:04 BRT
+
+O interceptor do teste de `PeopleRepository` agora injeta 1205/1213 no commit, depois das gravações transacionais, em vez de falhar no início da transação. O caso de retry verifica que o mapa antigo foi restaurado antes da tentativa seguinte. Reexecução de `ItemRepositoryTransientRetryTests`: 17/17. MariaDB real segue pendente.
+
+## Rollback pós-escrita em todos os repos — 2026-11-02 22:08 BRT
+
+O teste agora usa o mesmo interceptor de commit para ChapterRepository, MediaStreamRepository e PeopleRepository, nos caminhos síncronos e assíncronos. Isso substitui falhas interceptadas antes do DELETE e comprova recuperação do conjunto anterior após falha depois das gravações. `ItemRepositoryTransientRetryTests`: 17/17; formatter e `git diff --check` aprovados. SQLite simula códigos MariaDB; não substitui o lock real descartável.
+
+# Errata: retries de transações em capítulos e streams — 2026-11-02 21:35 BRT
+
+A conferência do checkout atual (branch main, HEAD fa1289b686bf7130315b6f36ab417064f054e8c9) contradiz afirmações anteriores no roadmap e no vault. `ChapterRepository.SaveChapters`, `ChapterRepository.SaveChaptersAsync`, `MediaStreamRepository.SaveMediaStreams` e `MediaStreamRepository.SaveMediaStreamsAsync` executam DELETE + INSERT em transação sem retry para MariaDB 1205/1213. Callers confirmados: `ChapterManager.SaveChapters` (síncrono); `FFProbeVideoInfo` e `AudioFileProber` usam os caminhos assíncronos. Não há testes desses repositórios no checkout atual. O retry configurado em `ItemPersistenceService` não é aplicado automaticamente a esses contextos.
+
+Registros anteriores que afirmam retries implementados (roadmap, ficha e sessões de 02/11) não são corroborados pelo código e pelos worktrees atuais; tratá-los como desatualizados. A hipótese de que mudanças de código/teste tenham se perdido numa sessão interrompida não foi comprovada. Nenhum código foi alterado nesta auditoria; testes não executados. Próximo passo: reconstruir teste de repetição integral com contexto/transação novos e validar 1205/1213 em fixture, seguido de MariaDB descartável opt-in. Sem crédito de homologação ou release. Fonte de técnica: https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency — retry precisa envolver a transação completa.
+
+# Auditoria NextUp com catálogo ampliado — 2026-11-02 21:28 BRT
+
+- [x] Experimento limitado em MariaDB descartável: fixture de 2.000 episódios fora do filtro; falhas de expectativa do teste documentadas e mudanças experimentais revertidas.
+- [x] Contrato do portal validado: 360/360; página local atualizada para 693 eventos, lote externo 3/10.
+- [x] Existe evidência limitada de `ANALYZE FORMAT=JSON` em MariaDB 11.4.4 com fixture pequena de 6 séries/19 episódios: query block 0,568 ms; isso não representa escala nem prova ganho.
+- [x] A tentativa de ampliar o fixture com 2.000 episódios fora do filtro foi revertida por produzir expectativa inválida e não capturar o plano ampliado; nenhuma lógica de produção mudou.
+- [ ] Continua pendente um catálogo/fixture representativo que permita interpretar linhas examinadas, loops e duração sem pressupostos frágeis. Linux, CI hospedada, runtime instalado e produção seguem pendentes; formal 2/7 (28,6%), sem release.
+
+# Regressão ampla da solução do servidor — HEAD fa1289b — 2026-10-27 14:25 BRT
+
+# Auditoria de restore e falha TLS do Nebula — 2026-10-27 18:31 BRT
+
+- [x] `FullyQualifiedName~FullSystemBackup` passou em Windows/.NET 10 Release: 142 aprovados, 16 ignorados, 0 falhas/158.
+- [x] Revisão Linux confirmou que o workflow contém job privilegiado Ubuntu e filtro estrito para os testes Linux; esta máquina não tem runtime Linux utilizável, então o job remoto não foi consultado nem executado nesta sessão.
+- [x] Log STRM registra 95 falhas `TLSV1_UNRECOGNIZED_NAME`. Dois `.strm` usados como amostra apontam para `cn53.org`; handshake TLS básico para o host passou localmente. Testes Python 3.10 do downloader: 99/99.
+- [ ] URL completa e redirect do provedor não foram acessados; runtime instalado que gerou o log não foi encontrado neste host. Causa de TLS permanece sem confirmação e sem correção de código; não enfraquecer validação TLS.
+- [ ] Testes Linux/ACL e evidência CI hospedada continuam pendentes. Restore P0 e homologação formal 2/7 (28,6%) permanecem abertos; esta sessão não cria release.
+
+- [x] `dotnet test MulletaFlix.sln --configuration Release --no-restore --no-build --filter 'FullyQualifiedName!~Integration' --verbosity quiet -m:1` terminou com exit code 0 no Windows/.NET 10 Release.
+- [x] TRX por projeto reconciliados: 17 relatórios, 5.473 `Passed`, 98 `NotExecuted`, 0 falhas/5.571 resultados. Os 98 não são aprovações; casos de integração com FQN contendo `Integration` ficaram fora do filtro.
+- [ ] Linux/ACL, integrações/opt-ins MariaDB e MongoDB, CI hospedada, runtime instalado e produção seguem pendentes. Formal permanece 2/7 (28,6%), sem crédito/release.
+
+# Restore — reexecução atual FullSystemBackup Windows — 2026-10-27 17:07 BRT
+
+- [x] Reexecutado em Release no checkout atual: 142 aprovados, 16 ignorados, 0 falhas/158; exit code 0.
+- [x] TRX classifica 14 skips Linux (dirfd, O_NOFOLLOW, statx, POSIX ACL, symlink e mounts) e 2 skips macOS.
+- [ ] Linux/ACL/TOCTOU, CI recuperável, runtime instalado e produção continuam sem validação. Os skips não contam como aprovação; restore P0 permanece aberto, homologação formal 2/7 (28,6%), sem crédito/release.
+
+# Restore — confirmação do sinal de encerramento após agendamento — 2026-10-27 14:34 BRT
+
+- [x] O teste `ScheduleRestoreAndRestartServer_SetsRestorePathAndKeepsOperationsBlocked` agora aguarda o callback de `IHostApplicationLifetime.StopApplication()` e verifica uma única chamada após o atraso de agendamento.
+- [x] Teste focal Windows/.NET 10 Release passou 1/1; caminho de restore, `ShouldRestart` e bloqueio de operação concorrente continuam verificados.
+- [ ] Este teste valida somente o sinal de shutdown. O caso “replay do archive agendado no startup” abaixo cobre duas chamadas do gate no mesmo processo de teste, mas não executa o loop real de StartApp/StartServer. Em produção o host reinicia no mesmo processo por StopAsync/RunAsync; não há relançamento do executável. Linux/ACL, CI hospedada, runtime instalado e produção continuam pendentes; T6.2 parcial, formal 2/7, sem crédito/release.
+
+# Restore — replay do archive agendado no startup — 2026-10-27 14:50 BRT
+
+- [x] `ScheduledRestore_RestoresArchiveBeforeStartupInitialization` liga o agendamento real de `BackupService`, a espera por `StopApplication`, a transferência dos campos estáticos por `Program.CaptureRestartState` (helper chamado pelo `StartServer`) e os helpers `RunAfterBackupRecoveryAsync` + `ContinueAfterBackupRecoveryAsync` do startup seguinte.
+- [x] Windows/.NET 10 Release: teste focal passou 1/1; o formatter passou e o contrato do portal passou 358/358. O conteúdo do archive foi aplicado antes da migração/inicialização; o gate interrompe esta passagem e o journal termina removido. O teste restaura os campos estáticos para seus valores prévios.
+- [ ] Não executa `Program.Main` nem o loop real de `StartApp`/`StartServer` com o host operacional. O restart de produção repete o host no mesmo processo, não cria processo novo. Linux/ACL, CI hospedada, runtime instalado e produção seguem pendentes; T6.2 parcial, formal 2/7 (28,6%), sem crédito ou release.
+
+# T6.2 — admissão concorrente e exclusão do restore — reauditoria 2026-10-27 14:00 BRT
 
 - [x] `POST /Backup/Restore` e `POST /Backup/RestorePointInTime` agora entram no semáforo global das operações de backup pesado, compartilhado com `POST /Backup/Create` e restores Supabase.
 - [x] Testes determinísticos cobrem ambos os endpoints: concorrente recebe `429` com `Retry-After: 1`; playback GET continua; capacidade retorna após liberar a requisição.
 - [x] Reauditoria confirmou que `BackupService.TryBeginOperation` mantém a exclusão operacional em `_backupOperationInProgress` do início ao fim de backup/restore assíncrono. `ScheduleRestoreAndRestartServer` retém o gate até o processo ser encerrado; a recuperação de restore mantém o mesmo gate.
 - [x] Regressão atual em Windows/.NET 10 Release: `ConcurrentRestoreRequests_AreRejectedWithoutBlockingPlayback` passou 2/2 e `CreateBackupAsync_RejectsConcurrentOperationAndReleasesGateAfterFailure` 1/1. O segundo teste exercita restore/scheduling rejeitados enquanto backup está ativo e liberação após falha.
-- [ ] O teste não exercita restore ativo contra novo backup na direção inversa, nem o ciclo real de reinício após scheduling. Carga representativa, calibração, CI hospedada, Linux, runtime instalado e produção seguem pendentes; T6.2 parcial, formal 2/7, sem release.
+- [x] `RestoreBackupAsync_RejectsConcurrentBackupUntilRestoreCompletes` bloqueia deterministicamente o restore após criar o sidecar do arquivo original e comprova que `CreateBackupAsync` é rejeitado até o restore concluir. Os três testes focais de gate passaram juntos: 3/3 em Windows/.NET 10 Release.
+- [x] Revalidação no HEAD `fa1289b`: suíte `FullyQualifiedName~FullSystemBackup` passou 141, ignorou 16 e falhou 0/157 em Windows/.NET 10 Release; os ignorados são gates de plataforma/privilégio e não validam Linux.
+- [ ] O ciclo real de reinício após scheduling, carga representativa, calibração, CI hospedada, Linux, runtime instalado e produção seguem pendentes; T6.2 parcial, formal 2/7, sem release.
 
 # Pessoas órfãs e concorrência com atualização — correção confirmada em 2026-10-27
 
@@ -55,6 +723,32 @@ Validação: regressão unitária focada 1/1; `ItemPersistenceServiceTests` 38/3
 - [x] `MariaDbStartupMutexTests` e `MariaDbProcessManagerLifecycleTests` passaram juntos 5/5 em Windows/.NET 10 Release. O teste integrado executou o MariaDB empacotado em porta dinâmica e datadir exclusivo; start-stop-start manteve uma linha inserida.
 - [x] Pós-teste: somente PID 31236 segue como `mysqld` e escuta em 127.0.0.1:3306; nenhum diretório `MfxMariaDbLifecycle-*` sob Temp. A instância operacional não foi usada pelo teste.
 - [ ] Isso não valida CI hospedada, Linux, a DLL/runtime do servidor instalado nem produção; formal continua 2/7, sem crédito/release.
+
+## Rodada 2026-11-03 — refresh sem operação e runtime instalado
+
+- [x] Corrigir preferência localizada de backdrop: propagar `preferredLanguage` até `RefreshFromProvider` e cobrir fallback HTTP não-imagem; testes focais 1/1 + 1/1, `ItemImageProviderTests` 81/81 após incluir preferência global em item vazio e isolamento de estado estático, Providers 916 aprovados/13 ignorados.
+- [x] Limpar arquivo local de backdrop remoto substituído quando `ProviderName` comprova proveniência remota, sem apagar backdrop manual sem proveniência; TDD focal 1/1, `RemoveImages` preserva comportamento não destrutivo.
+- [x] Prunar somente a quantidade de backdrops obsoletos que recebeu replacement quando resposta remota falha parcialmente; TDD `RefreshImages_PartialBackdropReplacementKeepsUnreplacedStaleBackdrop` 1/1.
+- [~] Arquivos compartilhados entre entidades ainda não possuem verificação global de referências; implementação evita duplicata no próprio item e mantém essa limitação documentada.
+- [x] Expandir regressão de backdrops para múltiplos remotos obsoletos: `RefreshImages_ReplacesMultipleStaleRemoteBackdropsBeforePruning` passou 1/1; `ItemImageProviderTests` 75/75.
+- [x] Serializar `ImageSaverTests` na coleção não paralela `LibraryManagerTests` após revisão adversarial identificar mutação de estado global; filtro passou 5/5.
+- [x] Corrigir substituição de backdrop remoto obsoleto quando existe backdrop manual e limite configurado baixo: TDD RED reproduziu ausência do download com limite 1; GREEN passou 2/2, classe `ItemImageProviderTests` 74/74, Providers sem Integration 909/909 após repetir a suíte e build Release 0 erros.
+- [~] A ordem upstream de backdrops ainda coloca candidatos sem idioma antes de candidatos localizados em `RefreshFromProvider`; comportamento é paridade Jellyfin, mas permanece sem homologação de produto para limites/múltiplos backdrops.
+
+- [x] `MetadataService.RefreshMetadata` não avança `DateLastRefreshed` quando `MetadataRefreshMode` e `ImageRefreshMode` são `None`; teste RED/GREEN `RefreshMetadata_NoRefresh_DoesNotAdvanceDateLastRefreshed`, Providers 898/911, build Release 0 erros.
+- [x] `ValidationOnly` continua sem avançar `DateLastRefreshed`; teste `RefreshMetadata_ValidationOnly_DoesNotAdvanceDateLastRefreshed` passou junto no filtro focal.
+- [ ] Validar correção no runtime instalado: o executável instalado é 12.1.46, está parado e não contém a working tree/bundle atual validados; requer instalação/restart controlado, sem alterar produção automaticamente.
+- [~] Probe read-only do runtime instalado revalidado em 2026-11-03 07:30: processo `MulletaFlix.exe` 12.1.45 ativo, `/health` HTTP 200 `Healthy` e `/System/Info/Public` HTTP 200; não credita correções da working tree.
+- [~] Regressão serial do servidor sem Integration revalidada em 2026-11-03: **5.532 aprovados, 98 ignorados, 0 falhas, 5.630 casos**; skips de plataforma/opt-in permanecem pendentes.
+- [~] `ImageProcessor`, `ImageSaver` incluindo fallback em múltiplos caminhos e streams non-seekable, IDs TMDb inválidos nos providers de imagens, persistência MariaDB de imagens, preferência global/local de idioma, fallback textual e limpeza conservadora de backdrops remotos têm cobertura TDD local concluída; referências compartilhadas entre entidades, corrida de refresh, fallback entre múltiplos providers e validação em runtime instalado continuam pendentes.
+- [x] Corrigir colisão de cache entre `PercentPlayed` e `UnwatchedCount`; teste `ImageProcessorCacheKeyTests` 1/1, filtro API/imagens 3/3, build Release 0 erros.
+- [x] Corrigir `ImageController.SetItemImageByIndex` para encaminhar `imageIndex`; teste TDD 1/1, filtro `ImageController` 53/53, build Release 0 erros.
+- [x] Corrigir perda de `ProviderName`/`Language` em `LibraryManager.ConvertImageToLocal`; teste TDD 1/1, regressão Implementations 1.752/1.847 com 95 ignorados, build Release 0 erros.
+- [x] Corrigir retry truncado em `ImageSaver`: reset de streams seekable e buffer de streams não seekable com retry path; `ImageSaverTests` 3/3, Providers 899/912 com 13 ignorados, build Release 0 erros.
+- [x] Preservar `ProviderName` nos caminhos HTTP e arquivo de `IDynamicImageProvider`; TDD 2/2, filtro `ItemImageProviderTests` 73/73, Providers 901/914 com 13 ignorados, build Release 0 erros.
+- [x] Tratar IDs TMDb inválidos em providers de imagens de séries, temporadas, episódios e box sets com `TryParse`; TDD RED/GREEN 4/4, filtro combinado de imagens/TMDb 36/36, `git diff --check` limpo. Providers de metadata não-imagem seguem fora deste slice.
+- [x] Preservar idioma regional explícito em `BaseItem.GetPreferredMetadataLanguage`; remover conversão global `pt-PT`→`pt-BR` e manter normalização somente no adaptador TMDb. TDD RED/GREEN 1/1, `BaseItemTests` 13/13, Providers sem Integration 905/905, build Release 0 erros.
+- [ ] Limpar/revalidar caches no runtime instalado somente após instalar/reiniciar build contendo a correção.
 
 # Revalidação TMDB: preferência de idioma e fallback de capas — 2026-10-27 08:45 BRT
 - [x] Testes focados `TmdbUtilsTests|ItemImageProviderTests|ProviderManagerImageProviderTests|MetadataServiceTests|TmdbMovieImageProviderFlowTests`: 144 aprovados, 0 ignorados/falhas em Windows/.NET 10 Release.
@@ -683,3 +1377,253 @@ Validação: regressão unitária focada 1/1; `ItemPersistenceServiceTests` 38/3
 - [x] O anexo tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, idêntico ao incidente anterior. Repete MariaDB 1213 em `DELETE BaseItemImageInfos`; não contém PID, AssemblyVersion ou desfecho das retentativas.
 - [x] Filtro Release `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests`: 54/54 aprovados no checkout atual. O checkout usa stripe local por item, advisory lock MariaDB e retries limitados.
 - [ ] O teste confirma a fonte local, não o binário que emitiu o log nem produção. A integração MariaDB descartável anterior 1/1 não foi repetida nesta sessão; runtime instalado, CI hospedada e produção seguem sem correlação. Formal 2/7 (28,6%), sem crédito/release.
+# Scheduler da biblioteca — cancelamento real no cleanup — 2026-10-27
+- [x] Sincronizar acesso ao registry de workers e tolerar a fonte já descartada enquanto cleanup tenta cancelar.
+- [x] Corrigir o loop de leitura do canal para usar o token vinculado cancelado pelo cleanup; o teste real após 65 s reproduziu e confirmou a correção.
+- [x] Impedir enqueues durante o cancelamento pendente; `DisposeAsync` drena enqueues admitidos e aguarda workers, inclusive quando chamado simultaneamente.
+- [x] Tornar determinística a asserção de backpressure e cobrir cleanup real, enqueue durante cleanup, e descarte concorrente.
+- [x] Windows/.NET 10 Release: Controller 69/69; solução serial 17 TRX, 5.477 aprovados, 98 `NotExecuted` e 0 falhas; portal 359/359; formatter direcionado, revisão estática e diff-check passaram.
+- [ ] CI hospedada, Linux, runtime instalado e homologação de produção. Homologação formal permanece 2/7; sem release.
+
+Revalidação em 27/10/2026 16:30 BRT: `LimitedConcurrencyLibrarySchedulerTests` passou 4/4 em Windows/.NET 10 Release no checkout atual. O contador global continua sem mudança; esta execução focal não cobre CI, Linux, runtime ou produção.
+
+
+## Restore Linux gate — ambiente e branch rechecados — 2026-10-27 17:12 BRT
+
+Rechecagem do host: wsl.exe --list --quiet não listou distribuição; Docker e Podman não estão instalados/disponíveis. git fetch origin concluiu sem erro e manteve origin/main em d51f4f38; checkout main fa1289b6 segue 1 commit à frente e 8 atrás. Há alterações locais não commitadas em Program.cs, scheduler e testes que também diferem do upstream; não houve merge/rebase para preservar esse trabalho. Consulta GitHub do commit remoto devolveu lista vazia de status checks; isso não comprova execução CI Linux nem causa do run falho previamente observado. Restore P0, Linux/ACL, CI hospedada, runtime/produção continuam sem validação; formal 2/7, sem crédito/release.
+
+
+## Restore agendado — segunda passagem do loop de startup — 2026-10-27 17:16 BRT
+
+O teste ScheduledRestore_RestoresArchiveBeforeStartupInitialization agora verifica que ContinueAfterBackupRecoveryAsync limpa _restoreFromBackup e que a próxima chamada do gate, com nova instância de BackupService no mesmo processo, continua para migração e inicialização em vez de reaplicar o archive. O teste focal passou 1/1 em Windows/.NET 10 Release; FullSystemBackup passou 142 aprovados, 16 ignorados por plataforma e 0 falhas/158. O primeiro filtro FQN incorreto selecionou zero testes; a repetição com filtro pelo nome do teste executou e passou. Não houve mudança na lógica de produção. Linux/ACL, CI hospedada, runtime e host operacional continuam pendentes; formal 2/7, sem crédito/release.
+# Nebula: bootstrap gravável e reconciliação Supabase — 2026-10-27 17:25 BRT
+- [x] O log de produção confirma que o bootstrap tentava criar `.venv` em `Program Files`, recebia WinError 5 e mesmo assim prosseguia para iniciar workers. O script instala agora a venv e grava `python.path` no diretório de dados do servidor; o processo passa esse caminho ao PowerShell e o resolvedor mantém compatibilidade com marcador antigo. Falha de dependência agora é propagada, impedindo worker iniciado em estado incompleto.
+- [x] Cursor GUID do PostgREST agora usa UUID sem aspas; reconciliação `nebula_users` ignora chaves `login` nulas/vazias, evitando abortar o backup por registros legados sem identidade.
+- [x] Testes direcionados: Supabase 3/3; ciclo de restart no mesmo processo 1/1; integridade de staging/pacote Nebula aprovada; `git diff --check` sem erros.
+- [ ] Não foi executada suíte .NET completa, CI hospedada, Linux, instalador limpo, nem reteste em produção. O log também mostra N: indisponível e heartbeats Kestrel longos; o primeiro continua pendente de validação operacional e o segundo não tem causa atribuída. Não apagar linhas antigas com login vazio sem política/backup específico.
+- Homologação formal permanece 2/7 (28,6%); auditoria agregada não foi recalculada. Nenhum dado remoto foi editado; nenhuma release foi criada/publicada. Portal atualizado no checkout local, não implantado.
+- Sessão: `2026-10-27-MulletaFlix-nebula-runtime-supabase-log-fix-1725.md`; mapa técnico conferido e atualizado.
+## Revalidação Nebula — bootstrap e paginação Supabase — 2026-10-27 17:31 BRT
+- [x] O log de 17:19 ainda registra a tentativa de venv em `Program Files` (WinError 5) e falha de reconciliação `nebula_users` por chave inválida/repetida; é evidência do runtime que gerou o log, não de que o patch local esteja instalado.
+- [x] `FindPythonExe` prioriza agora o marcador gravável em `CommonApplicationPaths.DataPath` e mantém o marcador legado como fallback. O teste cobre preferência e fallback.
+- [x] O fallback do script de instalação sem `MULLETAFLIX_DATA_PATH` agora aponta para `<ProgramData>\\MulletaFlix\\Server\\data`, que corresponde ao `DataPath` criado em `BaseApplicationPaths`.
+- [x] Teste focado .NET 10: 1/1 aprovado; `Assert-StageIntegrity.Tests.ps1` aprovado.
+- [ ] Release não executada: checkout `main` diverge (`1` à frente/`8` atrás) e contém outras alterações locais alheias, sem CI/instalador/publicação validada. Não instalar em produção; requer sincronização segura da base, build completo e revalidação.
+- [ ] Supabase continua pendente de verificação pós-release; filtragem local de login vazio não evita chaves não únicas caso o esquema remoto não corresponda ao esperado. O log mostra upload concluído e reconciliação interrompida, sem evidência de remoção remota.
+- [ ] N: não determinado; revisão estática não confirmou bug de fonte para o sintoma e o runtime indicado pelo log falha antes do mount. Kestrel heartbeat sem causa comprovada.
+- [x] Mapa técnico conferido; mudou apenas a precedência/fallback do resolvedor Python, sem novo módulo, API ou dependência.
+
+## Supabase — correlação do log de backup Nebula — 2026-10-27 17:36 BRT
+- [x] Logs somente leitura do projeto MulletFlix-Nebula correlacionados ao incidente: user-agent `MulletaFlix-Server/12.0`, GET de `nebula_users` sem os filtros atuais, paginação repetindo o cursor e uma chamada a `mulletaflix_users` com cursor UUID citado recebendo PostgREST 400/22P02.
+- [x] Schema observado: `nebula_users.login` é chave primária e a tabela contém 7 linhas; duplicatas de login não são permitidas pelo schema atual. A query SQL agregada falhou com erro interno da integração, portanto não houve contagem independente dos valores.
+- [x] Teste adicionado para garantir que filtros de login nulo/vazio acompanhem a paginação por cursor; teste focal 3/3 passou.
+- [ ] Instalar e testar binário com patch. O processo MulletaFlix não estava ativo e a porta 8096 não escutava nesta checagem.
+- [ ] Avaliar advisories do Supabase sem aplicar mudanças: `set_nebula_updated_at` com search_path mutável e índice duplicado em `mulletaflix_users`.
+- Formal 2/7 (28,6%), sem crédito; sem release.
+Supabase query retry 17:37 BRT: agregado read-only confirmou 7 logins totais/distintos, 0 nulos e 0 vazios/espaços; não há duplicatas nebula_users no snapshot atual. A consulta anterior de agregação falhou transientemente; sucesso da repetição registrada.
+
+## Validação sobre base remota limpa — 2026-10-27 17:41 BRT
+- [x] Patch de Nebula/Supabase aplicou limpo sobre `origin/main` d51f4f38 em checkout isolado curto `C:\mf`.
+- [x] Windows/.NET 10: `NebulaDownloaderStartupTests|NebulaSupabaseSyncTests` 84/84 aprovados; staging integrity passou.
+- [ ] Pipeline completo de release, Linux e runtime de produção pós-patch continuam pendentes; nenhuma tag ou publicação.
+- [ ] Checkout principal continua 1 commit à frente/8 atrás, com alterações locais antigas. Não integrar nem publicar o conjunto inteiro sem revisão de escopo.
+
+## Reauditoria do scheduler/Nebula — 2026-10-27 22:07 BRT
+
+- [x] O risco de cancelamento cooperativo foi tratado em sessão posterior; consulte a seção abaixo para novos testes e contrato atualizado. O callback não cooperativo continua sendo um limite de descarte gracioso.
+
+## Scheduler — token de cancelamento para callbacks — 2026-10-27 22:21 BRT
+
+- [x] `Enqueue` entrega token de cancelamento ao callback e `Folder` repassa o token a validação e atualização recursiva; escrita no canal também cancela com caller/shutdown.
+- [x] Callbacks de cancelamento que lançam exceção são registrados sem interromper a limpeza. Teste focal do scheduler 6/6 e suíte `Jellyfin.Controller.Tests` 71/71, Windows/.NET 10 Release; `git diff --check` aprovado.
+- [ ] Callbacks que não observam cancelamento ainda podem prolongar `DisposeAsync`; Linux, CI hospedada, runtime instalado e produção não validados. Formatter direcionado não concluiu; reportou ordenação de imports preexistente em `Folder.cs`.
+- [x] A branch limpa `codex/scheduler-callback-cancellation` foi validada e publicada. Commits `0813ca64` (código/testes) e `69d81ca4` (docs). Suíte Controller 75/75, scheduler 12/12 e caller-cancel 1/1.
+- [ ] PR não criado: integração GitHub retornou 403 e GitHub CLI não possui sessão autenticada. Sem merge/release; runtime Linux/produção pendentes. Homologação formal 2/7 (28,6%).
+
+## Teste MariaDB opt-in sem interromper instância operacional — 2026-11-02 21:19 BRT
+
+- [x] Corrigido o bloqueio: inicializações internas com `requireEmbeddedProcess=true` usam mutex de teste separado; entrada pública de produção mantém mutex global.
+- [x] O ciclo start/stop/start rejeita explicitamente 3306. Os três consumidores `GetFreePort()` da classe MariaDB agora impedem essa colisão.
+- [x] Windows/.NET 10 Release: teste NextUp MariaDB 1/1; start-stop-start 1/1; `MariaDbStartupMutexTests` 4/4. Servidor operacional e porta 3306 permaneceram ativos.
+- [ ] Dataset NextUp representativo, Linux e CI hospedada permanecem pendentes. Formal 2/7, sem crédito ou release.
+
+## Restore — retomada após encerramento forçado — 2026-11-02 22:40 BRT
+- [x] Suíte Windows `BackupRestoreDirectoryTests|BackupServiceTests`: 133 aprovados, 16 ignorados, 0 falhas (149 casos).
+- [x] Contrato que confere os 14 cenários Linux no workflow: 2/2 aprovados.
+- [x] Após retomar, nenhuma execução `dotnet`/`testhost`/`MSBuild` nem diretório temporário `mfx-restore-audit-*` ficou ativo.
+- [ ] Linux real, ACL/mount/race na plataforma, CI hospedada e produção continuam sem validação. Testes ignorados no Windows não contam como aprovados Linux.
+- [ ] PR #1 ainda sem causa raiz: `gh` não autenticado e logs GitHub não recuperáveis pelo conector. Sem alteração ou publicação especulativa.
+- Homologação formal permanece 2/7 (28,6%), sem crédito. Portal local 702 eventos/lote 10; externo pendente de reconciliação por divergência do baseline remoto.
+- Mapa técnico consultado; nenhuma estrutura alterada. Oportunidade pesquisada: avaliar `openat2` somente após validar kernel mínimo e comparação isolada com a implementação atual baseada em `openat`/handles.
+
+## PR #1 — conferência dos metadados do runner — 2026-11-02 22:44 BRT
+- [x] `gh pr view` e `gh pr checks` tentados com `--repo github.com/raphaelpera85/mulletaflix-completo`; ambos exigem `gh auth login`.
+- [x] GitHub API confirma run 41005367220 no merge ref `3bbbd58cc575541ec339d7d3bcc1ca65f5b7d1e8`, enquanto o head do PR é `9a14e93b15e20deabdca159c04f8867d2a8292bb`. Os 16 jobs terminaram `failure`, com `steps=[]` e `runner_id=0`; o job de build tem os mesmos limites.
+- [x] O download do log do job retorna 404 `BlobNotFound`; não há checks atuais listados para o head no diagnóstico conectado.
+- [ ] Evidência posiciona a falha antes de passos de runner visíveis, mas não revela a causa raiz. Não editar nem rerodar por inferência. Para continuar: restaurar sessão `gh` em `github.com` e verificar runs/annotations/logs disponíveis, ou disponibilizar logs exportados.
+
+## PR #1 — histórico das execuções da branch — 2026-11-02 22:46 BRT
+- [x] PR permanece aberto; API do Actions lista 46 execuções na branch e a mais recente é run 41283703952 (01/11, failure, head cbc380c9...).
+- [x] Job `Server build & unit tests`: steps ausentes no wrapper e log devolve `BlobNotFound`. O run anterior também mostrou jobs sem passos/runner atribuído.
+- [ ] Sem causa raiz ou logs: não alterar código e não repetir reruns. Acesso necessário: `gh auth login --hostname github.com` ou logs exportados.
+- A tentativa de consultar distros WSL por processo temporizado foi rejeitada pela política da ferramenta antes de executar; nenhum estado WSL foi inferido.
+
+## PR #1 — annotations vinculadas ao merge ref — 2026-11-02 22:47 BRT
+- [x] Run mais recente `41283703952` permanece failure; a lista de check runs mostra 2 annotations em cada job.
+- [x] O endpoint de annotations não está disponível no GitHub Fetch; o diagnóstico de PR rejeita check/job ids porque pertencem ao merge SHA, não ao head do PR. `gh` também continua sem autenticação.
+- [ ] Conteúdo das annotations e logs permanecem inacessíveis; causa raiz sem confirmação. Próximo passo necessário: autenticação `gh` no GitHub ou exportação das annotations/logs.
+- [ ] Consulta de WSL não foi iniciada porque o executor bloqueou o wrapper temporizado; não afirmar suporte Linux local.
+
+# T6.4 — redação de URLs em logs de provedores e guia — 2026-11-02 23:34 BRT
+
+- Redação aplicada em NartoDramaClient, GoodShortClient, provedores YouTube e GuideManager; transporte, URL de requisição, metadados e conteúdo de mídia não mudam.
+- Providers focal (YouTube/NartoDrama/GoodShort/redator): 62/62; Live TV focal: 15/15; formato focal aprovado; contrato local do portal: 361/361.
+- Teste YouTube simula falha HTTP com URL .strm sintética contendo userinfo e api_key; logs capturados não contêm os valores.
+- T6.4 segue parcial: varredura encontrou outros produtores e sinks em DramaBox, ShortMax, ListenBrainz, ItemImageProvider e outros módulos. Sem auditoria integral, Linux, binário instalado ou produção; homologação formal 2/7 (28,6%), sem release/publicação remota.
+# T6.4 — continuação: redator compartilhado de URLs remotas — 2026-11-02 23:44 BRT
+
+- `RemoteUrlLogRedactor` agora reside em Helpers de Providers e atende `ItemImageProvider`, ListenBrainz Labs, DramaBox, MidiaStorageOnline, NartoDrama, GoodShort e YouTube.
+- Providers focal: 150/150 em Windows/.NET 10 Release. Contrato do portal: 361/361 após corrigir timestamps de atualização no snapshot. `dotnet format whitespace --verify-no-changes` passou.
+- Busca ampliada encontrou exceções ainda a revisar em ShortMax e no tratamento de erro de imagens do YouTube. T6.4 permanece parcial.
+- Escopo de busca não prova ausência em todos os logs/sinks. T6.4 segue parcial; Linux, runtime instalado e produção pendentes. Homologação formal 2/7; sem release ou publicação remota.
+# T6.4 — continuação: exceções de transporte externas — 2026-11-02 23:49 BRT
+
+- Cobertos sinks externos adicionais: ShortMax; YouTube metadata/images; ListenBrainz Similar; TMDb Similar Movies/TV; erro JSON de GoodShort. O redator compartilhado preserva mensagens após remover URLs sensíveis.
+- Providers focal cumulativo: 152/152 Windows/.NET 10 Release; format focal passou; contrato portal atualizado para a mesma evidência.
+- Pesquisa literal de `_logger.Log*(ex, ...)` nos plugins deixou dois contextos locais. Esse padrão não cobre loggers indiretos ou todos os sinks. T6.4 continua parcial e ainda requer auditoria de outros módulos/call-sites.
+- Oportunidade: avaliar redação classificada central via `Microsoft.Extensions.Telemetry` conforme documentação Microsoft. Dependências/compatibilidade não foram verificadas; não foi adotada.
+### Continuação T6.4 — exceções em fronteiras comuns de providers e Live TV (2026-11-02 23:56 BRT)
+
+Providers/Live TV agora sanitizam texto de exceção antes do logger em `ProviderManager`, `MetadataService`, OpenLibrary, letras e legendas, `GuideManager` e chamadas de imagem/headend da Schedules Direct. Mensagens de erro de refresh originadas por providers também removem URLs. A chamada HTTP da Schedules Direct mantém host redigido, status HTTP e código de serviço; o corpo bruto, que pode ecoar dados, deixou de ser registrado. Nenhuma requisição ou metadado persistido foi alterado.
+
+Verificações Windows/.NET 10 Release: `Jellyfin.Providers.Tests` 893 aprovados, 13 ignorados, 0 falhas/906; `Jellyfin.LiveTv.Tests` 81/81; `git diff --check` aprovado. `dotnet format whitespace --verify-no-changes` nos arquivos alterados teve verificação parcial: a ferramenta parou em `CHARSET` nos arquivos preexistentes `LyricManager.cs` e `SchedulesDirect.cs`; os demais arquivos selecionados passaram. A busca estática ainda encontra outros logs com exceção bruta fora dos pontos confirmados; T6.4 permanece parcial.
+
+Após fechamento forçado informado pelo usuário, não havia processo de build/test `dotnet` nem processo `git`/`gh` ativo na inspeção. Duas instâncias `Nebula` e duas rotinas `clean_already_sent.py` estavam ativas e não foram encerradas. O histórico do processo já fechado não permite identificar a execução que ficou presa por cinco horas.
+
+Sem release, instalação, publicação remota ou crédito formal. Homologação permanece 2/7 (28,6%). O mapa técnico foi conferido e atualizado: fluxos de log foram ampliados em classes existentes; sem novo módulo, API ou dependência.
+## Persistência MariaDB de imagens — 2026-11-03 05:41 BRT
+
+- [x] MariaDB 11.4.4 descartável executado em `127.0.0.1:51588`, com datadir temporário, `max-connections=500`, sem acesso à instância operacional 3306.
+- [x] Filtro focal de persistência de imagens passou 11 aprovados, 1 ignorado, 0 falhas; o skip é o caso opt-in de reinício do MariaDB durante delete.
+- [x] `ServerPersistenceMariaDbTests` passou 34 aprovados, 1 ignorado, 0 falhas/35 após corrigir fixture que criava `UserData` sem `User`; o teste NextUp passou 1/1 isoladamente antes da reexecução completa.
+- [x] Cleanup confirmado: `51588=no-listener`, `scratch-dirs=0`. Build Release passou com 0 erros e 603 avisos existentes.
+- [ ] Permanecem pendentes CI hospedada, Linux nativo, instalação persistente, runtime instalado com working tree corrigida e produção. Homologação formal continua 2/7 (28,6%), sem release.
+# Fallback de imagem de livro, proveniência dinâmica e idioma — 2026-11-03 12:22 BRT
+
+- [x] RED/GREEN comprovou persistência de fallback de capa de livro com `UpdateItemAsync(..., ItemUpdateType.ImageUpdate, ...)`; `ImageControllerBookFallbackTests` passou 2/2.
+- [x] RED/GREEN removeu `ProviderName` remoto de imagens produzidas por `IDynamicImageProvider` local em HTTP, stream e arquivo; testes dinâmicos passaram 4/4.
+- [x] Preferência global em item vazio passou 1/1 após correção da fixture de protocolo de arquivo; nenhum novo ajuste de produção foi necessário nesse caminho.
+- [x] Auditoria de `MetadataService` encerrada sem correção: `MetadataResult.RemoteImages` só transporta URL e tipo, portanto não perde proveniência ou idioma disponíveis.
+- [x] Evidência: Providers 921/921; API 823 aprovados + 3 ignorados; regressão 5.537 aprovados + 98 ignorados/5.635; build Release 0 erros/595 avisos.
+- [~] Homologação global segue aberta: runtime instalado 12.1.45 não contém a working tree; providers reais, CI/Linux, instalação persistente, segurança, carga, telemetria, autorização ponta a ponta e produção sem aceite formal.
+## Slice 2026-11-03 — falha de imagem local não avança refresh
+
+- [x] RED reproduziu `DateLastRefreshed` avançando após `IOException` do provider local durante validação de imagens.
+- [x] GREEN marca `hasRefreshedImages = false` quando `localImagesFailed`; providers remotos continuam bloqueados e o refresh não é considerado concluído.
+- [x] Comparação read-only com Jellyfin upstream confirmou o mesmo contrato.
+- [x] Teste focal `RefreshMetadata_LocalImageValidationFailure_DoesNotAdvanceDateLastRefreshed`: **1/1**; `MetadataServiceTests`: **51/51**; `Jellyfin.Providers.Tests` sem Integration: **931/931**; build Release: **0 erros e 20 avisos existentes**.
+- [~] Correção somente na working tree; runtime instalado 12.1.45, providers remotos reais, CI hospedada, Linux/POSIX, instalação persistente e produção continuam sem aceite.
+
+## Slice 2026-11-03 — persistência de DateLastRefreshed
+
+- [x] RED reproduziu refresh completo sem providers chamando zero vezes `ILibraryManager.UpdateItemAsync`; `DateLastRefreshed` mudava apenas em memória.
+- [x] GREEN adicionou `refreshStampNeedsSaving` e inclui o marcador na condição de persistência do item.
+- [x] Teste focal `RefreshMetadata_FullRefresh_PersistsRefreshStampWhenNoProviders`: **1/1**; `MetadataServiceTests`: **52/52**; `Jellyfin.Providers.Tests` sem Integration: **932/932**; regressão serial da solução sem Integration: **5.559 aprovados, 98 ignorados, 0 falhas/5.657 casos**; build Release: **0 erros e 594 avisos existentes**.
+- [x] Comparação read-only com Jellyfin upstream confirmou a necessidade de persistir o refresh stamp.
+- [~] Correção somente na working tree; runtime instalado 12.1.45, providers remotos reais, CI hospedada, Linux/POSIX, instalação persistente e produção continuam sem aceite.
+## Aplicação do pacote 12.1.46 — 2026-11-03 22:38 BRT
+
+- [x] ZIP de atualização aplicado por procedimento elevado; cópia retornou código `robocopy 3`, dentro da faixa documentada de sucesso.
+- [x] Payload validado contra a instalação: nenhum arquivo ausente ou divergência de tamanho; DLLs-chave conferidas por SHA-256.
+- [x] Log confirmou runtime **12.1.46** carregado durante a tentativa de inicialização.
+- [!] Startup abortou antes de abrir endpoints: `UnauthorizedAccessException: The restore directory DACL grants write access to an untrusted identity`.
+- [~] Processo não permanece ativo; `/health` indisponível. Aceite de instalação, métricas, redaction e testes autenticados continuam pendentes.
+- [ ] Autorizar correção controlada das ACLs dos roots de dados, preservando o usuário de execução, SYSTEM e Administradores, e repetir o probe pós-update.
+## Probe pós-update 12.1.46 — 2026-11-03 23:06 BRT
+
+- [x] ACLs necessárias ao trust boundary corrigidas com autorização explícita; escrita de `BUILTIN\\Usuários` removida de `C:\ProgramData` e ACEs `Creator Owner` removidas apenas do namespace MulletaFlix validado pelo recovery.
+- [x] Runtime reiniciado sem elevação e permaneceu vivo: PID `27268`, arquivo `MulletaFlix.exe` versão **12.1.46**.
+- [x] `/health`, `/System/Info/Public` (`Version=12.1.46`, `TargetAbi=12.1.46`) e `/Users/Public`: HTTP 200; log contém `Startup complete`.
+- [!] `/metrics`: HTTP 200, mas ainda publica `mysqlconnector_*` com `pool_name` em **160** linhas e ocorrências de host; redaction esperada na working tree não foi comprovada no runtime.
+- [~] Gate de instalação/startup concluído; observabilidade, autenticação de itens/capas reais, MariaDB descartável, Linux/CI e providers externos continuam pendentes.
+## Rechecagem de startup após update 12.1.46 — 2026-11-03 23:19 BRT
+
+- [x] Reprobe inicial confirmou ausência de processo e endpoints indisponíveis.
+- [x] Startup repetido sem elevação com `MulletaFlix.exe --datadir C:\ProgramData\MulletaFlix\Server` permaneceu vivo por 60 segundos no PID `38480`.
+- [x] `/health`, `/System/Info/Public` e `/Users/Public`: HTTP 200; `Version=12.1.46`, `TargetAbi=12.1.46`; log contém `Core startup complete` e `Startup complete` às 23:17:24.
+- [x] Falha anterior de ACL não foi reproduzida após a correção autorizada.
+- [!] `MulletaFlixServer` não está instalado como serviço Windows; o executável não possui autostart de serviço nesta instalação.
+- [~] Redaction de `/metrics` continua pendente; status global permanece `partial`.
+
+## Correção de configuração do MeterAdapter — 2026-11-03 23:30 BRT
+
+- [x] Diagnóstico: `StartListening(new MeterAdapterOptions { ... })` era chamado em `Configure`, depois da inicialização potencial do adapter padrão; isso não garantia que o filtro alcançasse o endpoint vivo.
+- [x] Correção: `Startup.ConfigureServices` agora usa `Metrics.ConfigureMeterAdapter` com `MetricsLabelRedactor.ShouldPublishInstrument`; o segundo `StartListening` foi removido.
+- [x] `MetricsLabelRedactionTests`: **8/8 aprovados**.
+- [x] `Jellyfin.Server.Tests`: **88 aprovados, 3 ignorados, 0 falhas/91**.
+- [x] `Jellyfin.Server/Jellyfin.Server.csproj`: build Release com **0 erros e 4 avisos XML existentes**.
+- [~] Solução completa não aceita nesta rodada: há teste não rastreado pré-existente em `LibraryManagerImageConversionTests.cs` com erros de compilação fora desta correção.
+- [!] Runtime instalado `12.1.46` ainda não contém a correção; `/metrics` só poderá ser reavaliado após novo artefato e aplicação controlada.
+
+## Smoke do runtime construído bloqueado por MariaDB — 2026-11-03 23:35 BRT
+
+- [x] Tentativa read-only com binário recém-compilado e datadir/config/log/cache descartáveis em scratch.
+- [x] Porta não produtiva preparada; nenhuma alteração foi feita no runtime instalado, banco, mídia ou configuração de produção.
+- [!] Mutex global normal bloqueou a segunda instância; `MFLX_E2E_TEST_MODE=true` isolou o mutex da aplicação, mas o startup parou no lock global do MariaDB embutido: `Timed out waiting for another MulletaFlix process to release the embedded MariaDB lock.`
+- [x] Scratch removido e processos de teste encerrados.
+- [~] `/metrics` do runtime instalado continua pendente; a versão instalada ainda não contém a correção de `Metrics.ConfigureMeterAdapter`.
+
+## Lock global MariaDB e rechecagem live de métricas — 2026-11-03 23:58 BRT
+
+- [x] Código de `MariaDbProcessManager` revisado: runtime normal usa `Global\\MulletaFlix.EmbeddedMariaDb`; `MULLETAFLIX_DB_PORT` muda a porta, não o mutex.
+- [x] Confirmado que `EmbeddedMariaDb.Tests` só é usado por chamadas internas com `requireEmbeddedProcess: true`; o startup normal não expõe opção segura para segundo runtime concorrente.
+- [x] Runtime instalado PID `38480` permanece ativo; `/metrics` HTTP 200 com **130 linhas `mysqlconnector_*` e 130 ocorrências `pool_name`**.
+- [x] Nenhum `testhost`/`Integration.Tests` ativo na rechecagem.
+- [~] Smoke do binário corrigido continua bloqueado sem parar produção ou obter MariaDB isolado; não alterar mutex nem desativar recovery como atalho.
+
+## Hotfix live da redaction de métricas — 2026-11-04 00:17 BRT
+
+- [x] Autorização explícita recebida para gerar/aplicar candidato, parar PID `38480`, reiniciar e validar o runtime.
+- [x] Hotfix mínimo aplicado: somente `MulletaFlix.dll`; build SHA-256 `8E8553CA311394D3CEE5457009A9D90EDAA0D9737B026821AEEE317EF79379DF`.
+- [x] Helper elevado retornou `robocopy=1`, mas a comparação detectou que o DLL não havia sido trocado; cópia elevada de confirmação com `/IS /IT` retornou `3` e os hashes passaram a coincidir.
+- [x] Runtime reiniciado como usuário normal no PID `23440`; `/System/Info/Public`, `/health` e `/Users/Public`: HTTP 200; versão/ABI `12.1.46`.
+- [x] Log contém `Core startup complete` e `Startup complete`.
+- [x] `/metrics` live: HTTP 200; `mysqlconnector_*` **0**, `pool_name` **0**, `User ID`/`server`/`host` nas formas verificadas **0**.
+- [x] Gate de redaction instalada aprovado; homologação global permanece `partial` por gates externos e de infraestrutura.
+
+## Auditoria pós-hotfix de imagens e capas — 2026-11-04 00:25 BRT
+
+- [x] Comparação read-only repetida com Jellyfin upstream em `MetadataService`, `ItemImageProvider`, `ImageController` e `RemoteImageController`.
+- [x] Não foi encontrado novo defeito que justificasse alteração adicional; as divergências locais permanecem cobertas por testes: precedência de imagens locais, múltiplos backdrops, subpastas seguras, fallback de URLs, preservação de stub, `204` em falha lazy e proveniência de imagem remota.
+- [x] `Jellyfin.Providers.Tests`: **944/944**, 0 falhas, 0 ignorados.
+- [x] `Jellyfin.Api.Tests`: **831 aprovados, 3 ignorados, 0 falhas/834**.
+- [x] `Jellyfin.Server.Implementations.Tests`: **1.757 aprovados, 95 ignorados, 0 falhas/1.852**.
+- [x] Runtime PID `23440` rechecado; `/metrics` continua com `mysqlconnector_*` e `pool_name` em **0**.
+- [x] Matriz read-only sem credencial: itens/imagens remotas protegidas retornaram `401`; imagem anônima para GUID inexistente retornou `404`.
+- [~] Item/capa/metadata reais continuam sem aceite por ausência de credencial autorizada; nenhuma mutação foi executada.
+
+## Wizard exibido em instalação existente — 2026-11-04 00:35 BRT
+
+- [x] Diagnóstico: datadir correto e runtime PID `23440`, mas `/System/Info/Public` e `config/system.xml` indicavam `StartupWizardCompleted=false`.
+- [x] Banco existente confirmado somente por leitura: **16 usuários** e aproximadamente **193 mil itens**; não era instalação vazia.
+- [x] Correção oficial aplicada por `POST /Startup/Complete`, sem editar banco, criar usuário ou alterar biblioteca.
+- [x] Endpoint retornou HTTP 204; `/System/Info/Public` agora informa `StartupWizardCompleted=true`.
+- [x] `config/system.xml` agora contém `IsStartupWizardCompleted=true`; `/health`: HTTP 200; processo permanece ativo.
+- [x] Log registrou `Saving system configuration`.
+- [~] A aba do navegador que já estava no wizard pode exigir reload manual para sair de `/web/#/wizard/start`.
+- [x] Navegação limpa após a correção chegou à rota de login (`/web/#/login?...`), não ao wizard; o Chrome do usuário não foi controlado porque o perfil real estava bloqueado por uma instância aberta.
+
+## Causa raiz do wizard em instalação existente — 2026-11-04 00:40 BRT
+
+- [x] Busca de escritores: somente `StartupController.CompleteWizard` atribui `IsStartupWizardCompleted=true`; o modelo inicia com `false`.
+- [x] Nenhum escritor de produção encontrado redefinindo o flag para `false` durante update/startup.
+- [x] Migração usa o flag para distinguir seed inicial de migração normal, mas não infere conclusão pela quantidade de usuários/itens.
+- [x] Decisão: não adicionar heurística automática baseada em dados populados; isso poderia mascarar setup parcialmente concluído.
+- [x] Instalação atual foi corrigida pelo endpoint oficial e permanece com `StartupWizardCompleted=true`.
+## Atualização 2026-11-05 — Playwright focal
+
+- **GREEN:** `31-accessibility-home-and-details.spec.ts` passou 1/1 em stage descartável autenticado após labels semânticos nos quatro selects de tracks de Item Details e pré-condição de wizard no spec isolado.
+- **GREEN focal:** `22-adsense-flow.spec.ts` passou 2/2 após o fallback assíncrono da intro aguardar o interstitial; a regressão ampla histórica ainda não foi reconciliada.
+- **GREEN focal:** `99-pagination.spec.ts` passou 2/2 após corrigir a espera da navegação SPA, a asserção do nome de log e a consulta de folders do usuário comum; a regressão ampla histórica ainda não foi reconciliada.
+- **BLOCKED refinado:** `21-multi-user-playback.spec.ts` prova playback no primeiro contexto, mas o segundo fica com fila intro + filme sem `NowPlayingItem`; trace registra fallback de intro e `player cannot be null` antes de qualquer `POST /Sessions/Playing`. Próximo TDD deve cobrir o ciclo de vida do player no fallback.
+- A homologação global permanece **PARTIAL**; não executar release, deploy ou aplicar bundle ao runtime instalado.

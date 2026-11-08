@@ -64,10 +64,21 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// <returns>A paged list of visible playlists.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetPlaylists(
         [FromQuery] int? startIndex,
         [FromQuery] int? limit)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
         var userId = User.GetUserId();
         var user = _userManager.GetUserById(userId);
         var playlists = _playlistManager.GetPlaylists(userId)
@@ -108,6 +119,7 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// </returns>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<PlaylistCreationResult>> CreatePlaylist(
         [FromQuery, ParameterObsolete] string? name,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder)), ParameterObsolete] IReadOnlyList<Guid> ids,
@@ -115,6 +127,12 @@ public class PlaylistsController : BaseMulletaFlixApiController
         [FromQuery, ParameterObsolete] MediaType? mediaType,
         [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] CreatePlaylistDto? createPlaylistRequest)
     {
+        var playlistName = name ?? createPlaylistRequest?.Name;
+        if (string.IsNullOrWhiteSpace(playlistName))
+        {
+            return BadRequest("Playlist name is required.");
+        }
+
         if (ids.Count == 0)
         {
             ids = createPlaylistRequest?.Ids ?? Array.Empty<Guid>();
@@ -149,12 +167,23 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// </returns>
     [HttpPost("{playlistId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> UpdatePlaylist(
         [FromRoute, Required] Guid playlistId,
         [FromBody, Required] UpdatePlaylistDto updatePlaylistRequest)
     {
+        if (playlistId == Guid.Empty)
+        {
+            return BadRequest("Playlist id must not be empty.");
+        }
+
+        if (updatePlaylistRequest is null)
+        {
+            return BadRequest("Update playlist request is required.");
+        }
+
         var callingUserId = User.GetUserId();
 
         var playlist = _playlistManager.GetPlaylistForUser(playlistId, callingUserId);
@@ -195,10 +224,16 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("{playlistId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<PlaylistDto> GetPlaylist(
         [FromRoute, Required] Guid playlistId)
     {
+        if (playlistId == Guid.Empty)
+        {
+            return BadRequest("Playlist id must not be empty.");
+        }
+
         var userId = User.GetUserId();
 
         var playlist = _playlistManager.GetPlaylistForUser(playlistId, userId);
@@ -227,11 +262,17 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("{playlistId}/Users")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<IReadOnlyList<PlaylistUserPermissions>> GetPlaylistUsers(
         [FromRoute, Required] Guid playlistId)
     {
+        if (playlistId == Guid.Empty)
+        {
+            return BadRequest("Playlist id must not be empty.");
+        }
+
         var userId = User.GetUserId();
 
         var playlist = _playlistManager.GetPlaylistForUser(playlistId, userId);
@@ -258,12 +299,23 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// </returns>
     [HttpGet("{playlistId}/Users/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<PlaylistUserPermissions?> GetPlaylistUser(
         [FromRoute, Required] Guid playlistId,
         [FromRoute, Required] Guid userId)
     {
+        if (playlistId == Guid.Empty)
+        {
+            return BadRequest("Playlist id must not be empty.");
+        }
+
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
         var callingUserId = User.GetUserId();
 
         var playlist = _playlistManager.GetPlaylistForUser(playlistId, callingUserId);
@@ -309,6 +361,7 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// </returns>
     [HttpPost("{playlistId}/Users/{userId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> UpdatePlaylistUser(
@@ -316,6 +369,21 @@ public class PlaylistsController : BaseMulletaFlixApiController
         [FromRoute, Required] Guid userId,
         [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow), Required] UpdatePlaylistUserDto updatePlaylistUserRequest)
     {
+        if (playlistId == Guid.Empty)
+        {
+            return BadRequest("Playlist id must not be empty.");
+        }
+
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (updatePlaylistUserRequest is null)
+        {
+            return BadRequest("Update playlist user request is required.");
+        }
+
         var callingUserId = User.GetUserId();
 
         var playlist = _playlistManager.GetPlaylistForUser(playlistId, callingUserId);
@@ -355,12 +423,23 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// </returns>
     [HttpDelete("{playlistId}/Users/{userId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> RemoveUserFromPlaylist(
         [FromRoute, Required] Guid playlistId,
         [FromRoute, Required] Guid userId)
     {
+        if (playlistId == Guid.Empty)
+        {
+            return BadRequest("Playlist id must not be empty.");
+        }
+
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
         var callingUserId = User.GetUserId();
 
         var playlist = _playlistManager.GetPlaylistForUser(playlistId, callingUserId);
@@ -401,6 +480,7 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// <returns>An <see cref="NoContentResult"/> on success.</returns>
     [HttpPost("{playlistId}/Items")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> AddItemToPlaylist(
@@ -409,6 +489,21 @@ public class PlaylistsController : BaseMulletaFlixApiController
         [FromQuery] int? position,
         [FromQuery] Guid? userId)
     {
+        if (playlistId == Guid.Empty)
+        {
+            return BadRequest("Playlist id must not be empty.");
+        }
+
+        if (ids is null || ids.Length == 0)
+        {
+            return BadRequest("Item ids must not be empty.");
+        }
+
+        if (position.HasValue && position.Value < 0)
+        {
+            return BadRequest("Position must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var playlist = _playlistManager.GetPlaylistForUser(playlistId, userId.Value);
         if (playlist is null)
@@ -440,6 +535,7 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// <returns>An <see cref="NoContentResult"/> on success.</returns>
     [HttpPost("{playlistId}/Items/{itemId}/Move/{newIndex}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> MoveItem(
@@ -447,9 +543,24 @@ public class PlaylistsController : BaseMulletaFlixApiController
         [FromRoute, Required] string itemId,
         [FromRoute, Required] int newIndex)
     {
+        if (string.IsNullOrWhiteSpace(playlistId) || !Guid.TryParse(playlistId, out var playlistGuid))
+        {
+            return BadRequest("Valid playlist id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(itemId))
+        {
+            return BadRequest("Item id is required.");
+        }
+
+        if (newIndex < 0)
+        {
+            return BadRequest("Index must be greater than or equal to 0.");
+        }
+
         var callingUserId = User.GetUserId();
 
-        var playlist = _playlistManager.GetPlaylistForUser(Guid.Parse(playlistId), callingUserId);
+        var playlist = _playlistManager.GetPlaylistForUser(playlistGuid, callingUserId);
         if (playlist is null)
         {
             return NotFound("Playlist not found");
@@ -478,17 +589,28 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// <returns>An <see cref="NoContentResult"/> on success.</returns>
     [HttpDelete("{playlistId}/Items")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> RemoveItemFromPlaylist(
         [FromRoute, Required] string playlistId,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] string[] entryIds)
     {
+        if (string.IsNullOrWhiteSpace(playlistId) || !Guid.TryParse(playlistId, out var playlistGuid))
+        {
+            return BadRequest("Valid playlist id is required.");
+        }
+
+        if (entryIds is null || entryIds.Length == 0)
+        {
+            return BadRequest("Entry ids must not be empty.");
+        }
+
         var callingUserId = User.GetUserId();
 
         if (!callingUserId.IsEmpty())
         {
-            var playlist = _playlistManager.GetPlaylistForUser(Guid.Parse(playlistId), callingUserId);
+            var playlist = _playlistManager.GetPlaylistForUser(playlistGuid, callingUserId);
             if (playlist is null)
             {
                 return NotFound("Playlist not found");
@@ -541,6 +663,7 @@ public class PlaylistsController : BaseMulletaFlixApiController
     /// <returns>The original playlist items.</returns>
     [HttpGet("{playlistId}/Items")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetPlaylistItems(
@@ -554,6 +677,26 @@ public class PlaylistsController : BaseMulletaFlixApiController
         [FromQuery] int? imageTypeLimit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes)
     {
+        if (playlistId == Guid.Empty)
+        {
+            return BadRequest("Playlist id must not be empty.");
+        }
+
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         var callingUserId = userId ?? User.GetUserId();
         var playlist = _playlistManager.GetPlaylistForUser(playlistId, callingUserId);
         if (playlist is null)

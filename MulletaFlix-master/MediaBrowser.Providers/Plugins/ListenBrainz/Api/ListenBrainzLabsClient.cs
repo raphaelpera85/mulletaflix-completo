@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Providers.Helpers;
 using MediaBrowser.Providers.Plugins.ListenBrainz.Api.Models;
 using MediaBrowser.Providers.Plugins.ListenBrainz.Configuration;
 using Microsoft.Extensions.Logging;
@@ -56,7 +57,7 @@ public class ListenBrainzLabsClient : IDisposable
 
         var url = $"{baseUrl}/similar-artists/json?artist_mbids={artistMbid}&algorithm={algorithm}";
 
-        _logger.LogDebug("Fetching similar artists from ListenBrainz Labs: {Url}", url);
+        _logger.LogDebug("Fetching similar artists from ListenBrainz Labs: {Url}", RemoteUrlLogRedactor.Redact(url));
 
         try
         {
@@ -81,7 +82,10 @@ public class ListenBrainzLabsClient : IDisposable
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch similar artists from ListenBrainz Labs for {ArtistMbid}", artistMbid);
+            _logger.LogWarning(
+                "Failed to fetch similar artists from ListenBrainz Labs for {ArtistMbid}: {Error}",
+                artistMbid,
+                RemoteUrlLogRedactor.Redact(ex.ToString()));
             return [];
         }
     }

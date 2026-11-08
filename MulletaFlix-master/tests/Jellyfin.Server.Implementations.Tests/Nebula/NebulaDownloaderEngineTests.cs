@@ -221,6 +221,41 @@ public sealed class NebulaDownloaderEngineTests : IDisposable
         Assert.Equal(OperatingSystem.IsWindows(), tracker.ShouldSkip("/library/show.mkv", out _));
     }
 
+    [Theory]
+    [InlineData("https://user:pass@media.test/get.php?username=demo&password=p%40ss&token=abc&output=ts", "https://[REDACTED]@media.test/get.php?username=[REDACTED]&password=[REDACTED]&token=[REDACTED]&output=ts")]
+    [InlineData("https://media.test/bot123456:secret/send?api_key=key-value", "https://media.test/bot[REDACTED]/send?api_key=[REDACTED]")]
+    public void RedactSensitiveData_RemovesUrlCredentials(string input, string expected)
+        => Assert.Equal(expected, NebulaDownloaderEngine.RedactSensitiveData(input));
+
+    [Fact]
+    public void FailureTracker_RedactsUrlCredentialsFromPersistedSkipReason()
+    {
+        var tracker = new NebulaDownloaderEngine.FailureTracker();
+        tracker.RecordFailure("/library/Show.strm", "Request failed: https://media.test/get.php?username=demo&password=secret");
+
+        Assert.True(tracker.ShouldSkip("/library/Show.strm", out var reason));
+        Assert.DoesNotContain("demo", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", reason, StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LogError_RedactsUrlCredentialsFromUserVisibleLog()
+    {
+        using var engine = CreateEngine();
+        string? log = null;
+        engine.OnLog += value => log = value;
+        var method = typeof(NebulaDownloaderEngine).GetMethod("LogError", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        method.Invoke(engine, ["Download failed: https://media.test/get.php?username=demo&password=secret"]);
+
+        Assert.NotNull(log);
+        Assert.DoesNotContain("demo", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", log, StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", log, StringComparison.Ordinal);
+    }
+
     #region Category Priority Tests (T2.3 - Priority observable and consistent)
 
     [Fact]

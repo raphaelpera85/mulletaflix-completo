@@ -128,6 +128,46 @@ namespace Jellyfin.Providers.Tests.Plugins.YouTube
         }
 
         [Fact]
+        public async Task GetMetadata_WithStrmUrlFailure_RedactsUrlFromLogs()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Directory.CreateDirectory(tempDir);
+            var strmFile = Path.Combine(tempDir, "episode.strm");
+            var mediaUrl = "https://alice:secret@provider.example/show?api_key=token";
+            File.WriteAllText(strmFile, mediaUrl);
+
+            var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            handler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>())
+                .Returns<HttpRequestMessage, CancellationToken>((request, _) =>
+                    Task.FromException<HttpResponseMessage>(new HttpRequestException($"Request failed for {request.RequestUri}")));
+
+            _httpClientFactoryMock.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient(handler.Object));
+            var logger = new CapturingLogger<YouTubeSeriesProvider>();
+            var provider = new YouTubeSeriesProvider(_httpClientFactoryMock.Object, logger);
+            var info = new SeriesInfo { Name = "Short Series", Path = tempDir };
+
+            try
+            {
+                await provider.GetMetadata(info, CancellationToken.None);
+
+                var logs = string.Join(Environment.NewLine, logger.Messages);
+                Assert.Contains("[REDACTED_URL]", logs, StringComparison.Ordinal);
+                Assert.DoesNotContain("alice", logs, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("secret", logs, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("api_key=token", logs, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
         public async Task GetImages_WithChannelId_ReturnsAvatarAndBanner()
         {
             // Arrange
@@ -173,6 +213,36 @@ namespace Jellyfin.Providers.Tests.Plugins.YouTube
 
             Assert.NotNull(backdropImg);
             Assert.Equal("https://yt3.ggpht.com/banner_high.jpg", backdropImg.Url);
+        }
+
+        [Fact]
+        public async Task GetImages_WithTransportException_RedactsUrlFromLogs()
+        {
+            const string sensitiveUrl = "https://alice:secret@provider.example/channel?api_key=token";
+            var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            handler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>())
+                .Returns<HttpRequestMessage, CancellationToken>((_, _) =>
+                    Task.FromException<HttpResponseMessage>(new HttpRequestException($"Request failed for {sensitiveUrl}")));
+
+            _httpClientFactoryMock.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient(handler.Object));
+            var logger = new CapturingLogger<YouTubeSeriesImageProvider>();
+            var provider = new YouTubeSeriesImageProvider(_httpClientFactoryMock.Object, logger);
+            var series = new Series();
+            series.SetProviderId("YouTube", "UC1234567890123456789012");
+
+            var images = await provider.GetImages(series, CancellationToken.None);
+
+            Assert.Empty(images);
+            var logs = string.Join(Environment.NewLine, logger.Messages);
+            Assert.Contains("[REDACTED_URL]", logs, StringComparison.Ordinal);
+            Assert.DoesNotContain("alice", logs, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("secret", logs, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("api_key=token", logs, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -225,6 +295,21 @@ namespace Jellyfin.Providers.Tests.Plugins.YouTube
                 });
 
             return new HttpClient(handlerMock.Object);
+        }
+
+        private sealed class CapturingLogger<T> : ILogger<T>
+        {
+            public List<string> Messages { get; } = new();
+
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull
+                => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+                where TState : notnull
+                => Messages.Add(formatter(state, exception));
         }
     }
 }

@@ -58,9 +58,12 @@ const serviceWorkerOutputPlugin = () => ({
 const htmlPlugin = () => ({
     name: 'html-transform',
     enforce: 'pre' as const,
-    async resolveId(source: string, importer: string | undefined) {
+    async resolveId(source: string, importer: string | undefined, options?: { scan?: boolean }) {
         // Redireciona imports de HTML para ?html-string
         if (source.endsWith('.html') && !source.endsWith('index.html')) {
+            if (options?.scan) {
+                return { id: source, external: true };
+            }
             const resolved = await this.resolve(source, importer, { skipSelf: true });
             if (resolved) {
                 return resolved.id + '?html-string';
@@ -98,19 +101,20 @@ const htmlPlugin = () => ({
 
 export default defineConfig(async (config) => {
     const plugins = [tsconfigPaths(), htmlPlugin(), serviceWorkerOutputPlugin()];
-    
+
     // Add visualizer plugin only for production builds (async import to avoid ESM-only issues)
     if (config.command === 'build') {
         try {
             const { default: visualizer } = await import('rollup-plugin-visualizer');
             plugins.push(visualizer({ open: false }));
         } catch (err) {
-            console.warn('rollup-plugin-visualizer not available, skipping bundle analysis');
+            console.warn('rollup-plugin-visualizer not available, skipping bundle analysis:', err instanceof Error ? err.message : String(err));
         }
     }
-    
+
     return {
         resolve: {
+            dedupe: ['react', 'react-dom', '@emotion/react', '@emotion/styled'],
             alias: [
                 { find: /^~/, replacement: '' },
                 // Keep the legacy player imports stable while bundling the smaller
@@ -131,9 +135,24 @@ export default defineConfig(async (config) => {
         },
         optimizeDeps: {
             // The legacy HTML templates are loaded through htmlPlugin and are not
-            // JavaScript entry points. Restrict the dev scan to the real shell so
-            // Vite does not try to parse every controller template as a module.
-            entries: [ 'index.html' ]
+            // JavaScript entry points. Restrict the dev scan to the real shell and
+            // Playwright fixtures, and mark template HTML imports external during scan.
+            entries: ['index.html', '../tests/playwright/fixtures/**/*.{ts,tsx}'],
+            esbuildOptions: {
+                plugins: [
+                    {
+                        name: 'ignore-html-templates-in-dep-scan',
+                        setup(build) {
+                            build.onResolve({ filter: /\.html(\?html-string)?$/ }, (args) => {
+                                if (args.kind !== 'entry-point' && !args.path.endsWith('index.html')) {
+                                    return { path: args.path, external: true };
+                                }
+                                return null;
+                            });
+                        }
+                    }
+                ]
+            }
         },
         build: {
             outDir: '../dist',
@@ -151,8 +170,8 @@ export default defineConfig(async (config) => {
         },
         test: {
             coverage: {
-                include: [ '**/*.{ts,tsx,js,jsx}' ],
-                exclude: [ '**/*.spec.*', '**/*.test.*', '**/tests/**', '**/*.d.ts' ]
+                include: ['**/*.{ts,tsx,js,jsx}'],
+                exclude: ['**/*.spec.*', '**/*.test.*', '**/tests/**', '**/*.d.ts']
             },
             environment: 'jsdom',
             restoreMocks: true

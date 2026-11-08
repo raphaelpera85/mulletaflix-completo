@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -47,13 +47,20 @@ public class DevicesController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="userId">Gets or sets the user identifier.</param>
     /// <response code="200">Devices retrieved.</response>
+    /// <response code="400">User id is invalid.</response>
     /// <returns>An <see cref="OkResult"/> containing the list of devices.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult<QueryResult<DeviceInfoDto>> GetDevices([FromQuery] Guid? userId)
     {
         if (userId.HasValue)
         {
+            if (userId.Value == Guid.Empty)
+            {
+                return BadRequest("User id must not be empty.");
+            }
+
             userId = RequestHelpers.GetUserId(User, userId);
         }
 
@@ -65,13 +72,20 @@ public class DevicesController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="id">Device Id.</param>
     /// <response code="200">Device info retrieved.</response>
+    /// <response code="400">Device id is invalid.</response>
     /// <response code="404">Device not found.</response>
     /// <returns>An <see cref="OkResult"/> containing the device info on success, or a <see cref="NotFoundResult"/> if the device could not be found.</returns>
     [HttpGet("Info")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<DeviceInfoDto> GetDeviceInfo([FromQuery, Required] string id)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return BadRequest("Device id is required.");
+        }
+
         var deviceInfo = _deviceManager.GetDevice(id);
         if (deviceInfo is null)
         {
@@ -86,13 +100,20 @@ public class DevicesController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="id">Device Id.</param>
     /// <response code="200">Device options retrieved.</response>
+    /// <response code="400">Device id is invalid.</response>
     /// <response code="404">Device not found.</response>
     /// <returns>An <see cref="OkResult"/> containing the device info on success, or a <see cref="NotFoundResult"/> if the device could not be found.</returns>
     [HttpGet("Options")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<DeviceOptionsDto> GetDeviceOptions([FromQuery, Required] string id)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return BadRequest("Device id is required.");
+        }
+
         var deviceInfo = _deviceManager.GetDeviceOptions(id);
         if (deviceInfo is null)
         {
@@ -108,13 +129,25 @@ public class DevicesController : BaseMulletaFlixApiController
     /// <param name="id">Device Id.</param>
     /// <param name="deviceOptions">Device Options.</param>
     /// <response code="204">Device options updated.</response>
+    /// <response code="400">Device id or payload is invalid.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Options")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateDeviceOptions(
         [FromQuery, Required] string id,
         [FromBody, Required] DeviceOptionsDto deviceOptions)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return BadRequest("Device id is required.");
+        }
+
+        if (deviceOptions is null)
+        {
+            return BadRequest("Device options are required.");
+        }
+
         await _deviceManager.UpdateDeviceOptions(id, deviceOptions.CustomName).ConfigureAwait(false);
         return NoContent();
     }
@@ -131,6 +164,16 @@ public class DevicesController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> DeleteDevice([FromQuery] string[] id)
     {
+        if (id is null || id.Length == 0)
+        {
+            return BadRequest("Device ids are required.");
+        }
+
+        if (id.Any(string.IsNullOrWhiteSpace))
+        {
+            return BadRequest("Device id must not be empty.");
+        }
+
         var devices = id.Select(_deviceManager.GetDevice).ToArray();
         if (devices.Any(f => f is null))
         {

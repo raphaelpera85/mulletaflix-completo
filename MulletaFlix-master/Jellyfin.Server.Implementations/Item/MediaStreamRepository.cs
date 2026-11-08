@@ -9,6 +9,8 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
 
@@ -22,6 +24,7 @@ public class MediaStreamRepository : IMediaStreamRepository
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
     private readonly IServerApplicationHost _serverApplicationHost;
     private readonly ILocalizationManager _localization;
+    private readonly ILogger<MediaStreamRepository> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaStreamRepository"/> class.
@@ -30,41 +33,75 @@ public class MediaStreamRepository : IMediaStreamRepository
     /// <param name="serverApplicationHost">The Application host.</param>
     /// <param name="localization">The Localisation Provider.</param>
     public MediaStreamRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider, IServerApplicationHost serverApplicationHost, ILocalizationManager localization)
+        : this(dbProvider, serverApplicationHost, localization, NullLogger<MediaStreamRepository>.Instance)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MediaStreamRepository"/> class.
+    /// </summary>
+    /// <param name="dbProvider">The EFCore db factory.</param>
+    /// <param name="serverApplicationHost">The Application host.</param>
+    /// <param name="localization">The Localisation Provider.</param>
+    /// <param name="logger">A logger.</param>
+    public MediaStreamRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider, IServerApplicationHost serverApplicationHost, ILocalizationManager localization, ILogger<MediaStreamRepository> logger)
     {
         _dbProvider = dbProvider;
         _serverApplicationHost = serverApplicationHost;
         _localization = localization;
+        _logger = logger;
     }
 
     /// <inheritdoc />
     public void SaveMediaStreams(Guid id, IReadOnlyList<MediaStream> streams, CancellationToken cancellationToken)
     {
-        using var context = _dbProvider.CreateDbContext();
-        using var transaction = context.Database.BeginTransaction();
-
-        context.MediaStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDelete();
-        context.MediaStreamInfos.AddRange(streams.Select(f => Map(f, id)));
-        // This method, its DbContext and its transaction are all synchronous (see the async
-        // SaveMediaStreamsAsync sibling below for the real async path); use the genuine
-        // synchronous SaveChanges API instead of sync-over-async (Achado B-7).
-        context.SaveChanges();
-
-        transaction.Commit();
+        for (var attempt = 1; ; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                using var context = _dbProvider.CreateDbContext();
+                using var transaction = context.Database.BeginTransaction();
+                context.MediaStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDelete();
+                context.MediaStreamInfos.AddRange(streams.Select(f => Map(f, id)));
+                context.SaveChanges();
+                transaction.Commit();
+                return;
+            }
+            catch (Exception ex) when (attempt < 3 && ItemPersistenceService.IsTransientMariaDbLockFailure(ex))
+            {
+                _logger.LogWarning(ex, "Retrying media stream replacement for item {ItemId} after MariaDB lock failure (attempt {Attempt}/3)", id, attempt + 1);
+                Thread.Sleep(attempt * 150);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
     }
 
     /// <inheritdoc />
     public async Task SaveMediaStreamsAsync(Guid id, IReadOnlyList<MediaStream> streams, CancellationToken cancellationToken)
     {
-        var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (context.ConfigureAwait(false))
+        for (var attempt = 1; ; attempt++)
         {
-            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                await using (context.ConfigureAwait(false))
+                {
+                    await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                    await context.MediaStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+                    context.MediaStreamInfos.AddRange(streams.Select(f => Map(f, id)));
+                    await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
 
-            await context.MediaStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-            context.MediaStreamInfos.AddRange(streams.Select(f => Map(f, id)));
-            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex) when (attempt < 3 && ItemPersistenceService.IsTransientMariaDbLockFailure(ex))
+            {
+                _logger.LogWarning(ex, "Retrying media stream replacement for item {ItemId} after MariaDB lock failure (attempt {Attempt}/3)", id, attempt + 1);
+                await Task.Delay(TimeSpan.FromMilliseconds(attempt * 150), cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 

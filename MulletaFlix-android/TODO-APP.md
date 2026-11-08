@@ -408,13 +408,15 @@
 - [x] Ao iniciar nova tentativa, limpar erro antigo de imediato; não aceitar um segundo logout enquanto o primeiro aguarda o resultado.
 - [x] RED-GREEN com testes de retry e de chamadas duplicadas no `UserProfileViewModelTest`.
 - [x] Quality gate Android: 1.580 testes JVM, 0 falhas/erros/ignorados; lint, build Debug e compilação AndroidTest passaram. Instrumentação PHONE/API 35, 1/1, também passou.
-- [ ] Ainda falta teste de integração que provoque falha real no DataStore/disco. Sem alteração de versão ou release.
+- [x] Integração de falha real do DataStore: `SessionRepositoryPersistenceTest.logoutReturnsFailureWhenRealSessionDataStoreCannotWrite` semeia sessão sintética num diretório isolado, remove permissão de escrita antes do logout e verifica `Result.failure` com causa `IOException`, sem requisição ao servidor. PHONE/API 35 passou 1/1; NVIDIA verificada, wrapper encerrou o AVD e ADB terminou vazio.
+- [x] Integrar a falha real do DataStore à tela Compose: PHONE/API 35, 1/1; mensagem visível, loading encerrado, perfil mantido, callback de navegação não chamado, sessão preservada e zero requests. `MainActivity`/NavHost via Hilt e outros perfis permanecem fora deste teste.
+- [ ] Sem alteração de versão ou release.
 
 ## Homologar feedback visual de falha ao sair — Android, sem release
 
 - [x] Teste Compose instrumentado instancia o ViewModel e tela reais, simula falha do logout, confirma mensagem visível, progresso encerrado e callback de navegação não chamado.
 - [x] `:feature:user:connectedDebugAndroidTest` passou 1/1 em PHONE/API 35 (`SmartMeasureApi35Play`), com GPU NVIDIA confirmada; wrapper encerrou o emulador após o teste.
-- [ ] Confirmar com falha real de persistência/DataStore. O teste injeta falha controlada no contrato do repositório; não valida falha física de armazenamento.
+- [x] Integração Compose/DataStore real passou 1/1 em PHONE/API 35; XML em `feature/user/build/outputs/androidTest-results/connected/debug/TEST-MulletaflixLogoutPhoneApi35_20261027(AVD) - 15.xml`. Confirmou mensagem, loading encerrado, Perfil visível, callback de navegação zerado e sessão persistida preservada.
 - [ ] Sem alterações de comportamento, versão, APK de produção ou release.
 
 ## Logout só navega após a sessão ser limpa — Android, sem release
@@ -422,7 +424,7 @@
 - [x] Corrigir a saída do Perfil: `UserProfileViewModel` só chama navegação se `LogoutUseCase` retornar sucesso; falha mantém o Perfil, encerra progresso e apresenta a mensagem em `uiState.error`.
 - [x] TDD RED-GREEN em `UserProfileViewModelTest`: antes, a callback era executada após `Result.failure`; depois, classe inteira passou 8/8.
 - [x] Quality gate: 1.578 testes JVM, sem falhas/erros/ignorados; lint do módulo user e app, build Debug, compilação de AndroidTest e `git diff --check` aprovados.
-- [ ] Verificar mensagem visual por teste Compose e falha DataStore real; este ciclo validou estado do ViewModel. Sem bump ou release.
+- [ ] Verificar no mesmo teste Compose a mensagem visual, progresso encerrado e ausência de navegação com falha de escrita real do DataStore. A integração real de armazenamento passou 1/1 separadamente; a UI ainda usa falha simulada. Sem bump ou release.
 
 ## Troca de conta persiste a nova identidade — Android, sem release
 

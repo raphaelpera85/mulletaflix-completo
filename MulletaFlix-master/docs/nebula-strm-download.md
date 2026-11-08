@@ -1,5 +1,13 @@
 # Nebula STRM Downloader
 
+## Rechecagem de falha TLS do provedor — 2026-10-27 18:19 BRT
+
+- O log anexado registra 95 falhas de download, todas com `TLSV1_UNRECOGNIZED_NAME`; o scan conseguiu iniciar e encontrar títulos, mas não concluiu downloads.
+- Dois arquivos `.strm` correspondentes a itens do log usam o host `cn53.org`. Handshakes TLS sem caminho/credenciais para esse host passaram nesta máquina em .NET TLS 1.3 e Python 3.13/OpenSSL 3.0.16. Isso não valida as URLs completas, redirects, nem o runtime instalado que produziu o log.
+- Regressão local do downloader Python 3.10: `test_strm_downloader.py` + `test_strm_downloader_helpers.py`, 99 aprovados, 0 falhas.
+- Não foi identificada causa no código do downloader: a falha pode ocorrer num redirect do provedor ou no runtime/rede de produção. Não desabilitar validação TLS nem fixar SNI sem conhecer o host final e confirmar o contrato do provedor.
+- Pendente: obter do runtime afetado apenas o host final após redirects, sem caminho, query ou credenciais; então reproduzir handshake e selecionar correção compatível. Sem alteração de código, instalação ou release nesta rechecagem.
+
 ## Shutdown aguarda uploads em andamento — 2026-10-27
 
 O encerramento agora aguarda `UPLOAD_QUEUE.join()` até 30 segundos mesmo quando as filas de lanes estão vazias. `empty()` só observa itens ainda enfileirados e não detecta tarefas já retiradas pelo worker; sem o join, o shutdown podia cancelar workers e fechar sessões durante um upload ativo. Regressão de ciclo de vida: 3/3; suíte NebulaPython isolada: 725 aprovados, 2 ignorados, 0 falhas. Mudança local; não validada em runtime instalado, Linux, Telegram/MongoDB ou produção. Sem crédito formal de homologação.

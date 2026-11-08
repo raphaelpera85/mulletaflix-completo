@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { getFixtureBaseUrl } from '../support/stage.mjs';
 
 const resourceRoot = resolve(process.cwd(), '../MulletaFlix-master/Jellyfin.Api/Web/NebulaFTP');
 const html = readFileSync(resolve(resourceRoot, 'configPage.html'), 'utf8');
@@ -8,6 +9,7 @@ const controller = readFileSync(resolve(resourceRoot, 'configPage.js'), 'utf8');
 
 for (const width of [390, 1280]) {
     test(`authenticated Nebula controller activates all tabs and sends startup actions at ${width}px`, async ({ page }, testInfo) => {
+        const fixtureBaseUrl = getFixtureBaseUrl(String(test.info().project.use.baseURL));
         await page.setViewportSize({ width, height: 800 });
         const errors: string[] = [];
         page.on('pageerror', error => errors.push(error.message));
@@ -33,9 +35,9 @@ for (const width of [390, 1280]) {
             return route.fulfill({ json: { IsEnvioRunning: false, IsDownloaderRunning: false, GlobalStatusText: 'Envio: Parado | Download: Parado' } });
         });
         await page.route('**/__nebula_fixture__', route => route.fulfill({ contentType: 'text/html', body: '<html lang="pt-BR"><head><style>body{color:#cdd6f4;background:#111}input,button{color:inherit}label{color:inherit}</style></head><body><div class="mainAnimatedPages"></div></body></html>' }));
-        await page.goto('/__nebula_fixture__');
+        await page.goto(new URL('/__nebula_fixture__', fixtureBaseUrl).toString());
         await page.addScriptTag({ type: 'module', content: `
-        import viewContainer from '/components/viewContainer.ts';
+        import viewContainer from '${getFixtureBaseUrl(String(test.info().project.use.baseURL))}/components/viewContainer.ts';
         window.ApiClient = {
             accessToken: () => 'test-token', deviceId: () => 'test', appVersion: () => 'test',
             getUrl: path => location.origin + '/' + path.replace(/^\\//, '')

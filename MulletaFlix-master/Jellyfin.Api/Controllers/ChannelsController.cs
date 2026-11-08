@@ -56,6 +56,7 @@ public class ChannelsController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the channels.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetChannels(
         [FromQuery] Guid? userId,
@@ -65,6 +66,16 @@ public class ChannelsController : BaseMulletaFlixApiController
         [FromQuery] bool? supportsMediaDeletion,
         [FromQuery] bool? isFavorite)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!User.GetIsApiKey() && userId.IsNullOrEmpty())
         {
@@ -104,11 +115,27 @@ public class ChannelsController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="channelId">Channel id.</param>
     /// <response code="200">Channel features returned.</response>
+    /// <response code="400">Channel id is empty.</response>
+    /// <response code="404">Channel features not found.</response>
     /// <returns>An <see cref="OkResult"/> containing the channel features.</returns>
     [HttpGet("{channelId}/Features")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<ChannelFeatures> GetChannelFeatures([FromRoute, Required] Guid channelId)
     {
-        return _channelManager.GetChannelFeatures(channelId);
+        if (channelId == Guid.Empty)
+        {
+            return BadRequest("Channel id must not be empty.");
+        }
+
+        var features = _channelManager.GetChannelFeatures(channelId);
+        if (features is null)
+        {
+            return NotFound();
+        }
+
+        return features;
     }
 
     /// <summary>
@@ -129,6 +156,8 @@ public class ChannelsController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the channel items.
     /// </returns>
     [HttpGet("{channelId}/Items")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetChannelItems(
         [FromRoute, Required] Guid channelId,
@@ -141,6 +170,21 @@ public class ChannelsController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemSortBy[] sortBy,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields)
     {
+        if (channelId == Guid.Empty)
+        {
+            return BadRequest("Channel id must not be empty.");
+        }
+
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!User.GetIsApiKey() && userId.IsNullOrEmpty())
         {
@@ -185,6 +229,8 @@ public class ChannelsController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the latest channel items.
     /// </returns>
     [HttpGet("Items/Latest")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetLatestChannelItems(
         [FromQuery] Guid? userId,
@@ -194,6 +240,16 @@ public class ChannelsController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] Guid[] channelIds)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!User.GetIsApiKey() && userId.IsNullOrEmpty())
         {

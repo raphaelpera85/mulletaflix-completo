@@ -102,7 +102,10 @@ namespace MulletaFlix.LiveTv.Listings
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error downloading or processing XMLTV file from {Path}", LiveTvUrlRedactor.RedactIfRemote(info.Path));
+                _logger.LogError(
+                    "Error downloading or processing XMLTV file from {Path}: {Error}",
+                    LiveTvUrlRedactor.RedactIfRemote(info.Path),
+                    LiveTvUrlRedactor.RedactText(ex.ToString()));
 
                 if (File.Exists(cacheFile))
                 {
@@ -135,7 +138,10 @@ namespace MulletaFlix.LiveTv.Listings
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error extracting from gz file {File}", originalUrl);
+                        _logger.LogError(
+                            "Error extracting from gz file {File}: {Error}",
+                            LiveTvUrlRedactor.RedactIfRemote(originalUrl),
+                            LiveTvUrlRedactor.RedactText(ex.ToString()));
                     }
                 }
                 else
@@ -152,7 +158,7 @@ namespace MulletaFlix.LiveTv.Listings
                     File.Delete(file);
                 }
 
-                throw new InvalidOperationException("Downloaded XMLTV file is empty: " + originalUrl);
+                throw new InvalidOperationException("Downloaded XMLTV file is empty: " + LiveTvUrlRedactor.RedactIfRemote(originalUrl));
             }
 
             return file;

@@ -14,6 +14,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Plugins.YouTube
@@ -135,7 +136,7 @@ namespace MediaBrowser.Providers.Plugins.YouTube
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching search results from YouTube for: {Name}", searchInfo.Name);
+                _logger.LogError("Error fetching search results from YouTube for {Name}: {Error}", searchInfo.Name, RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
 
             return results;
@@ -238,7 +239,7 @@ namespace MediaBrowser.Providers.Plugins.YouTube
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching YouTube metadata for: {Id}", ytId);
+                _logger.LogError("Error fetching YouTube metadata for {Id}: {Error}", ytId, RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
 
             return result;
@@ -313,7 +314,7 @@ namespace MediaBrowser.Providers.Plugins.YouTube
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get direct YouTube result for: {Id}", ytId);
+                _logger.LogWarning("Failed to get direct YouTube result for {Id}: {Error}", ytId, RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
 
             return null;
@@ -335,7 +336,7 @@ namespace MediaBrowser.Providers.Plugins.YouTube
 
                     if (Array.Exists(mediaExtensions, e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase)))
                     {
-                        _logger.LogInformation("Skipping Open Graph metadata fetch for media URL: {Url}", url);
+                        _logger.LogInformation("Skipping Open Graph metadata fetch for media URL: {Url}", RemoteUrlLogRedactor.Redact(url));
                         return result;
                     }
                 }
@@ -343,7 +344,7 @@ namespace MediaBrowser.Providers.Plugins.YouTube
 
             try
             {
-                _logger.LogInformation("Fetching Open Graph metadata from: {Url}", url);
+                _logger.LogInformation("Fetching Open Graph metadata from: {Url}", RemoteUrlLogRedactor.Redact(url));
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
 
@@ -376,7 +377,7 @@ namespace MediaBrowser.Providers.Plugins.YouTube
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error parsing Open Graph metadata from: {Url}", url);
+                _logger.LogError("Error parsing Open Graph metadata from {Url}: {Error}", RemoteUrlLogRedactor.Redact(url), RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
 
             return result;

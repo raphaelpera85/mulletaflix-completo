@@ -33,6 +33,7 @@ using MediaBrowser.Model.Branding;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Extensions;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Providers;
@@ -460,7 +461,7 @@ public class ImageController : BaseMulletaFlixApiController
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
-            return NoContent();
+            return NotFound();
         }
 
         await item.DeleteImageAsync(imageType, imageIndex ?? 0).ConfigureAwait(false);
@@ -488,7 +489,7 @@ public class ImageController : BaseMulletaFlixApiController
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
-            return NoContent();
+            return NotFound();
         }
 
         await item.DeleteImageAsync(imageType, imageIndex).ConfigureAwait(false);
@@ -517,7 +518,7 @@ public class ImageController : BaseMulletaFlixApiController
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
-            return NoContent();
+            return NotFound();
         }
 
         if (!TryGetImageExtensionFromContentType(Request.ContentType, out _))
@@ -530,8 +531,8 @@ public class ImageController : BaseMulletaFlixApiController
         {
             // Handle image/png; charset=utf-8
             var mimeType = Request.ContentType?.Split(';').FirstOrDefault();
-            await _providerManager.SaveImage(item, stream, mimeType, imageType, null, CancellationToken.None).ConfigureAwait(false);
-            await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
+            await _providerManager.SaveImage(item, stream, mimeType, imageType, null, HttpContext.RequestAborted).ConfigureAwait(false);
+            await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, HttpContext.RequestAborted).ConfigureAwait(false);
 
             return NoContent();
         }
@@ -542,7 +543,7 @@ public class ImageController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="itemId">Item id.</param>
     /// <param name="imageType">Image type.</param>
-    /// <param name="imageIndex">(Unused) Image index.</param>
+    /// <param name="imageIndex">Image index.</param>
     /// <response code="204">Image saved.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>A <see cref="NoContentResult"/> on success, or a <see cref="NotFoundResult"/> if item not found.</returns>
@@ -552,7 +553,6 @@ public class ImageController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [SuppressMessage("Microsoft.Performance", "CA1801:ReviewUnusedParameters", MessageId = "index", Justification = "Imported from ServiceStack")]
     public async Task<ActionResult> SetItemImageByIndex(
         [FromRoute, Required] Guid itemId,
         [FromRoute, Required] ImageType imageType,
@@ -574,8 +574,8 @@ public class ImageController : BaseMulletaFlixApiController
         {
             // Handle image/png; charset=utf-8
             var mimeType = Request.ContentType?.Split(';').FirstOrDefault();
-            await _providerManager.SaveImage(item, stream, mimeType, imageType, null, CancellationToken.None).ConfigureAwait(false);
-            await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None).ConfigureAwait(false);
+            await _providerManager.SaveImage(item, stream, mimeType, imageType, imageIndex, HttpContext.RequestAborted).ConfigureAwait(false);
+            await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, HttpContext.RequestAborted).ConfigureAwait(false);
 
             return NoContent();
         }
@@ -639,7 +639,7 @@ public class ImageController : BaseMulletaFlixApiController
             return list;
         }
 
-        await _libraryManager.UpdateImagesAsync(item).ConfigureAwait(false); // this makes sure dimensions and hashes are correct
+        await _libraryManager.UpdateImagesAsync(item, cancellationToken: HttpContext.RequestAborted).ConfigureAwait(false); // this makes sure dimensions and hashes are correct
 
         foreach (var image in itemImages)
         {
@@ -2329,7 +2329,9 @@ public class ImageController : BaseMulletaFlixApiController
             {
                 if (!imageInfo.IsLocalFile && item is not null)
                 {
-                    imageInfo = await _libraryManager.ConvertImageToLocal(item, imageInfo, imageIndex ?? 0).ConfigureAwait(false);
+                    imageInfo = await _libraryManager
+                        .ConvertImageToLocal(item, imageInfo, imageIndex ?? 0, cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
                 }
 
                 var options = new ImageProcessingOptions
@@ -2396,6 +2398,30 @@ public class ImageController : BaseMulletaFlixApiController
                 _logger.LogDebug(ex, "Missing image resource for item {ItemId} ({ItemName}) of type {ImageType}", itemId, item?.Name, imageType);
                 return NoContent();
             }
+            catch (InvalidOperationException ex)
+            {
+                if (attempt == 0 && await TryRecoverMissingBookPrimaryImageAsync(item, imageType, imageIndex ?? 0, cancellationToken).ConfigureAwait(false))
+                {
+                    _logger.LogDebug(ex, "Recovering unconvertible remote image for item {ItemId} ({ItemName}) of type {ImageType}", itemId, item?.Name, imageType);
+                    imageInfo = null;
+                    continue;
+                }
+
+                _logger.LogDebug(ex, "Unable to convert remote image for item {ItemId} ({ItemName}) of type {ImageType}", itemId, item?.Name, imageType);
+                return NoContent();
+            }
+            catch (HttpRequestException ex)
+            {
+                if (attempt == 0 && await TryRecoverMissingBookPrimaryImageAsync(item, imageType, imageIndex ?? 0, cancellationToken).ConfigureAwait(false))
+                {
+                    _logger.LogDebug(ex, "Recovering unreachable remote image for item {ItemId} ({ItemName}) of type {ImageType}", itemId, item?.Name, imageType);
+                    imageInfo = null;
+                    continue;
+                }
+
+                _logger.LogDebug(ex, "Error downloading remote image for item {ItemId} ({ItemName}) of type {ImageType}", itemId, item?.Name, imageType);
+                return NoContent();
+            }
         }
 
         return NoContent();
@@ -2425,18 +2451,28 @@ public class ImageController : BaseMulletaFlixApiController
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            foreach (var remoteImage in remoteImages)
+            var preferredLanguage = item.PreferredMetadataLanguage;
+            if (BaseItem.LibraryManager is not null && BaseItem.ConfigurationManager is not null)
             {
-                if (string.IsNullOrWhiteSpace(remoteImage.Url) || remoteImage.Type != imageType)
-                {
-                    continue;
-                }
-
+                preferredLanguage = item.GetPreferredMetadataLanguage();
+            }
+            foreach (var remoteImage in remoteImages
+                .Where(image => !string.IsNullOrWhiteSpace(image.Url) && image.Type == imageType)
+                .OrderByLanguageDescending(preferredLanguage))
+            {
                 try
                 {
                     await _providerManager.SaveImage(item, remoteImage.Url, imageType, imageIndex, cancellationToken).ConfigureAwait(false);
+                    var savedImage = item.GetImageInfo(imageType, imageIndex);
+                    if (savedImage is not null)
+                    {
+                        savedImage.ProviderName = remoteImage.ProviderName;
+                        savedImage.Language = remoteImage.Language;
+                        await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, cancellationToken).ConfigureAwait(false);
+                    }
+
                     _logger.LogDebug("Recovered missing book image for item {ItemId} ({ItemName}).", item.Id, item.Name);
-                    return item.GetImageInfo(imageType, imageIndex) is not null;
+                    return savedImage is not null;
                 }
                 catch (HttpRequestException ex)
                 {

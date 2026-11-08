@@ -29,6 +29,7 @@ test.describe.serial('10 - Admin', () => {
         await expect(page.locator('.chkEnableLiveTvAccess')).toBeVisible();
 
         await page.locator('.editUserProfileForm button[type="submit"]').click();
+        await expect(page.locator('#userProfilesPage')).toBeVisible({ timeout: 30_000 });
 
         await openUserTab(page, user.userId, 'access');
         await expect(page.locator('.userLibraryAccessForm')).toBeVisible();
@@ -156,19 +157,19 @@ test.describe.serial('10 - Admin', () => {
         await expect(page.locator('input[name="CachePath"]')).toBeVisible();
         await expect(page.locator('input[name="MetadataPath"]')).toBeVisible();
         await page.locator('#dashboardGeneralPage button[type="submit"]').click();
-        await expect(page.locator('[role="alert"]').last()).toContainText(/Settings saved\.?|SettingsSaved|Saved|Salvo/i);
+        await expect(page.locator('[role="alert"]').filter({ hasText: /Settings saved\.?|SettingsSaved|Saved|Salvo/i })).toBeVisible();
 
         await navigateStage(page, '/dashboard/playback/streaming');
         await expect(page.locator('#streamingSettingsPage')).toBeVisible();
         await expect(page.locator('input[name="StreamingBitrateLimit"]')).toBeVisible();
         await page.locator('#streamingSettingsPage button[type="submit"]').click();
-        await expect(page.locator('[role="alert"]').last()).toContainText(/Settings saved\.?|SettingsSaved|Saved|Salvo/i);
+        await expect(page.locator('[role="alert"]').filter({ hasText: /Settings saved\.?|SettingsSaved|Saved|Salvo/i })).toBeVisible();
 
         await navigateStage(page, '/dashboard/branding');
         await expect(page.locator('#brandingPage')).toBeVisible();
         await expect(page.locator('textarea[name="LoginDisclaimer"]')).toBeVisible();
         await expect(page.locator('textarea[name="CustomCss"]')).toBeVisible();
         await page.locator('#brandingPage button[type="submit"]').click();
-        await expect(page.locator('[role="alert"]').last()).toContainText(/Settings saved\.?|SettingsSaved|Saved|Salvo/i);
+        await expect(page.locator('[role="alert"]').filter({ hasText: /Settings saved\.?|SettingsSaved|Saved|Salvo/i })).toBeVisible();
     });
 });

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Threading;
@@ -64,9 +64,15 @@ public class ItemLookupController : BaseMulletaFlixApiController
     [HttpGet("Items/{itemId}/ExternalIdInfos")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<IEnumerable<ExternalIdInfo>> GetExternalIdInfos([FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
@@ -86,9 +92,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the list of remote search results.
     /// </returns>
     [HttpPost("Items/RemoteSearch/Movie")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetMovieRemoteSearchResults([FromBody, Required] RemoteSearchQuery<MovieInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<Movie, MovieInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<Movie, MovieInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -103,9 +116,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the list of remote search results.
     /// </returns>
     [HttpPost("Items/RemoteSearch/Trailer")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetTrailerRemoteSearchResults([FromBody, Required] RemoteSearchQuery<TrailerInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<Trailer, TrailerInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<Trailer, TrailerInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -120,9 +140,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the list of remote search results.
     /// </returns>
     [HttpPost("Items/RemoteSearch/MusicVideo")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetMusicVideoRemoteSearchResults([FromBody, Required] RemoteSearchQuery<MusicVideoInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<MusicVideo, MusicVideoInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<MusicVideo, MusicVideoInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -137,9 +164,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the list of remote search results.
     /// </returns>
     [HttpPost("Items/RemoteSearch/Series")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetSeriesRemoteSearchResults([FromBody, Required] RemoteSearchQuery<SeriesInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<Series, SeriesInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<Series, SeriesInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -154,9 +188,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the list of remote search results.
     /// </returns>
     [HttpPost("Items/RemoteSearch/BoxSet")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetBoxSetRemoteSearchResults([FromBody, Required] RemoteSearchQuery<BoxSetInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<BoxSet, BoxSetInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<BoxSet, BoxSetInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -171,9 +212,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the list of remote search results.
     /// </returns>
     [HttpPost("Items/RemoteSearch/MusicArtist")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetMusicArtistRemoteSearchResults([FromBody, Required] RemoteSearchQuery<ArtistInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<MusicArtist, ArtistInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<MusicArtist, ArtistInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -188,9 +236,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the list of remote search results.
     /// </returns>
     [HttpPost("Items/RemoteSearch/MusicAlbum")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetMusicAlbumRemoteSearchResults([FromBody, Required] RemoteSearchQuery<AlbumInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<MusicAlbum, AlbumInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<MusicAlbum, AlbumInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -206,9 +261,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// </returns>
     [HttpPost("Items/RemoteSearch/Person")]
     [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetPersonRemoteSearchResults([FromBody, Required] RemoteSearchQuery<PersonLookupInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<Person, PersonLookupInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<Person, PersonLookupInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -223,9 +285,16 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// The task result contains an <see cref="OkResult"/> containing the list of remote search results.
     /// </returns>
     [HttpPost("Items/RemoteSearch/Book")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<RemoteSearchResult>>> GetBookRemoteSearchResults([FromBody, Required] RemoteSearchQuery<BookInfo> query)
     {
-        var results = await _providerManager.GetRemoteSearchResults<Book, BookInfo>(query, CancellationToken.None)
+        if (query is null)
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _providerManager.GetRemoteSearchResults<Book, BookInfo>(query, HttpContext.RequestAborted)
             .ConfigureAwait(false);
         return Ok(results);
     }
@@ -237,6 +306,7 @@ public class ItemLookupController : BaseMulletaFlixApiController
     /// <param name="searchResult">The remote search result.</param>
     /// <param name="replaceAllImages">Optional. Whether or not to replace all images. Default: True.</param>
     /// <response code="204">Item metadata refreshed.</response>
+    /// <response code="400">Search result is invalid or missing.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>
     /// A <see cref="Task" /> that represents the asynchronous operation to get the remote search results.
@@ -245,26 +315,41 @@ public class ItemLookupController : BaseMulletaFlixApiController
     [HttpPost("Items/RemoteSearch/Apply/{itemId}")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> ApplySearchCriteria(
         [FromRoute, Required] Guid itemId,
         [FromBody, Required] RemoteSearchResult searchResult,
         [FromQuery] bool replaceAllImages = true)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
+        if (searchResult is null)
+        {
+            return BadRequest("Search result is required.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
             return NotFound();
         }
 
+        var providerIds = searchResult.ProviderIds != null
+            ? new Dictionary<string, string>(searchResult.ProviderIds, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         _logger.LogInformation(
             "Setting provider id's to item {ItemId}-{ItemName}: {@ProviderIds}",
             item.Id,
             item.Name,
-            searchResult.ProviderIds);
+            providerIds);
 
         // Since the refresh process won't erase provider Ids, we need to set this explicitly now.
-        item.ProviderIds = searchResult.ProviderIds;
+        item.ProviderIds = providerIds;
         await _providerManager.RefreshFullItem(
             item,
             new MetadataRefreshOptions(new DirectoryService(_fileSystem))
@@ -276,7 +361,7 @@ public class ItemLookupController : BaseMulletaFlixApiController
                 SearchResult = searchResult,
                 RemoveOldMetadata = true
             },
-            CancellationToken.None).ConfigureAwait(false);
+            HttpContext.RequestAborted).ConfigureAwait(false);
 
         if (replaceAllImages
             && !item.HasImage(ImageType.Primary)
@@ -284,9 +369,15 @@ public class ItemLookupController : BaseMulletaFlixApiController
         {
             try
             {
-                await _providerManager.SaveImage(item, searchResult.ImageUrl, ImageType.Primary, null, CancellationToken.None)
+                await _providerManager.SaveImage(item, searchResult.ImageUrl, ImageType.Primary, null, HttpContext.RequestAborted)
                     .ConfigureAwait(false);
-                await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None)
+                var savedImage = item.GetImageInfo(ImageType.Primary, 0);
+                if (savedImage is not null && !string.IsNullOrWhiteSpace(searchResult.SearchProviderName))
+                {
+                    savedImage.ProviderName = searchResult.SearchProviderName;
+                }
+
+                await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, HttpContext.RequestAborted)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)

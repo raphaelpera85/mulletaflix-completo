@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Providers.Helpers;
 using MediaBrowser.Controller;
 using Microsoft.Extensions.Logging;
 
@@ -496,7 +497,7 @@ namespace MediaBrowser.Providers.Plugins.DramaBox
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning("DramaBox request to {Url} failed with {Status}", url, (int)response.StatusCode);
+                    _logger.LogWarning("DramaBox request to {Url} failed with {Status}", RemoteUrlLogRedactor.Redact(url), (int)response.StatusCode);
                     return null;
                 }
 
@@ -504,12 +505,12 @@ namespace MediaBrowser.Providers.Plugins.DramaBox
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning(ex, "DramaBox request to {Url} failed", url);
+                _logger.LogWarning("DramaBox request to {Url} failed: {Error}", RemoteUrlLogRedactor.Redact(url), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "DramaBox request to {Url} timed out", url);
+                _logger.LogWarning("DramaBox request to {Url} timed out: {Error}", RemoteUrlLogRedactor.Redact(url), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             finally

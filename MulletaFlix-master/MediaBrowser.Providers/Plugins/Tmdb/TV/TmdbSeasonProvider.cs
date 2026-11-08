@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -48,13 +48,15 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
 
             var seasonNumber = info.IndexNumber;
 
-            if (string.IsNullOrWhiteSpace(seriesTmdbId) || !seasonNumber.HasValue)
+            if (!int.TryParse(seriesTmdbId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedSeriesTmdbId)
+                || parsedSeriesTmdbId <= 0
+                || !seasonNumber.HasValue)
             {
                 return result;
             }
 
             var seasonResult = await _tmdbClientManager
-                .GetSeasonAsync(Convert.ToInt32(seriesTmdbId, CultureInfo.InvariantCulture), seasonNumber.Value, info.MetadataLanguage, TmdbUtils.GetImageLanguagesParam(info.MetadataLanguage, info.MetadataCountryCode), info.MetadataCountryCode, cancellationToken)
+                .GetSeasonAsync(parsedSeriesTmdbId, seasonNumber.Value, info.MetadataLanguage, TmdbUtils.GetImageLanguagesParam(info.MetadataLanguage, info.MetadataCountryCode), info.MetadataCountryCode, cancellationToken)
                 .ConfigureAwait(false);
 
             if (seasonResult is null)

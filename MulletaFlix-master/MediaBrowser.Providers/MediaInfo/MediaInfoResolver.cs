@@ -211,9 +211,15 @@ namespace MediaBrowser.Providers.MediaInfo
                 return Array.Empty<ExternalPathParserResult>();
             }
 
+            ReadOnlySpan<char> prefix = video.FileNameWithoutExtension;
+            if (prefix.IsEmpty)
+            {
+                return Array.Empty<ExternalPathParserResult>();
+            }
+
             // Check if video folder exists
             string folder = video.ContainingFolderPath;
-            if (!_fileSystem.DirectoryExists(folder))
+            if (string.IsNullOrEmpty(folder) || !_fileSystem.DirectoryExists(folder))
             {
                 return Array.Empty<ExternalPathParserResult>();
             }
@@ -221,7 +227,7 @@ namespace MediaBrowser.Providers.MediaInfo
             var files = directoryService.GetFilePaths(folder, clearCache).ToList();
             files.Remove(video.Path);
             var internalMetadataPath = video.GetInternalMetadataPath();
-            if (_fileSystem.DirectoryExists(internalMetadataPath))
+            if (!string.IsNullOrEmpty(internalMetadataPath) && _fileSystem.DirectoryExists(internalMetadataPath))
             {
                 files.AddRange(directoryService.GetFilePaths(internalMetadataPath, clearCache));
             }
@@ -232,7 +238,6 @@ namespace MediaBrowser.Providers.MediaInfo
             }
 
             var externalPathInfos = new List<ExternalPathParserResult>();
-            ReadOnlySpan<char> prefix = video.FileNameWithoutExtension;
             foreach (var file in files)
             {
                 var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(file.AsSpan());
@@ -269,11 +274,22 @@ namespace MediaBrowser.Providers.MediaInfo
                 return Array.Empty<ExternalPathParserResult>();
             }
 
+            ReadOnlySpan<char> prefix = audio.FileNameWithoutExtension;
+            if (prefix.IsEmpty)
+            {
+                return Array.Empty<ExternalPathParserResult>();
+            }
+
             string folder = audio.ContainingFolderPath;
+            if (string.IsNullOrEmpty(folder) || !_fileSystem.DirectoryExists(folder))
+            {
+                return Array.Empty<ExternalPathParserResult>();
+            }
+
             var files = directoryService.GetFilePaths(folder, clearCache).ToList();
             files.Remove(audio.Path);
             var internalMetadataPath = audio.GetInternalMetadataPath();
-            if (_fileSystem.DirectoryExists(internalMetadataPath))
+            if (!string.IsNullOrEmpty(internalMetadataPath) && _fileSystem.DirectoryExists(internalMetadataPath))
             {
                 files.AddRange(directoryService.GetFilePaths(internalMetadataPath, clearCache));
             }
@@ -284,7 +300,6 @@ namespace MediaBrowser.Providers.MediaInfo
             }
 
             var externalPathInfos = new List<ExternalPathParserResult>();
-            ReadOnlySpan<char> prefix = audio.FileNameWithoutExtension;
             foreach (var file in files)
             {
                 var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(file.AsSpan());

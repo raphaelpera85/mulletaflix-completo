@@ -84,6 +84,7 @@ test.describe.serial('21 - Multi user playback', () => {
         await loginWithManualForm(page, admin.username, admin.password);
 
         await ensureMediaLibrariesReady(page, {
+            libraries: [ MOVIES_LIBRARY ],
             timeoutMs: 22 * 60 * 1000,
             pollIntervalMs: 45_000
         });

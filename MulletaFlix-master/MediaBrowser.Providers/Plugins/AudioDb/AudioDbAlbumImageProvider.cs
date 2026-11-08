@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS1591
 
@@ -54,6 +54,10 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
                 await AudioDbAlbumProvider.Current.EnsureInfo(id, cancellationToken).ConfigureAwait(false);
 
                 var path = AudioDbAlbumProvider.GetAlbumInfoPath(_config.ApplicationPaths, id);
+                if (!File.Exists(path))
+                {
+                    return [];
+                }
 
                 FileStream jsonStream = AsyncFile.OpenRead(path);
                 await using (jsonStream.ConfigureAwait(false))

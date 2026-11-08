@@ -54,10 +54,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
         /// <inheritdoc />
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(SeriesInfo searchInfo, CancellationToken cancellationToken)
         {
-            if (searchInfo.TryGetProviderId(MetadataProvider.Tmdb, out var tmdbId))
+            if (searchInfo.TryGetProviderId(MetadataProvider.Tmdb, out var tmdbId)
+                && int.TryParse(tmdbId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedTmdbId)
+                && parsedTmdbId > 0)
             {
                 var series = await _tmdbClientManager
-                    .GetSeriesAsync(Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture), searchInfo.MetadataLanguage, TmdbUtils.GetImageLanguagesParam(searchInfo.MetadataLanguage, searchInfo.MetadataCountryCode), searchInfo.MetadataCountryCode, cancellationToken)
+                    .GetSeriesAsync(parsedTmdbId, searchInfo.MetadataLanguage, TmdbUtils.GetImageLanguagesParam(searchInfo.MetadataLanguage, searchInfo.MetadataCountryCode), searchInfo.MetadataCountryCode, cancellationToken)
                     .ConfigureAwait(false);
 
                 if (series is not null)
@@ -75,7 +77,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                     .ConfigureAwait(false);
 
                 var tvResults = findResult?.TvResults;
-                if (tvResults is not null)
+                if (tvResults is { Count: > 0 })
                 {
                     var imdbIdResults = new RemoteSearchResult[tvResults.Count];
                     for (var i = 0; i < tvResults.Count; i++)
@@ -96,7 +98,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                     .ConfigureAwait(false);
 
                 var tvResults = findResult?.TvResults;
-                if (tvResults is not null)
+                if (tvResults is { Count: > 0 })
                 {
                     var tvIdResults = new RemoteSearchResult[tvResults.Count];
                     for (var i = 0; i < tvResults.Count; i++)
@@ -192,6 +194,95 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             return remoteResult;
         }
 
+        public static async Task<int> ResolveTmdbIdAsync(BaseItem item, TmdbClientManager tmdbClientManager, CancellationToken cancellationToken)
+        {
+            if (int.TryParse(
+                    item.GetProviderId(MetadataProvider.Tmdb),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var tmdbId)
+                && tmdbId > 0)
+            {
+                return tmdbId;
+            }
+
+            var queryName = !string.IsNullOrWhiteSpace(item.Name) ? item.Name : item.OriginalTitle;
+            if (string.IsNullOrWhiteSpace(queryName))
+            {
+                return 0;
+            }
+
+            IReadOnlyList<SearchTv>? searchResults = null;
+            string? matchedQueryName = null;
+            var queryNames = new[] { item.Name, item.OriginalTitle }
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .SelectMany(TmdbUtils.BuildSearchNameVariants)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var targetYear = item.ProductionYear > 0 ? item.ProductionYear : null;
+
+            foreach (var searchName in queryNames)
+            {
+                if (targetYear.HasValue)
+                {
+                    searchResults = await tmdbClientManager.SearchSeriesAsync(
+                        searchName,
+                        item.GetPreferredMetadataLanguage(),
+                        item.GetPreferredMetadataCountryCode(),
+                        targetYear.Value,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                if (searchResults is not { Count: > 0 })
+                {
+                    searchResults = await tmdbClientManager.SearchSeriesAsync(
+                        searchName,
+                        item.GetPreferredMetadataLanguage(),
+                        item.GetPreferredMetadataCountryCode(),
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
+
+                if (searchResults is { Count: > 0 })
+                {
+                    matchedQueryName = searchName;
+                    break;
+                }
+            }
+
+            var bestMatch = searchResults is { Count: > 0 }
+                ? FindBestMatch(searchResults, matchedQueryName ?? queryName, targetYear)
+                : null;
+            return bestMatch?.Id ?? 0;
+        }
+
+        public static SearchTv? FindBestMatch(IEnumerable<SearchTv> candidates, string queryName, int? queryYear)
+        {
+            var queryVariants = TmdbUtils.BuildSearchNameVariants(queryName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            SearchTv? best = null;
+            var bestScore = double.MinValue;
+
+            foreach (var candidate in candidates)
+            {
+                var titleMatches = TmdbUtils.BuildSearchNameVariants(candidate.Name ?? string.Empty)
+                    .Concat(TmdbUtils.BuildSearchNameVariants(candidate.OriginalName ?? string.Empty))
+                    .Any(queryVariants.Contains);
+                if (!titleMatches)
+                {
+                    continue;
+                }
+
+                var score = queryYear.HasValue && candidate.FirstAirDate?.Year == queryYear.Value ? 15.0 : 0.0;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = candidate;
+                }
+            }
+
+            return best;
+        }
+
         /// <inheritdoc />
         public async Task<MetadataResult<Series>> GetMetadata(SeriesInfo info, CancellationToken cancellationToken)
         {
@@ -201,6 +292,10 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             };
 
             var tmdbId = info.GetProviderId(MetadataProvider.Tmdb);
+            if (!int.TryParse(tmdbId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedSeriesTmdbId) || parsedSeriesTmdbId <= 0)
+            {
+                tmdbId = null;
+            }
 
             if (string.IsNullOrEmpty(tmdbId) && info.TryGetProviderId(MetadataProvider.Imdb, out var imdbId))
             {
@@ -246,7 +341,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 }
             }
 
-            if (!int.TryParse(tmdbId, CultureInfo.InvariantCulture, out int tmdbIdInt))
+            if (!int.TryParse(tmdbId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int tmdbIdInt) || tmdbIdInt <= 0)
             {
                 return result;
             }

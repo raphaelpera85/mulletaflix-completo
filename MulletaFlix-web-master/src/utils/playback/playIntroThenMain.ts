@@ -4,13 +4,13 @@
  */
 export async function playIntroThenMain<T>(
     playIntro: () => Promise<T>,
-    onIntroError: (error: unknown) => void,
+    onIntroError: (error: unknown) => void | Promise<void>,
     playMain: () => Promise<T>
 ): Promise<T | unknown> {
     try {
         return await playIntro();
     } catch (error) {
-        onIntroError(error);
+        await onIntroError(error);
         return playMain();
     }
 }

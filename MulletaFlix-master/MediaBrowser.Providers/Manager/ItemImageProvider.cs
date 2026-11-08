@@ -23,6 +23,7 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Providers;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Manager
@@ -147,6 +148,7 @@ namespace MediaBrowser.Providers.Manager
             CancellationToken cancellationToken)
         {
             var oldBackdropImages = Array.Empty<ItemImageInfo>();
+            var backdropCountBeforeRefresh = item.GetImages(ImageType.Backdrop).Count();
             if (refreshOptions.IsReplacingImage(ImageType.Backdrop))
             {
                 oldBackdropImages = item.GetImages(ImageType.Backdrop).ToArray();
@@ -161,22 +163,21 @@ namespace MediaBrowser.Providers.Manager
             // track library limits, adding buffer to allow lazy replacing of current images
             var backdropLimit = typeOptions.GetLimit(ImageType.Backdrop) + oldBackdropImages.Length;
             var remoteImageProviders = imageProviders.OfType<IRemoteImageProvider>().ToArray();
+            var remoteProviderNames = remoteImageProviders
+                .Select(provider => provider.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var preferredLanguage = string.IsNullOrWhiteSpace(item.PreferredMetadataLanguage)
                 ? libraryOptions.PreferredMetadataLanguage
                 : item.PreferredMetadataLanguage;
             if (string.IsNullOrWhiteSpace(preferredLanguage)
-                && (_singularImages.Any(type =>
-                {
-                    var image = item.GetImageInfo(type, 0);
-                    return !string.IsNullOrWhiteSpace(image?.ProviderName);
-                })
-                || item.GetImages(ImageType.Backdrop).Any(image =>
-                        !string.IsNullOrWhiteSpace(image.ProviderName))))
+                && BaseItem.LibraryManager is not null
+                && BaseItem.ConfigurationManager is not null)
             {
                 preferredLanguage = item.GetPreferredMetadataLanguage();
             }
             var staleRemoteBackdrops = item.GetImages(ImageType.Backdrop)
                 .Where(image => !string.IsNullOrWhiteSpace(image.ProviderName)
+                    && remoteProviderNames.Contains(image.ProviderName)
                     && (string.IsNullOrWhiteSpace(image.Language)
                         || !EnumerableExtensions.MatchesLanguage(preferredLanguage, image.Language)))
                 .ToArray();
@@ -186,6 +187,7 @@ namespace MediaBrowser.Providers.Manager
                     var image = item.GetImageInfo(type, 0);
                     return image is not null
                         && !string.IsNullOrWhiteSpace(image.ProviderName)
+                        && remoteProviderNames.Contains(image.ProviderName)
                         && (string.IsNullOrWhiteSpace(image.Language)
                             || !EnumerableExtensions.MatchesLanguage(preferredLanguage, image.Language));
                 })
@@ -205,19 +207,32 @@ namespace MediaBrowser.Providers.Manager
 
             if (providersNeedingRefresh.Length > 0)
             {
-                remoteImages = (await _providerManager.GetAvailableRemoteImages(
-                    item,
-                    new RemoteImageQuery(string.Empty)
-                    {
-                        IncludeAllLanguages = true,
-                        IncludeDisabledProviders = false,
-                    },
-                    cancellationToken).ConfigureAwait(false))
-                    .Where(image => string.IsNullOrWhiteSpace(image.Language)
-                        || EnumerableExtensions.MatchesLanguage(preferredLanguage, image.Language)
-                        || EnumerableExtensions.MatchesLanguage("en", image.Language))
-                    .OrderByLanguageDescending(preferredLanguage)
-                    .ToArray();
+                try
+                {
+                    remoteImages = (await _providerManager.GetAvailableRemoteImages(
+                        item,
+                        new RemoteImageQuery(string.Empty)
+                        {
+                            IncludeAllLanguages = true,
+                            IncludeDisabledProviders = false,
+                        },
+                        cancellationToken).ConfigureAwait(false))
+                        .Where(image => string.IsNullOrWhiteSpace(image.Language)
+                            || EnumerableExtensions.MatchesLanguage(preferredLanguage, image.Language))
+                        .OrderByLanguageDescending(preferredLanguage)
+                        .ToArray();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    result.Failures++;
+                    result.ErrorMessage = ex.InnerException?.Message ?? ex.Message;
+                    _logger.LogError(ex, "Error retrieving remote images for {Item}", item.Path ?? item.Name ?? "Unknown name");
+                    return result;
+                }
             }
 
             var preferredLanguageImageTypes = remoteImages
@@ -229,8 +244,12 @@ namespace MediaBrowser.Providers.Manager
                 .Concat(remoteImages
                     .Where(image => staleRemoteImageTypes.Contains(image.Type)
                         && !preferredLanguageImageTypes.Contains(image.Type)
-                    && !EnumerableExtensions.MatchesLanguage("en", item.GetImageInfo(image.Type, 0)?.Language)
-                        && EnumerableExtensions.MatchesLanguage("en", image.Language))
+                    && item.GetImages(image.Type).Any(existing =>
+                        remoteProviderNames.Contains(existing.ProviderName)
+                        && (string.IsNullOrWhiteSpace(existing.Language)
+                            || !EnumerableExtensions.MatchesLanguage(preferredLanguage, existing.Language))
+                        && !EnumerableExtensions.MatchesLanguage("en", existing.Language))
+                    && EnumerableExtensions.MatchesLanguage("en", image.Language))
                     .Select(image => image.Type))
                 .ToHashSet();
 
@@ -238,7 +257,13 @@ namespace MediaBrowser.Providers.Manager
                 && imageTypesToReplace.Contains(ImageType.Backdrop))
             {
                 oldBackdropImages = staleRemoteBackdrops;
-                backdropLimit = typeOptions.GetLimit(ImageType.Backdrop) + oldBackdropImages.Length;
+                // Reserve only configured replacement slots before pruning stale remote backdrops.
+                var existingNonStaleBackdropCount = item.GetImages(ImageType.Backdrop).Count() - oldBackdropImages.Length;
+                var replacementSlots = existingNonStaleBackdropCount == 0
+                    ? Math.Min(oldBackdropImages.Length, typeOptions.GetLimit(ImageType.Backdrop))
+                    : oldBackdropImages.Length;
+                backdropLimit = item.GetImages(ImageType.Backdrop).Count()
+                    + replacementSlots;
             }
 
             var downloadedImages = new List<ImageType>();
@@ -262,7 +287,7 @@ namespace MediaBrowser.Providers.Manager
                     var providerImages = remoteImages.Where(image =>
                         string.Equals(image.ProviderName, remoteProvider.Name, StringComparison.OrdinalIgnoreCase)
                         || (remoteImageProviders.Length == 1 && string.IsNullOrWhiteSpace(image.ProviderName)));
-                    await RefreshFromProvider(item, remoteProvider, providerImages, imageTypesToReplace, refreshOptions, typeOptions, backdropLimit, downloadedImages, result, cancellationToken).ConfigureAwait(false);
+                    await RefreshFromProvider(item, remoteProvider, providerImages, preferredLanguage, imageTypesToReplace, refreshOptions, typeOptions, backdropLimit, downloadedImages, result, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -272,10 +297,17 @@ namespace MediaBrowser.Providers.Manager
                 }
             }
 
-            // Only delete existing multi-images if new ones were added
-            if (oldBackdropImages.Length > 0 && oldBackdropImages.Length < item.GetImages(ImageType.Backdrop).Count())
+            // Only delete as many existing multi-images as replacements were added.
+            var addedBackdropCount = item.GetImages(ImageType.Backdrop).Count() - backdropCountBeforeRefresh;
+            if (oldBackdropImages.Length > 0 && addedBackdropCount > 0)
             {
-                PruneImages(item, oldBackdropImages);
+                var imagesToPrune = refreshOptions.IsReplacingImage(ImageType.Backdrop)
+                    ? oldBackdropImages
+                    : oldBackdropImages
+                        .OrderBy(image => EnumerableExtensions.MatchesLanguage("en", image.Language) ? 1 : 0)
+                        .Take(Math.Min(oldBackdropImages.Length, addedBackdropCount))
+                        .ToArray();
+                PruneImages(item, imagesToPrune, deleteReplacedRemoteFiles: true);
             }
 
             return result;
@@ -328,7 +360,8 @@ namespace MediaBrowser.Providers.Manager
                                         new ItemImageInfo
                                         {
                                             Path = response.Path,
-                                            Type = imageType
+                                            Type = imageType,
+                                            ProviderName = provider.Name
                                         },
                                         index);
                                 }
@@ -338,6 +371,14 @@ namespace MediaBrowser.Providers.Manager
 
                                     await _providerManager.SaveImage(item, response.Path, mimeType, imageType, null, null, cancellationToken).ConfigureAwait(false);
                                 }
+
+                            }
+
+                            var savedImageIndex = item.AllowsMultipleImages(imageType) ? item.GetImages(imageType).Count() - 1 : 0;
+                            var savedImage = item.GetImageInfo(imageType, savedImageIndex);
+                            if (savedImage is not null)
+                            {
+                                savedImage.ProviderName = provider.Name;
                             }
 
                             downloadedImages.Add(imageType);
@@ -352,9 +393,9 @@ namespace MediaBrowser.Providers.Manager
             }
             catch (Exception ex)
             {
-                result.ErrorMessage = ex.Message;
+                result.ErrorMessage = RemoteUrlLogRedactor.Redact(ex.Message);
                 result.Failures++;
-                _logger.LogError(ex, "Error in {Provider} for {Item}", provider.Name, item.Path ?? item.Name);
+                _logger.LogError("Error in {Provider} for {Item}: {Error}", provider.Name, item.Path ?? item.Name, RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
         }
 
@@ -364,6 +405,7 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="item">The item.</param>
         /// <param name="provider">The provider.</param>
         /// <param name="images">The language-filtered remote image candidates for this provider.</param>
+        /// <param name="preferredLanguage">The preferred metadata language for image ordering.</param>
         /// <param name="imageTypesToReplace">Image types with a preferred-language candidate, or an English fallback, that may safely replace known remote images.</param>
         /// <param name="refreshOptions">The refresh options.</param>
         /// <param name="savedOptions">The saved options.</param>
@@ -376,6 +418,7 @@ namespace MediaBrowser.Providers.Manager
             BaseItem item,
             IRemoteImageProvider provider,
             IEnumerable<RemoteImageInfo> images,
+            string preferredLanguage,
             IReadOnlySet<ImageType> imageTypesToReplace,
             ImageRefreshOptions refreshOptions,
             TypeOptions savedOptions,
@@ -426,8 +469,10 @@ namespace MediaBrowser.Providers.Manager
                 }
 
                 minWidth = savedOptions.GetMinWidth(ImageType.Backdrop);
-                var listWithNoLangFirst = list.OrderByDescending(i => string.IsNullOrEmpty(i.Language));
-                await DownloadMultiImages(item, ImageType.Backdrop, refreshOptions, backdropLimit, provider, result, listWithNoLangFirst, minWidth, imageTypesToReplace.Contains(ImageType.Backdrop), cancellationToken).ConfigureAwait(false);
+                var orderedBackdrops = list
+                    .OrderByDescending(i => EnumerableExtensions.MatchesLanguage(preferredLanguage, i.Language))
+                    .ThenByDescending(i => string.IsNullOrEmpty(i.Language));
+                await DownloadMultiImages(item, ImageType.Backdrop, refreshOptions, backdropLimit, provider, result, orderedBackdrops, minWidth, imageTypesToReplace.Contains(ImageType.Backdrop), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -435,9 +480,9 @@ namespace MediaBrowser.Providers.Manager
             }
             catch (Exception ex)
             {
-                result.ErrorMessage = ex.Message;
+                result.ErrorMessage = RemoteUrlLogRedactor.Redact(ex.Message);
                 result.Failures++;
-                _logger.LogError(ex, "Error in {Provider} for {Item}", provider.Name, item.Path ?? item.Name);
+                _logger.LogError("Error in {Provider} for {Item}: {Error}", provider.Name, item.Path ?? item.Name, RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
         }
 
@@ -469,8 +514,43 @@ namespace MediaBrowser.Providers.Manager
             return true;
         }
 
-        private void PruneImages(BaseItem item, IReadOnlyList<ItemImageInfo> images)
+        private void PruneImages(BaseItem item, IReadOnlyList<ItemImageInfo> images, bool deleteReplacedRemoteFiles = false)
         {
+            if (deleteReplacedRemoteFiles)
+            {
+                foreach (var image in images)
+                {
+                    // Only delete locally saved remote images. Manual local images remain user-owned.
+                    if (!image.IsLocalFile
+                        || string.IsNullOrWhiteSpace(image.ProviderName)
+                        || IsImageReferencedElsewhere(item, image))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        _fileSystem.DeleteFile(image.Path);
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        // Nothing to do, already gone.
+                    }
+                    catch (DirectoryNotFoundException)
+                    {
+                        // Nothing to do, already gone.
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        _logger.LogWarning(ex, "Unable to delete replaced image {Image}", image.Path);
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogWarning(ex, "Unable to delete replaced image {Image}", image.Path);
+                    }
+                }
+            }
+
             // Image paths may be shared; detach references without deleting files another item may use.
             item.RemoveImages(images);
 
@@ -504,6 +584,35 @@ namespace MediaBrowser.Providers.Manager
             }
         }
 
+        private bool IsImageReferencedElsewhere(BaseItem item, ItemImageInfo image)
+        {
+            if (item.ImageInfos.Any(current =>
+                    !ReferenceEquals(current, image)
+                    && string.Equals(current.Path, image.Path, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            if (BaseItem.LibraryManager is null)
+            {
+                _logger.LogWarning("Skipping deletion of replaced image {Image} because the library reference index is unavailable", image.Path);
+                return true;
+            }
+
+            try
+            {
+                return BaseItem.LibraryManager
+                    .GetItemList(new InternalItemsQuery { ImageTypes = AllImageTypes })
+                    .Any(other => other.Id != item.Id
+                        && other.ImageInfos.Any(current => string.Equals(current.Path, image.Path, StringComparison.OrdinalIgnoreCase)));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping deletion of replaced image {Image} because image references could not be checked", image.Path);
+                return true;
+            }
+        }
+
         /// <summary>
         /// Merges a list of images into the provided item, validating existing images and replacing them or adding new images as necessary.
         /// </summary>
@@ -523,7 +632,7 @@ namespace MediaBrowser.Providers.Manager
                 {
                     var currentImage = item.GetImageInfo(type, 0);
                     // if image file is stored with media, don't replace that later
-                    if (item.ContainingFolderPath is not null && item.ContainingFolderPath.Contains(Path.GetDirectoryName(image.FileInfo.FullName), StringComparison.OrdinalIgnoreCase))
+                    if (IsImageStoredWithMedia(item, image))
                     {
                         foundImageTypes.Add(type);
                     }
@@ -538,7 +647,7 @@ namespace MediaBrowser.Providers.Manager
                         var newDateModified = _fileSystem.GetLastWriteTimeUtc(image.FileInfo);
 
                         // If date changed then we need to reset saved image dimensions
-                        if (currentImage.DateModified != newDateModified && (currentImage.Width > 0 || currentImage.Height > 0))
+                        if (Math.Abs((currentImage.DateModified - newDateModified).TotalSeconds) > 1 && (currentImage.Width > 0 || currentImage.Height > 0))
                         {
                             currentImage.Width = 0;
                             currentImage.Height = 0;
@@ -562,7 +671,7 @@ namespace MediaBrowser.Providers.Manager
 
                 hasBackdrop = true;
 
-                if (item.ContainingFolderPath is not null && item.ContainingFolderPath.Contains(Path.GetDirectoryName(image.FileInfo.FullName), StringComparison.OrdinalIgnoreCase))
+                if (IsImageStoredWithMedia(item, image))
                 {
                     backdropStoredWithMedia = true;
                     break;
@@ -588,6 +697,32 @@ namespace MediaBrowser.Providers.Manager
             }
 
             return changed;
+        }
+
+        private static bool IsImageStoredWithMedia(BaseItem item, LocalImageInfo image)
+        {
+            var containingFolderPath = item.ContainingFolderPath;
+            var imagePath = image?.FileInfo?.FullName;
+            if (string.IsNullOrWhiteSpace(containingFolderPath) || string.IsNullOrWhiteSpace(imagePath))
+            {
+                return false;
+            }
+
+            var imageDirectory = Path.GetDirectoryName(imagePath);
+            if (string.IsNullOrWhiteSpace(imageDirectory))
+            {
+                return false;
+            }
+
+            var normalizedContaining = containingFolderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedImageDir = imageDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.Equals(normalizedContaining, normalizedImageDir, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return normalizedImageDir.StartsWith(normalizedContaining + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || normalizedImageDir.StartsWith(normalizedContaining + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
 
         private static LocalImageInfo GetFirstLocalImageInfoByType(IReadOnlyList<LocalImageInfo> images, ImageType type)
@@ -637,7 +772,7 @@ namespace MediaBrowser.Providers.Manager
 
             if (EnableImageStub(item) && eligibleImages.Count > 0)
             {
-                SaveImageStub(item, type, eligibleImages);
+                SaveImageStub(item, type, provider, eligibleImages);
                 result.UpdateType |= ItemUpdateType.ImageUpdate;
                 return true;
             }
@@ -655,7 +790,7 @@ namespace MediaBrowser.Providers.Manager
                     // Sometimes providers send back bad urls. Just move to the next image
                     if (response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.Forbidden)
                     {
-                        _logger.LogDebug("{Url} returned {StatusCode}, ignoring", url, response.StatusCode);
+                        _logger.LogDebug("{Url} returned {StatusCode}, ignoring", RemoteUrlLogRedactor.Redact(url), response.StatusCode);
                         failedCandidates++;
                         lastCandidateError = $"{provider.Name} returned HTTP {(int)response.StatusCode}";
                         continue;
@@ -663,7 +798,7 @@ namespace MediaBrowser.Providers.Manager
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        _logger.LogWarning("{Url} returned {StatusCode}, trying the next image candidate", url, response.StatusCode);
+                        _logger.LogWarning("{Url} returned {StatusCode}, trying the next image candidate", RemoteUrlLogRedactor.Redact(url), response.StatusCode);
                         failedCandidates++;
                         lastCandidateError = $"{provider.Name} returned HTTP {(int)response.StatusCode}";
                         continue;
@@ -675,7 +810,8 @@ namespace MediaBrowser.Providers.Manager
                         var mimetype = response.Content.Headers.ContentType?.MediaType;
                         if (mimetype is null || mimetype.Equals(MediaTypeNames.Application.Octet, StringComparison.OrdinalIgnoreCase))
                         {
-                            mimetype = MimeTypes.GetMimeType(response.RequestMessage.RequestUri.GetLeftPart(UriPartial.Path));
+                            var resolvedUri = response.RequestMessage?.RequestUri?.GetLeftPart(UriPartial.Path) ?? url;
+                            mimetype = MimeTypes.GetMimeType(resolvedUri);
                         }
 
                         if (!IsImageMimeType(mimetype))
@@ -702,9 +838,19 @@ namespace MediaBrowser.Providers.Manager
                 }
                 catch (HttpRequestException ex)
                 {
-                    _logger.LogWarning(ex, "Failed to retrieve image candidate from {Provider}; trying the next candidate", provider.Name);
+                    _logger.LogWarning("Failed to retrieve image candidate from {Provider}; trying the next candidate: {Error}", provider.Name, RemoteUrlLogRedactor.Redact(ex.ToString()));
                     failedCandidates++;
-                    lastCandidateError = ex.Message;
+                    lastCandidateError = RemoteUrlLogRedactor.Redact(ex.Message);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to retrieve image candidate from {Provider}; trying the next candidate: {Error}", provider.Name, RemoteUrlLogRedactor.Redact(ex.ToString()));
+                    failedCandidates++;
+                    lastCandidateError = RemoteUrlLogRedactor.Redact(ex.Message);
                 }
             }
 
@@ -742,7 +888,7 @@ namespace MediaBrowser.Providers.Manager
             return false;
         }
 
-        private void SaveImageStub(BaseItem item, ImageType imageType, IEnumerable<RemoteImageInfo> images)
+        private void SaveImageStub(BaseItem item, ImageType imageType, IRemoteImageProvider provider, IEnumerable<RemoteImageInfo> images)
         {
             var newIndex = item.AllowsMultipleImages(imageType) ? item.GetImages(imageType).Count() : 0;
             var image = images.First();
@@ -756,7 +902,7 @@ namespace MediaBrowser.Providers.Manager
                     Language = image.Language
                 },
                 newIndex);
-            SetImageSource(item, imageType, newIndex, null, image);
+            SetImageSource(item, imageType, newIndex, provider, image);
         }
 
         private async Task DownloadMultiImages(BaseItem item, ImageType imageType, ImageRefreshOptions refreshOptions, int limit, IRemoteImageProvider provider, RefreshResult result, IEnumerable<RemoteImageInfo> images, int minWidth, bool replacingLocalizedImages, CancellationToken cancellationToken)
@@ -777,7 +923,7 @@ namespace MediaBrowser.Providers.Manager
 
                 if (EnableImageStub(item))
                 {
-                    SaveImageStub(item, imageType, new[] { image });
+                    SaveImageStub(item, imageType, provider, new[] { image });
                     result.UpdateType |= ItemUpdateType.ImageUpdate;
                     continue;
                 }
@@ -789,13 +935,13 @@ namespace MediaBrowser.Providers.Manager
                     // Sometimes providers send back bad urls. Just move to the next image
                     if (response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.Forbidden)
                     {
-                        _logger.LogDebug("{Url} returned {StatusCode}, ignoring", url, response.StatusCode);
+                        _logger.LogDebug("{Url} returned {StatusCode}, ignoring", RemoteUrlLogRedactor.Redact(url), response.StatusCode);
                         continue;
                     }
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        _logger.LogWarning("{Url} returned {StatusCode}, trying the next image candidate", url, response.StatusCode);
+                        _logger.LogWarning("{Url} returned {StatusCode}, trying the next image candidate", RemoteUrlLogRedactor.Redact(url), response.StatusCode);
                         result.ErrorMessage = $"{provider.Name} returned HTTP {(int)response.StatusCode}";
                         result.Failures++;
                         continue;
@@ -806,13 +952,16 @@ namespace MediaBrowser.Providers.Manager
                     {
                         try
                         {
-                            if (item.GetImages(imageType).Any(i => _fileSystem.GetFileInfo(i.Path).Length == response.Content.Headers.ContentLength.Value))
+                            var targetLength = response.Content.Headers.ContentLength.Value;
+                            if (item.GetImages(imageType).Any(i => i.IsLocalFile
+                                                                   && !string.IsNullOrWhiteSpace(i.Path)
+                                                                   && _fileSystem.GetFileInfo(i.Path)?.Length == targetLength))
                             {
                                 response.Content.Dispose();
                                 continue;
                             }
                         }
-                        catch (IOException ex)
+                        catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException)
                         {
                             _logger.LogError(ex, "Error examining images");
                         }
@@ -824,7 +973,8 @@ namespace MediaBrowser.Providers.Manager
                         var mimetype = response.Content.Headers.ContentType?.MediaType;
                         if (mimetype is null || mimetype.Equals(MediaTypeNames.Application.Octet, StringComparison.OrdinalIgnoreCase))
                         {
-                            mimetype = MimeTypes.GetMimeType(response.RequestMessage.RequestUri.GetLeftPart(UriPartial.Path));
+                            var resolvedUri = response.RequestMessage?.RequestUri?.GetLeftPart(UriPartial.Path) ?? url;
+                            mimetype = MimeTypes.GetMimeType(resolvedUri);
                         }
 
                         if (!IsImageMimeType(mimetype))
@@ -844,14 +994,28 @@ namespace MediaBrowser.Providers.Manager
                             cancellationToken).ConfigureAwait(false);
                     }
 
-                    SetImageSource(item, imageType, item.GetImages(imageType).Count() - 1, provider, image);
+                    var currentImages = item.GetImages(imageType).ToList();
+                    if (currentImages.Count > 0)
+                    {
+                        SetImageSource(item, imageType, currentImages.Count - 1, provider, image);
+                    }
 
                     result.UpdateType |= ItemUpdateType.ImageUpdate;
                 }
                 catch (HttpRequestException ex)
                 {
-                    _logger.LogWarning(ex, "Failed to retrieve image candidate from {Provider}; trying the next candidate", provider.Name);
-                    result.ErrorMessage = ex.Message;
+                    _logger.LogWarning("Failed to retrieve image candidate from {Provider}; trying the next candidate: {Error}", provider.Name, RemoteUrlLogRedactor.Redact(ex.ToString()));
+                    result.ErrorMessage = RemoteUrlLogRedactor.Redact(ex.Message);
+                    result.Failures++;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to retrieve image candidate from {Provider}; trying the next candidate: {Error}", provider.Name, RemoteUrlLogRedactor.Redact(ex.ToString()));
+                    result.ErrorMessage = RemoteUrlLogRedactor.Redact(ex.Message);
                     result.Failures++;
                 }
             }

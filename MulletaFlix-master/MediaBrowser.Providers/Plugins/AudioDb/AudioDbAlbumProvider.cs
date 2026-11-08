@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CA1002, CS1591, SA1300
 
@@ -67,6 +67,10 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
                 await EnsureInfo(id, cancellationToken).ConfigureAwait(false);
 
                 var path = GetAlbumInfoPath(_config.ApplicationPaths, id);
+                if (!File.Exists(path))
+                {
+                    return result;
+                }
 
                 FileStream jsonStream = AsyncFile.OpenRead(path);
                 await using (jsonStream.ConfigureAwait(false))

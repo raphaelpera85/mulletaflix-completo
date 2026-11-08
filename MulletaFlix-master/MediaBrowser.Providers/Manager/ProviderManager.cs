@@ -37,6 +37,7 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Providers;
 using MediaBrowser.Model.Querying;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Book = MediaBrowser.Controller.Entities.Book;
@@ -197,6 +198,9 @@ namespace MediaBrowser.Providers.Manager
         /// <inheritdoc/>
         public async Task SaveImage(BaseItem item, string url, ImageType type, int? imageIndex, CancellationToken cancellationToken)
         {
+            ArgumentNullException.ThrowIfNull(item);
+            ArgumentException.ThrowIfNullOrWhiteSpace(url);
+
             using (await _imageSaveLock.LockAsync(url, cancellationToken).ConfigureAwait(false))
             {
                 if (_memoryCache.TryGetValue(url, out (string ContentType, byte[] ImageContents, int Length)? cachedValue)
@@ -242,7 +246,10 @@ namespace MediaBrowser.Providers.Manager
                     if (contentType is null || contentType.Equals(MediaTypeNames.Application.Octet, StringComparison.OrdinalIgnoreCase))
                     {
                         // Strip query parameters from url to get actual path.
-                        contentType = MimeTypes.GetMimeType(new Uri(url).GetLeftPart(UriPartial.Path));
+                        var targetPath = Uri.TryCreate(url, UriKind.Absolute, out var parsedUri)
+                            ? parsedUri.GetLeftPart(UriPartial.Path)
+                            : url.Split('?')[0];
+                        contentType = MimeTypes.GetMimeType(targetPath);
                     }
 
                     if (!contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
@@ -278,6 +285,10 @@ namespace MediaBrowser.Providers.Manager
         /// <inheritdoc/>
         public async Task SaveImage(BaseItem item, Stream source, string mimeType, ImageType type, int? imageIndex, CancellationToken cancellationToken)
         {
+            ArgumentNullException.ThrowIfNull(item);
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentException.ThrowIfNullOrWhiteSpace(mimeType);
+
             var preparedSource = await RemoteImagePayloadValidator.PrepareAsync(
                 source,
                 mimeType,
@@ -296,10 +307,14 @@ namespace MediaBrowser.Providers.Manager
         /// <inheritdoc/>
         public async Task SaveImage(BaseItem item, string source, string mimeType, ImageType type, int? imageIndex, bool? saveLocallyWithMedia, CancellationToken cancellationToken)
         {
+            ArgumentNullException.ThrowIfNull(item);
+            ArgumentNullException.ThrowIfNull(source);
             if (string.IsNullOrWhiteSpace(source))
             {
-                throw new ArgumentNullException(nameof(source));
+                throw new ArgumentException("Source path cannot be empty or whitespace.", nameof(source));
             }
+
+            ArgumentException.ThrowIfNullOrWhiteSpace(mimeType);
 
             try
             {
@@ -322,7 +337,10 @@ namespace MediaBrowser.Providers.Manager
             {
                 try
                 {
-                    File.Delete(source);
+                    if (File.Exists(source))
+                    {
+                        File.Delete(source);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -360,8 +378,17 @@ namespace MediaBrowser.Providers.Manager
             var tasks = providers.Select(i => GetImages(item, i, preferredLanguage, cancellationToken, query.ImageType));
 
             var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            var failures = results
+                .Where(result => result.Error is not null)
+                .Select(result => result.Error!)
+                .ToArray();
 
-            var remoteImages = results.SelectMany(i => i);
+            IEnumerable<RemoteImageInfo> remoteImages = results.SelectMany(result => result.Images).ToList();
+            if (!remoteImages.Any() && failures.Length > 0)
+            {
+                throw new AggregateException("One or more remote image providers failed.", failures);
+            }
+
             if (!string.IsNullOrWhiteSpace(preferredLanguage) && !query.IncludeAllLanguages)
             {
                 remoteImages = remoteImages
@@ -397,7 +424,7 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <param name="type">The type.</param>
         /// <returns>Task{IEnumerable{RemoteImageInfo}}.</returns>
-        private async Task<IEnumerable<RemoteImageInfo>> GetImages(
+        private async Task<(IEnumerable<RemoteImageInfo> Images, Exception? Error)> GetImages(
             BaseItem item,
             IRemoteImageProvider provider,
             string preferredLanguage,
@@ -423,16 +450,16 @@ namespace MediaBrowser.Providers.Manager
                     return image;
                 });
 
-                return result.OrderByLanguageDescending(preferredLanguage);
+                return (result.OrderByLanguageDescending(preferredLanguage), null);
             }
             catch (OperationCanceledException)
             {
-                return Enumerable.Empty<RemoteImageInfo>();
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "{ProviderName} failed in GetImageInfos for type {ItemType} at {ItemPath}", provider.GetType().Name, item.GetType().Name, item.Path);
-                return Enumerable.Empty<RemoteImageInfo>();
+                _logger.LogError("{Error} at {ProviderName} failed in GetImageInfos for type {ItemType} at {ItemPath}", RemoteUrlLogRedactor.Redact(ex.ToString()), provider.GetType().Name, item.GetType().Name, item.Path);
+                return (Enumerable.Empty<RemoteImageInfo>(), ex);
             }
         }
 
@@ -487,7 +514,12 @@ namespace MediaBrowser.Providers.Manager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "{ProviderName} failed in Supports for type {ItemType} at {ItemPath}", provider.GetType().Name, item.GetType().Name, item.Path);
+                _logger.LogError("{Error} at {ProviderName} failed in Supports for type {ItemType} at {ItemPath}", RemoteUrlLogRedactor.Redact(ex.ToString()), provider.GetType().Name, item.GetType().Name, item.Path);
+                return false;
+            }
+
+            if (item.ExtraType.HasValue && provider is IRemoteImageProvider)
+            {
                 return false;
             }
 
@@ -838,11 +870,15 @@ namespace MediaBrowser.Providers.Manager
 
         /// <inheritdoc/>
         public Task SaveMetadataAsync(BaseItem item, ItemUpdateType updateType)
-            => SaveMetadataAsync(item, updateType, _savers);
+            => SaveMetadataAsync(item, updateType, _savers, CancellationToken.None);
+
+        /// <inheritdoc/>
+        public Task SaveMetadataAsync(BaseItem item, ItemUpdateType updateType, CancellationToken cancellationToken)
+            => SaveMetadataAsync(item, updateType, _savers, cancellationToken);
 
         /// <inheritdoc/>
         public Task SaveMetadataAsync(BaseItem item, ItemUpdateType updateType, IEnumerable<string> savers)
-            => SaveMetadataAsync(item, updateType, _savers.Where(i => savers.Contains(i.Name, StringComparison.OrdinalIgnoreCase)));
+            => SaveMetadataAsync(item, updateType, _savers.Where(i => savers.Contains(i.Name, StringComparison.OrdinalIgnoreCase)), CancellationToken.None);
 
         /// <summary>
         /// Saves the metadata.
@@ -850,7 +886,12 @@ namespace MediaBrowser.Providers.Manager
         /// <param name="item">The item.</param>
         /// <param name="updateType">Type of the update.</param>
         /// <param name="savers">The savers.</param>
-        private async Task SaveMetadataAsync(BaseItem item, ItemUpdateType updateType, IEnumerable<IMetadataSaver> savers)
+        /// <param name="cancellationToken">The cancellation token.</param>
+        private async Task SaveMetadataAsync(
+            BaseItem item,
+            ItemUpdateType updateType,
+            IEnumerable<IMetadataSaver> savers,
+            CancellationToken cancellationToken)
         {
             var libraryOptions = _libraryManager.GetLibraryOptions(item);
             var applicableSavers = savers.Where(i => IsSaverEnabledForItem(i, item, libraryOptions, updateType, false)).ToList();
@@ -880,8 +921,12 @@ namespace MediaBrowser.Providers.Manager
                     try
                     {
                         _libraryMonitor.ReportFileSystemChangeBeginning(path);
-                        await saver.SaveAsync(item, CancellationToken.None).ConfigureAwait(false);
+                        await saver.SaveAsync(item, cancellationToken).ConfigureAwait(false);
                         item.DateLastSaved = DateTime.UtcNow;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
                     }
                     catch (Exception ex)
                     {
@@ -896,8 +941,12 @@ namespace MediaBrowser.Providers.Manager
                 {
                     try
                     {
-                        await saver.SaveAsync(item, CancellationToken.None).ConfigureAwait(false);
+                        await saver.SaveAsync(item, cancellationToken).ConfigureAwait(false);
                         item.DateLastSaved = DateTime.UtcNow;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
                     }
                     catch (Exception ex)
                     {
@@ -974,6 +1023,8 @@ namespace MediaBrowser.Providers.Manager
             where TItemType : BaseItem, new()
             where TLookupType : ItemLookupInfo
         {
+            ArgumentNullException.ThrowIfNull(searchInfo);
+
             BaseItem? referenceItem = null;
 
             if (!searchInfo.ItemId.IsEmpty())
@@ -1198,7 +1249,7 @@ namespace MediaBrowser.Providers.Manager
             catch (Exception ex)
 #pragma warning restore CA1031 // do not catch general exception types
             {
-                _logger.LogError(ex, "Provider {ProviderName} failed to retrieve search results", provider.Name);
+                _logger.LogError("{Error} from provider {ProviderName} failed to retrieve search results", RemoteUrlLogRedactor.Redact(ex.ToString()), provider.Name);
                 return null;
             }
         }
@@ -1213,7 +1264,7 @@ namespace MediaBrowser.Providers.Manager
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error in {Type}.Supports", i.GetType().Name);
+                    _logger.LogError("{Error} in {Type}.Supports", RemoteUrlLogRedactor.Redact(ex.ToString()), i.GetType().Name);
                     return false;
                 }
             });
@@ -1429,7 +1480,7 @@ namespace MediaBrowser.Providers.Manager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error refreshing item {ItemId}", refreshItem.ItemId);
+                _logger.LogError("{Error} refreshing item {ItemId}", RemoteUrlLogRedactor.Redact(ex.ToString()), refreshItem.ItemId);
             }
             finally
             {
@@ -1494,7 +1545,7 @@ namespace MediaBrowser.Providers.Manager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error refreshing library");
+                _logger.LogError("{Error} refreshing library", RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
         }
 

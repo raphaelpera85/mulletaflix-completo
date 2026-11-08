@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -71,9 +71,20 @@ public class ItemUpdateController : BaseMulletaFlixApiController
     /// <returns>An <see cref="NoContentResult"/> on success, or a <see cref="NotFoundResult"/> if the item could not be found.</returns>
     [HttpPost("Items/{itemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> UpdateItem([FromRoute, Required] Guid itemId, [FromBody, Required] BaseItemDto request)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
+        if (request is null)
+        {
+            return BadRequest("Item data is required.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
@@ -145,9 +156,15 @@ public class ItemUpdateController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> on success containing the metadata editor, or a <see cref="NotFoundResult"/> if the item could not be found.</returns>
     [HttpGet("Items/{itemId}/MetadataEditor")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<MetadataEditorInfo> GetMetadataEditorInfo([FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
@@ -207,9 +224,15 @@ public class ItemUpdateController : BaseMulletaFlixApiController
     /// <returns>An <see cref="NoContentResult"/> on success, or a <see cref="NotFoundResult"/> if the item could not be found.</returns>
     [HttpPost("Items/{itemId}/ContentType")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult UpdateItemContentType([FromRoute, Required] Guid itemId, [FromQuery] string? contentType)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
@@ -251,7 +274,10 @@ public class ItemUpdateController : BaseMulletaFlixApiController
         item.IndexNumber = request.IndexNumber;
         item.ParentIndexNumber = request.ParentIndexNumber;
         item.Overview = request.Overview;
-        item.Genres = request.Genres.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (request.Genres is not null)
+        {
+            item.Genres = request.Genres.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        }
 
         if (item is Episode episode)
         {
@@ -288,31 +314,54 @@ public class ItemUpdateController : BaseMulletaFlixApiController
         item.OfficialRating = request.OfficialRating;
         item.CustomRating = request.CustomRating;
 
-        var currentTags = item.Tags;
-        var newTags = request.Tags.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var removedTags = currentTags.Except(newTags).ToList();
-        var addedTags = newTags.Except(currentTags).ToList();
-        item.Tags = newTags;
-
-        if (item is Series rseries)
+        if (request.Tags is not null)
         {
-            foreach (var season in rseries.Children.OfType<Season>())
+            var currentTags = item.Tags;
+            var newTags = request.Tags.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var removedTags = currentTags.Except(newTags).ToList();
+            var addedTags = newTags.Except(currentTags).ToList();
+            item.Tags = newTags;
+
+            if (item is Series rseries)
             {
-                if (!season.LockedFields.Contains(MetadataField.OfficialRating))
+                foreach (var season in rseries.Children.OfType<Season>())
                 {
-                    season.OfficialRating = request.OfficialRating;
+                    if (!season.LockedFields.Contains(MetadataField.OfficialRating))
+                    {
+                        season.OfficialRating = request.OfficialRating;
+                    }
+
+                    season.CustomRating = request.CustomRating;
+
+                    if (!season.LockedFields.Contains(MetadataField.Tags))
+                    {
+                        season.Tags = season.Tags.Concat(addedTags).Except(removedTags).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                    }
+
+                    season.OnMetadataChanged();
+                    await season.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
+
+                    foreach (var ep in season.Children.OfType<Episode>())
+                    {
+                        if (!ep.LockedFields.Contains(MetadataField.OfficialRating))
+                        {
+                            ep.OfficialRating = request.OfficialRating;
+                        }
+
+                        ep.CustomRating = request.CustomRating;
+
+                        if (!ep.LockedFields.Contains(MetadataField.Tags))
+                        {
+                            ep.Tags = ep.Tags.Concat(addedTags).Except(removedTags).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                        }
+
+                        ep.OnMetadataChanged();
+                        await ep.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
+                    }
                 }
-
-                season.CustomRating = request.CustomRating;
-
-                if (!season.LockedFields.Contains(MetadataField.Tags))
-                {
-                    season.Tags = season.Tags.Concat(addedTags).Except(removedTags).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                }
-
-                season.OnMetadataChanged();
-                await season.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
-
+            }
+            else if (item is Season season)
+            {
                 foreach (var ep in season.Children.OfType<Episode>())
                 {
                     if (!ep.LockedFields.Contains(MetadataField.OfficialRating))
@@ -331,45 +380,25 @@ public class ItemUpdateController : BaseMulletaFlixApiController
                     await ep.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
                 }
             }
-        }
-        else if (item is Season season)
-        {
-            foreach (var ep in season.Children.OfType<Episode>())
+            else if (item is MusicAlbum album)
             {
-                if (!ep.LockedFields.Contains(MetadataField.OfficialRating))
+                foreach (BaseItem track in album.Children)
                 {
-                    ep.OfficialRating = request.OfficialRating;
+                    if (!track.LockedFields.Contains(MetadataField.OfficialRating))
+                    {
+                        track.OfficialRating = request.OfficialRating;
+                    }
+
+                    track.CustomRating = request.CustomRating;
+
+                    if (!track.LockedFields.Contains(MetadataField.Tags))
+                    {
+                        track.Tags = track.Tags.Concat(addedTags).Except(removedTags).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                    }
+
+                    track.OnMetadataChanged();
+                    await track.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
                 }
-
-                ep.CustomRating = request.CustomRating;
-
-                if (!ep.LockedFields.Contains(MetadataField.Tags))
-                {
-                    ep.Tags = ep.Tags.Concat(addedTags).Except(removedTags).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                }
-
-                ep.OnMetadataChanged();
-                await ep.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
-            }
-        }
-        else if (item is MusicAlbum album)
-        {
-            foreach (BaseItem track in album.Children)
-            {
-                if (!track.LockedFields.Contains(MetadataField.OfficialRating))
-                {
-                    track.OfficialRating = request.OfficialRating;
-                }
-
-                track.CustomRating = request.CustomRating;
-
-                if (!track.LockedFields.Contains(MetadataField.Tags))
-                {
-                    track.Tags = track.Tags.Concat(addedTags).Except(removedTags).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                }
-
-                track.OnMetadataChanged();
-                await track.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
             }
         }
 
@@ -404,15 +433,18 @@ public class ItemUpdateController : BaseMulletaFlixApiController
             item.RunTimeTicks = request.RunTimeTicks;
         }
 
-        foreach (var pair in request.ProviderIds.ToList())
+        if (request.ProviderIds is not null)
         {
-            if (string.IsNullOrEmpty(pair.Value))
+            foreach (var pair in request.ProviderIds.ToList())
             {
-                request.ProviderIds.Remove(pair.Key);
+                if (string.IsNullOrEmpty(pair.Value))
+                {
+                    request.ProviderIds.Remove(pair.Key);
+                }
             }
-        }
 
-        item.ProviderIds = request.ProviderIds;
+            item.ProviderIds = request.ProviderIds;
+        }
 
         if (item is Video video)
         {

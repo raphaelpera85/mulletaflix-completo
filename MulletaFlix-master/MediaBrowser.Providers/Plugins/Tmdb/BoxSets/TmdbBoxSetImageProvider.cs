@@ -56,9 +56,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
         /// <inheritdoc />
         public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
-            var tmdbId = Convert.ToInt32(item.GetProviderId(MetadataProvider.Tmdb), CultureInfo.InvariantCulture);
-
-            if (tmdbId <= 0)
+            if (!int.TryParse(
+                    item.GetProviderId(MetadataProvider.Tmdb),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var tmdbId)
+                || tmdbId <= 0)
             {
                 return Enumerable.Empty<RemoteImageInfo>();
             }
@@ -73,7 +76,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
 
             var posters = collection.Posters;
             var backdrops = collection.Backdrops;
-            var remoteImages = new List<RemoteImageInfo>(posters?.Count ?? 0 + backdrops?.Count ?? 0);
+            var remoteImages = new List<RemoteImageInfo>((posters?.Count ?? 0) + (backdrops?.Count ?? 0));
 
             if (posters is not null)
             {

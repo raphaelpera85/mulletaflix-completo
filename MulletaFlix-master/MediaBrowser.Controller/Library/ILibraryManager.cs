@@ -184,7 +184,7 @@ namespace MediaBrowser.Controller.Library
         /// </summary>
         void ClearIgnoreRuleCache();
 
-        Task UpdateImagesAsync(BaseItem item, bool forceUpdate = false);
+        Task UpdateImagesAsync(BaseItem item, bool forceUpdate = false, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Gets the default view.
@@ -706,8 +706,14 @@ namespace MediaBrowser.Controller.Library
         /// <param name="image">The image.</param>
         /// <param name="imageIndex">Index of the image.</param>
         /// <param name="removeOnFailure">Whether to remove the image from the item on failure.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
         /// <returns>Task.</returns>
-        Task<ItemImageInfo> ConvertImageToLocal(BaseItem item, ItemImageInfo image, int imageIndex, bool removeOnFailure = true);
+        Task<ItemImageInfo> ConvertImageToLocal(
+            BaseItem item,
+            ItemImageInfo image,
+            int imageIndex,
+            bool removeOnFailure = true,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Gets the items.
@@ -843,7 +849,7 @@ namespace MediaBrowser.Controller.Library
         /// <param name="user">The user to configure access for.</param>
         void ConfigureUserAccess(InternalItemsQuery query, User user);
 
-        Task RunMetadataSavers(BaseItem item, ItemUpdateType updateReason);
+        Task RunMetadataSavers(BaseItem item, ItemUpdateType updateReason, CancellationToken cancellationToken = default);
 
         BaseItem GetParentItem(Guid? parentId, Guid? userId);
 

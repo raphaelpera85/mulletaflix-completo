@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
+using System.Data.Common;
 using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Mime;
+using System.Threading;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Net;
@@ -28,6 +30,7 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Providers;
 using MediaBrowser.Providers.Manager;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -38,12 +41,14 @@ using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Contexts;
 using MulletaFlix.Database.Implementations.DbConfiguration;
 using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Locking;
 using MulletaFlix.Server.Implementations.Extensions;
 using MulletaFlix.Server.Implementations.Item;
 using MulletaFlix.Server.Implementations.Users;
 using MulletaFlix.Server.Migrations.Routines;
 using MulletaFlix.Server.ServerSetupApp;
 using MulletaFlix.Testing;
+using Pomelo.EntityFrameworkCore.MySql.Infrastructure;
 using Xunit;
 
 namespace IntroSkipper.Integration.Tests;
@@ -166,6 +171,253 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         using var command = connection.CreateCommand();
         command.CommandText = $"CREATE DATABASE `mfx_forbidden_{Guid.NewGuid():N}`;";
         Assert.Throws<MySqlConnector.MySqlException>(() => command.ExecuteNonQuery());
+    }
+
+    [Fact]
+    public async Task SaveChaptersAsync_RetriesAfterRealMariaDbLockTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        string connectionString;
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            context.BaseItems.Add(new BaseItemEntity { Id = itemId, Type = "Movie", Name = "lock-retry-test" });
+            context.Chapters.Add(new Chapter
+            {
+                ItemId = itemId,
+                Item = null!,
+                ChapterIndex = 0,
+                StartPositionTicks = 10,
+                Name = "old",
+            });
+            await context.SaveChangesAsync(cancellationToken);
+            connectionString = context.Database.GetConnectionString()!;
+        }
+
+        var repositoryContexts = CreateLockWaitTimeoutContextFactory(connectionString);
+
+        var retryLogged = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var logger = new RetryWarningLogger<ChapterRepository>(retryLogged);
+        var repository = new ChapterRepository(repositoryContexts, Mock.Of<IImageProcessor>(), logger);
+        Task? replacement = null;
+        MySqlConnector.MySqlConnection? blocker = null;
+        MySqlConnector.MySqlTransaction? blockerTransaction = null;
+        var lockReleased = false;
+        try
+        {
+            blocker = new MySqlConnector.MySqlConnection(connectionString);
+            await blocker.OpenAsync(cancellationToken);
+            blockerTransaction = await blocker.BeginTransactionAsync(cancellationToken);
+            await using var lockCommand = blocker.CreateCommand();
+            lockCommand.Transaction = blockerTransaction;
+            lockCommand.CommandText = "SELECT 1 FROM `Chapters` WHERE `ItemId` = @itemId FOR UPDATE";
+            lockCommand.Parameters.AddWithValue("@itemId", itemId);
+            Assert.NotNull(await lockCommand.ExecuteScalarAsync(cancellationToken));
+
+            replacement = repository.SaveChaptersAsync(
+                itemId,
+                [new ChapterInfo { Name = "new", StartPositionTicks = 20 }],
+                cancellationToken);
+            var warning = await retryLogged.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            Assert.Contains("Retrying chapter replacement", warning, StringComparison.Ordinal);
+
+            await blockerTransaction.RollbackAsync(cancellationToken);
+            lockReleased = true;
+            await replacement.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+
+            await using var verify = await Contexts.CreateDbContextAsync(cancellationToken);
+            Assert.Equal(
+                "new",
+                await verify.Chapters.Where(chapter => chapter.ItemId == itemId).Select(chapter => chapter.Name).SingleAsync(cancellationToken));
+        }
+        finally
+        {
+            await ReleaseLockAndWaitForReplacementAsync(blockerTransaction, blocker, lockReleased, replacement);
+        }
+    }
+
+    [Fact]
+    public async Task SaveChapters_RetriesAfterRealMariaDbLockTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        string connectionString;
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            context.BaseItems.Add(new BaseItemEntity { Id = itemId, Type = "Movie", Name = "sync-lock-retry-test" });
+            context.Chapters.Add(new Chapter
+            {
+                ItemId = itemId,
+                Item = null!,
+                ChapterIndex = 0,
+                StartPositionTicks = 10,
+                Name = "old",
+            });
+            await context.SaveChangesAsync(cancellationToken);
+            connectionString = context.Database.GetConnectionString()!;
+        }
+
+        var retryLogged = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var repository = new ChapterRepository(
+            CreateLockWaitTimeoutContextFactory(connectionString),
+            Mock.Of<IImageProcessor>(),
+            new RetryWarningLogger<ChapterRepository>(retryLogged));
+        Task? replacement = null;
+        MySqlConnector.MySqlConnection? blocker = null;
+        MySqlConnector.MySqlTransaction? blockerTransaction = null;
+        var lockReleased = false;
+        try
+        {
+            blocker = new MySqlConnector.MySqlConnection(connectionString);
+            await blocker.OpenAsync(cancellationToken);
+            blockerTransaction = await blocker.BeginTransactionAsync(cancellationToken);
+            await using var lockCommand = blocker.CreateCommand();
+            lockCommand.Transaction = blockerTransaction;
+            lockCommand.CommandText = "SELECT 1 FROM `Chapters` WHERE `ItemId` = @itemId FOR UPDATE";
+            lockCommand.Parameters.AddWithValue("@itemId", itemId);
+            Assert.NotNull(await lockCommand.ExecuteScalarAsync(cancellationToken));
+
+            replacement = Task.Run(
+                () => repository.SaveChapters(itemId, [new ChapterInfo { Name = "new", StartPositionTicks = 20 }]),
+                cancellationToken);
+            await retryLogged.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+
+            await blockerTransaction.RollbackAsync(cancellationToken);
+            lockReleased = true;
+            await replacement.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+
+            await using var verify = await Contexts.CreateDbContextAsync(cancellationToken);
+            Assert.Equal(
+                "new",
+                await verify.Chapters.Where(chapter => chapter.ItemId == itemId).Select(chapter => chapter.Name).SingleAsync(cancellationToken));
+        }
+        finally
+        {
+            await ReleaseLockAndWaitForReplacementAsync(blockerTransaction, blocker, lockReleased, replacement);
+        }
+    }
+
+    [Fact]
+    public async Task SaveMediaStreamsAsync_RetriesAfterRealMariaDbLockTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        string connectionString;
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            context.BaseItems.Add(new BaseItemEntity { Id = itemId, Type = "Movie", Name = "stream-lock-retry-test" });
+            context.MediaStreamInfos.Add(new MediaStreamInfo
+            {
+                ItemId = itemId,
+                Item = null!,
+                StreamIndex = 0,
+                StreamType = MediaStreamTypeEntity.Audio,
+                Codec = "old",
+            });
+            await context.SaveChangesAsync(cancellationToken);
+            connectionString = context.Database.GetConnectionString()!;
+        }
+
+        var retryLogged = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var repository = new MediaStreamRepository(
+            CreateLockWaitTimeoutContextFactory(connectionString),
+            CreateAppHost(),
+            Mock.Of<MediaBrowser.Model.Globalization.ILocalizationManager>(),
+            new RetryWarningLogger<MediaStreamRepository>(retryLogged));
+        Task? replacement = null;
+        MySqlConnector.MySqlConnection? blocker = null;
+        MySqlConnector.MySqlTransaction? blockerTransaction = null;
+        var lockReleased = false;
+        try
+        {
+            blocker = new MySqlConnector.MySqlConnection(connectionString);
+            await blocker.OpenAsync(cancellationToken);
+            blockerTransaction = await blocker.BeginTransactionAsync(cancellationToken);
+            await using var lockCommand = blocker.CreateCommand();
+            lockCommand.Transaction = blockerTransaction;
+            lockCommand.CommandText = "SELECT 1 FROM `MediaStreamInfos` WHERE `ItemId` = @itemId AND `StreamIndex` = 0 FOR UPDATE";
+            lockCommand.Parameters.AddWithValue("@itemId", itemId);
+            Assert.NotNull(await lockCommand.ExecuteScalarAsync(cancellationToken));
+
+            replacement = repository.SaveMediaStreamsAsync(
+                itemId,
+                [new MediaStream { Index = 0, Type = MediaStreamType.Audio, Codec = "new" }],
+                cancellationToken);
+            await retryLogged.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+
+            await blockerTransaction.RollbackAsync(cancellationToken);
+            lockReleased = true;
+            await replacement.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+
+            await using var verify = await Contexts.CreateDbContextAsync(cancellationToken);
+            Assert.Equal(
+                "new",
+                await verify.MediaStreamInfos.Where(stream => stream.ItemId == itemId).Select(stream => stream.Codec).SingleAsync(cancellationToken));
+        }
+        finally
+        {
+            await ReleaseLockAndWaitForReplacementAsync(blockerTransaction, blocker, lockReleased, replacement);
+        }
+    }
+
+    [Fact]
+    public async Task UpdatePeople_RetriesAfterRealMariaDbLockTimeout()
+    {
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var itemId = Guid.NewGuid();
+        var persistence = new ItemPersistenceService(Contexts, CreateAppHost(), NullLogger<ItemPersistenceService>.Instance);
+        persistence.SaveItems([CreateSeries(itemId, "People lock retry", 2026, "N:\\Series\\People lock retry")], cancellationToken);
+
+        var repository = new PeopleRepository(Contexts, Mock.Of<IItemTypeLookup>());
+        repository.UpdatePeople(itemId, [new PersonInfo { Name = "Lock retry person", Role = "old", Type = PersonKind.Actor }]);
+        string connectionString;
+        Guid personId;
+        await using (var context = await Contexts.CreateDbContextAsync(cancellationToken))
+        {
+            connectionString = context.Database.GetConnectionString()!;
+            personId = await context.Peoples.Where(person => person.Name == "Lock retry person").Select(person => person.Id).SingleAsync(cancellationToken);
+        }
+
+        var retryLogged = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        repository = new PeopleRepository(
+            CreateLockWaitTimeoutContextFactory(connectionString),
+            Mock.Of<IItemTypeLookup>(),
+            new RetryWarningLogger<PeopleRepository>(retryLogged));
+        Task? replacement = null;
+        MySqlConnector.MySqlConnection? blocker = null;
+        MySqlConnector.MySqlTransaction? blockerTransaction = null;
+        var lockReleased = false;
+        try
+        {
+            blocker = new MySqlConnector.MySqlConnection(connectionString);
+            await blocker.OpenAsync(cancellationToken);
+            blockerTransaction = await blocker.BeginTransactionAsync(cancellationToken);
+            await using var lockCommand = blocker.CreateCommand();
+            lockCommand.Transaction = blockerTransaction;
+            lockCommand.CommandText = "SELECT 1 FROM `PeopleBaseItemMap` WHERE `ItemId` = @itemId AND `PeopleId` = @personId FOR UPDATE";
+            lockCommand.Parameters.AddWithValue("@itemId", itemId);
+            lockCommand.Parameters.AddWithValue("@personId", personId);
+            Assert.NotNull(await lockCommand.ExecuteScalarAsync(cancellationToken));
+
+            replacement = Task.Run(() => repository.UpdatePeople(itemId, Array.Empty<PersonInfo>()), cancellationToken);
+            var warning = await retryLogged.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            Assert.Contains("Retrying people replacement", warning, StringComparison.Ordinal);
+
+            await blockerTransaction.RollbackAsync(cancellationToken);
+            lockReleased = true;
+            await replacement.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+
+            await using var verify = await Contexts.CreateDbContextAsync(cancellationToken);
+            Assert.False(await verify.PeopleBaseItemMap.AnyAsync(map => map.ItemId == itemId, cancellationToken));
+        }
+        finally
+        {
+            await ReleaseLockAndWaitForReplacementAsync(blockerTransaction, blocker, lockReleased, replacement);
+        }
     }
 
     [Fact]
@@ -1955,6 +2207,10 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
 
         using (var context = Contexts.CreateDbContext())
         {
+            context.Users.Add(new User("next-up-test-user", "test-authentication", "test-password-reset")
+            {
+                Id = userId
+            });
             context.BaseItems.AddRange(firstEpisode, secondEpisode);
             context.UserData.AddRange(
                 new UserData
@@ -2210,6 +2466,52 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         };
     }
 
+    private LockWaitTimeoutDbContextFactory CreateLockWaitTimeoutContextFactory(string connectionString)
+    {
+        var repositoryOptions = new DbContextOptionsBuilder<MulletaFlixDbContext>()
+            .UseMySql(connectionString, ServerVersion.AutoDetect(connectionString))
+            .AddInterceptors(new LockWaitTimeoutConnectionInterceptor())
+            .Options;
+        return new LockWaitTimeoutDbContextFactory(
+            repositoryOptions,
+            _services!.GetRequiredService<IMulletaFlixDatabaseProvider>(),
+            _services.GetRequiredService<IEntityFrameworkCoreLockingBehavior>());
+    }
+
+    private static async Task ReleaseLockAndWaitForReplacementAsync(
+        MySqlConnector.MySqlTransaction? blockerTransaction,
+        MySqlConnector.MySqlConnection? blocker,
+        bool lockReleased,
+        Task? replacement)
+    {
+        if (blockerTransaction is not null && !lockReleased)
+        {
+            await blockerTransaction.RollbackAsync(CancellationToken.None);
+        }
+
+        if (replacement is not null && !replacement.IsCompleted)
+        {
+            try
+            {
+                await replacement.WaitAsync(TimeSpan.FromSeconds(15), CancellationToken.None);
+            }
+            catch
+            {
+                // Preserve the original test failure; the MariaDB instance is disposable.
+            }
+        }
+
+        if (blockerTransaction is not null)
+        {
+            await blockerTransaction.DisposeAsync();
+        }
+
+        if (blocker is not null)
+        {
+            await blocker.DisposeAsync();
+        }
+    }
+
     private static void DropTestDatabase(string databaseName, string userName)
     {
         using var connection = new MySqlConnector.MySqlConnection(MariaDbTestEnvironment.GetAdminConnection().ConnectionString);
@@ -2219,6 +2521,77 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         command.ExecuteNonQuery();
         command.CommandText = $"DROP USER IF EXISTS '{userName}'@'127.0.0.1';";
         command.ExecuteNonQuery();
+    }
+
+    private sealed class RetryWarningLogger<T> : ILogger<T>
+    {
+        private readonly TaskCompletionSource<string> _warning;
+
+        public RetryWarningLogger(TaskCompletionSource<string> warning) => _warning = warning;
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel == LogLevel.Warning;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                var message = formatter(state, exception);
+                if (message.StartsWith("Retrying ", StringComparison.Ordinal))
+                {
+                    _warning.TrySetResult(message);
+                }
+            }
+        }
+    }
+
+    private sealed class LockWaitTimeoutConnectionInterceptor : DbConnectionInterceptor
+    {
+        public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "SET SESSION innodb_lock_wait_timeout = 1";
+            command.ExecuteNonQuery();
+        }
+
+        public override async Task ConnectionOpenedAsync(
+            DbConnection connection,
+            ConnectionEndEventData eventData,
+            CancellationToken cancellationToken = default)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SET SESSION innodb_lock_wait_timeout = 1";
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private sealed class LockWaitTimeoutDbContextFactory : IDbContextFactory<MulletaFlixDbContext>
+    {
+        private readonly DbContextOptions<MulletaFlixDbContext> _options;
+        private readonly IMulletaFlixDatabaseProvider _databaseProvider;
+        private readonly IEntityFrameworkCoreLockingBehavior _lockingBehavior;
+
+        public LockWaitTimeoutDbContextFactory(
+            DbContextOptions<MulletaFlixDbContext> options,
+            IMulletaFlixDatabaseProvider databaseProvider,
+            IEntityFrameworkCoreLockingBehavior lockingBehavior)
+        {
+            _options = options;
+            _databaseProvider = databaseProvider;
+            _lockingBehavior = lockingBehavior;
+        }
+
+        public MulletaFlixDbContext CreateDbContext()
+            => new(_options, NullLogger<MulletaFlixDbContext>.Instance, _databaseProvider, _lockingBehavior);
+
+        public Task<MulletaFlixDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(CreateDbContext());
+        }
     }
 
     private static ServiceProvider BuildServices(MySqlConnector.MySqlConnectionStringBuilder applicationConnection, string databaseName)

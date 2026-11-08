@@ -76,6 +76,8 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the next up episodes.</returns>
     [HttpGet("NextUp")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetNextUp(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
@@ -92,6 +94,26 @@ public class TvShowsController : BaseMulletaFlixApiController
         [FromQuery] bool enableResumable = true,
         [FromQuery] bool enableRewatching = false)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
+        if (seriesId.HasValue && seriesId.Value == Guid.Empty)
+        {
+            return BadRequest("Series id must not be empty.");
+        }
+
         var user = _userManager.GetUserById(RequestHelpers.GetUserId(User, userId));
         if (user is null)
         {
@@ -139,6 +161,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the upcoming episodes.</returns>
     [HttpGet("Upcoming")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetUpcomingEpisodes(
         [FromQuery] Guid? userId,
@@ -151,6 +174,21 @@ public class TvShowsController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes,
         [FromQuery] bool? enableUserData)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!TryResolveTvShowUser(userId, out var user))
         {
@@ -205,6 +243,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the episodes on success or a <see cref="NotFoundResult"/> if the series was not found.</returns>
     [HttpGet("{seriesId}/Episodes")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetEpisodes(
@@ -224,6 +263,36 @@ public class TvShowsController : BaseMulletaFlixApiController
         [FromQuery] bool? enableUserData,
         [FromQuery] ItemSortBy? sortBy)
     {
+        if (seriesId == Guid.Empty)
+        {
+            return BadRequest("Series id must not be empty.");
+        }
+
+        if (seasonId.HasValue && seasonId.Value == Guid.Empty)
+        {
+            return BadRequest("Season id must not be empty.");
+        }
+
+        if (season.HasValue && season.Value < 0)
+        {
+            return BadRequest("Season number must be greater than or equal to 0.");
+        }
+
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!TryResolveTvShowUser(userId, out var user))
         {
@@ -330,6 +399,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> on success or a <see cref="NotFoundResult"/> if the series was not found.</returns>
     [HttpGet("{seriesId}/Seasons")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSeasons(
@@ -344,6 +414,16 @@ public class TvShowsController : BaseMulletaFlixApiController
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ImageType[] enableImageTypes,
         [FromQuery] bool? enableUserData)
     {
+        if (seriesId == Guid.Empty)
+        {
+            return BadRequest("Series id must not be empty.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!TryResolveTvShowUser(userId, out var user))
         {

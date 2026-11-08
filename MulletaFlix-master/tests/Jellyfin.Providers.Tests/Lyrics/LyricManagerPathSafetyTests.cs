@@ -8,8 +8,10 @@ using System.Threading.Tasks;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Lyrics;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Lyrics;
 using MediaBrowser.Providers.Lyric;
@@ -254,6 +256,42 @@ public sealed partial class LyricManagerPathSafetyTests
         Assert.Equal("preserve-original-data", await File.ReadAllTextAsync(originalPath, TestContext.Current.CancellationToken));
         Assert.Equal("new lyrics", await File.ReadAllTextAsync(lyricPath, TestContext.Current.CancellationToken));
         Assert.Empty(Directory.GetFiles(temp.Path, ".track.lrc.*.tmp"));
+    }
+
+    [Fact]
+    public async Task DeleteLyricsAsync_EmptyPathOrMissingFile_DoesNotDeleteOrThrow()
+    {
+        var mediaSourceManager = new Mock<IMediaSourceManager>();
+        var fileSystem = new Mock<IFileSystem>();
+        var libraryMonitor = new Mock<ILibraryMonitor>();
+
+        var testStreams = new MediaStream[]
+        {
+            new MediaStream { Path = string.Empty, Type = MediaStreamType.Lyric },
+            new MediaStream { Path = "   ", Type = MediaStreamType.Lyric },
+            new MediaStream { Path = "/non/existent/path.lrc", Type = MediaStreamType.Lyric },
+        };
+
+        mediaSourceManager
+            .Setup(m => m.GetMediaStreams(It.IsAny<MediaStreamQuery>()))
+            .Returns(testStreams);
+
+        fileSystem
+            .Setup(f => f.FileExists("/non/existent/path.lrc"))
+            .Returns(false);
+
+        var manager = new LyricManager(
+            NullLogger<LyricManager>.Instance,
+            fileSystem.Object,
+            libraryMonitor.Object,
+            mediaSourceManager.Object,
+            [],
+            []);
+
+        var audio = new TestAudio();
+        await manager.DeleteLyricsAsync(audio);
+
+        fileSystem.Verify(f => f.DeleteFile(It.IsAny<string>()), Times.Never);
     }
 
     private sealed class TemporaryDirectory : IDisposable

@@ -59,6 +59,7 @@ public class MoviesController : BaseMulletaFlixApiController
     /// <returns>The list of movie recommendations.</returns>
     [HttpGet("Recommendations")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IEnumerable<RecommendationDto>>> GetMovieRecommendations(
         [FromQuery] Guid? userId,
@@ -68,6 +69,16 @@ public class MoviesController : BaseMulletaFlixApiController
         [FromQuery] int itemLimit = 8,
         CancellationToken cancellationToken = default)
     {
+        if (categoryLimit < 0)
+        {
+            return BadRequest("CategoryLimit must be greater than or equal to 0.");
+        }
+
+        if (itemLimit < 0)
+        {
+            return BadRequest("ItemLimit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         if (!TryResolveMovieUser(userId, out var user))
         {

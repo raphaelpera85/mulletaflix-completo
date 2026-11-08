@@ -42,10 +42,9 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
         /// <inheritdoc />
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(BoxSetInfo searchInfo, CancellationToken cancellationToken)
         {
-            var tmdbId = Convert.ToInt32(searchInfo.GetProviderId(MetadataProvider.Tmdb), CultureInfo.InvariantCulture);
             var language = searchInfo.MetadataLanguage;
 
-            if (tmdbId > 0)
+            if (int.TryParse(searchInfo.GetProviderId(MetadataProvider.Tmdb), NumberStyles.Integer, CultureInfo.InvariantCulture, out var tmdbId) && tmdbId > 0)
             {
                 var collection = await _tmdbClientManager.GetCollectionAsync(tmdbId, language, TmdbUtils.GetImageLanguagesParam(language, searchInfo.MetadataCountryCode), searchInfo.MetadataCountryCode, cancellationToken).ConfigureAwait(false);
 
@@ -97,7 +96,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
         /// <inheritdoc />
         public async Task<MetadataResult<BoxSet>> GetMetadata(BoxSetInfo info, CancellationToken cancellationToken)
         {
-            var tmdbId = Convert.ToInt32(info.GetProviderId(MetadataProvider.Tmdb), CultureInfo.InvariantCulture);
+            _ = int.TryParse(info.GetProviderId(MetadataProvider.Tmdb), NumberStyles.Integer, CultureInfo.InvariantCulture, out var tmdbId);
             var language = info.MetadataLanguage;
 
             // We don't already have an Id, need to fetch it

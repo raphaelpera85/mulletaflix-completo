@@ -306,9 +306,13 @@ public sealed class BackupServiceTests : IDisposable
         // Arrange
         var service = CreateService();
         var archivePath = "/test/backup.zip";
+        var shutdownRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         _applicationHostMock.SetupProperty(x => x.RestoreBackupPath);
         _applicationHostMock.SetupProperty(x => x.ShouldRestart);
+        _applicationLifetimeMock
+            .Setup(lifetime => lifetime.StopApplication())
+            .Callback(() => shutdownRequested.TrySetResult());
 
         // Act
         service.ScheduleRestoreAndRestartServer(archivePath);
@@ -317,8 +321,132 @@ public sealed class BackupServiceTests : IDisposable
         Assert.Equal(archivePath, _applicationHostMock.Object.RestoreBackupPath);
         Assert.True(_applicationHostMock.Object.ShouldRestart);
         _applicationHostMock.Verify(x => x.NotifyPendingRestart(), Times.Once);
+        await shutdownRequested.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        _applicationLifetimeMock.Verify(lifetime => lifetime.StopApplication(), Times.Once);
         await Assert.ThrowsAsync<BackupOperationInProgressException>(
             () => service.CreateBackupAsync(new BackupOptionsDto()));
+    }
+
+    [Fact]
+    public async Task ScheduledRestore_RestoresArchiveBeforeStartupInitialization()
+    {
+        var configPath = Path.Combine(_testProgramDataPath, "scheduled-restore-config");
+        var archivePath = Path.Combine(_testProgramDataPath, "scheduled-restore.zip");
+        var targetPath = Path.Combine(configPath, "server.json");
+        Directory.CreateDirectory(configPath);
+        await File.WriteAllTextAsync(targetPath, "before-restore");
+
+        var manifest = new BackupManifest
+        {
+            ServerVersion = new Version(10, 0, 0),
+            BackupEngineVersion = new Version(0, 2, 0),
+            DateCreated = DateTimeOffset.UtcNow,
+            DatabaseTables = Array.Empty<string>(),
+            Options = new BackupOptions { Database = false, Metadata = false, Subtitles = false, Trickplay = false }
+        };
+        using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+        {
+            await using (var manifestStream = archive.CreateEntry("manifest.json").Open())
+            {
+                await JsonSerializer.SerializeAsync(manifestStream, manifest);
+            }
+
+            await using (var configStream = archive.CreateEntry("Config/server.json").Open())
+            await using (var writer = new StreamWriter(configStream))
+            {
+                await writer.WriteAsync("restored-from-scheduled-archive");
+            }
+        }
+
+        _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
+        _applicationPathsMock.Setup(paths => paths.DataPath).Returns(Path.Combine(_testProgramDataPath, "data"));
+        _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(_testProgramDataPath, "cache"));
+        _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(_testProgramDataPath, "root"));
+        _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(_testProgramDataPath, "metadata"));
+        _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(_testProgramDataPath, "metadata-default"));
+        _applicationHostMock.SetupProperty(host => host.RestoreBackupPath);
+        _applicationHostMock.SetupProperty(host => host.ShouldRestart);
+        var shutdownRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _applicationLifetimeMock
+            .Setup(lifetime => lifetime.StopApplication())
+            .Callback(() => shutdownRequested.TrySetResult());
+
+        using (var schedulingService = CreateService())
+        {
+            schedulingService.ScheduleRestoreAndRestartServer(archivePath);
+        }
+
+        await shutdownRequested.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+        var restartField = typeof(MulletaFlix.Server.Program).GetField("_restartOnShutdown", flags)!;
+        var restorePathField = typeof(MulletaFlix.Server.Program).GetField("_restoreFromBackup", flags)!;
+        var previousRestart = restartField.GetValue(null);
+        var previousRestorePath = restorePathField.GetValue(null);
+        try
+        {
+            MulletaFlix.Server.Program.CaptureRestartState(_applicationHostMock.Object);
+            Assert.True((bool)restartField.GetValue(null)!);
+            var requestedRestorePath = restorePathField.GetValue(null) as string;
+            Assert.Equal(archivePath, requestedRestorePath);
+
+            using var startupService = CreateService();
+            var migrationApplied = false;
+            var initialized = false;
+            var startupContinues = await MulletaFlix.Server.Program.RunAfterBackupRecoveryAsync(
+                startupService,
+                recoveredPath => MulletaFlix.Server.Program.ContinueAfterBackupRecoveryAsync(
+                    startupService,
+                    requestedRestorePath,
+                    recoveredPath),
+                () =>
+                {
+                    migrationApplied = true;
+                    return Task.CompletedTask;
+                },
+                () =>
+                {
+                    initialized = true;
+                    return Task.CompletedTask;
+                });
+
+            Assert.False(startupContinues);
+            Assert.False(migrationApplied);
+            Assert.False(initialized);
+            Assert.Null(restorePathField.GetValue(null));
+            Assert.Equal("restored-from-scheduled-archive", await File.ReadAllTextAsync(targetPath));
+            Assert.True(_applicationHostMock.Object.ShouldRestart);
+            Assert.Null(await new BackupRestoreRecoveryJournal(_testProgramDataPath).ReadAsync());
+
+            using var subsequentStartupService = CreateService();
+            var subsequentMigrationApplied = false;
+            var subsequentInitialized = false;
+            var subsequentStartupContinues = await MulletaFlix.Server.Program.RunAfterBackupRecoveryAsync(
+                subsequentStartupService,
+                recoveredPath => MulletaFlix.Server.Program.ContinueAfterBackupRecoveryAsync(
+                    subsequentStartupService,
+                    restorePathField.GetValue(null) as string,
+                    recoveredPath),
+                () =>
+                {
+                    subsequentMigrationApplied = true;
+                    return Task.CompletedTask;
+                },
+                () =>
+                {
+                    subsequentInitialized = true;
+                    return Task.CompletedTask;
+                });
+
+            Assert.True(subsequentStartupContinues);
+            Assert.True(subsequentMigrationApplied);
+            Assert.True(subsequentInitialized);
+        }
+        finally
+        {
+            restartField.SetValue(null, previousRestart);
+            restorePathField.SetValue(null, previousRestorePath);
+        }
     }
 
     [Fact]

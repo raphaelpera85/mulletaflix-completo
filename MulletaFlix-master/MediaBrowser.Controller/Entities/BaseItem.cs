@@ -354,7 +354,22 @@ namespace MediaBrowser.Controller.Entities
                     return null;
                 }
 
-                return MediaSourceManager.GetPathProtocol(path);
+                if (MediaSourceManager is not null)
+                {
+                    return MediaSourceManager.GetPathProtocol(path);
+                }
+
+                if (path.StartsWith("Http", StringComparison.OrdinalIgnoreCase))
+                {
+                    return MediaProtocol.Http;
+                }
+
+                if (path.StartsWith("Rtsp", StringComparison.OrdinalIgnoreCase))
+                {
+                    return MediaProtocol.Rtsp;
+                }
+
+                return MediaProtocol.File;
             }
         }
 
@@ -924,7 +939,7 @@ namespace MediaBrowser.Controller.Entities
 
         public virtual string GetInternalMetadataPath()
         {
-            var basePath = ConfigurationManager.ApplicationPaths.InternalMetadataPath;
+            var basePath = ConfigurationManager?.ApplicationPaths?.InternalMetadataPath ?? string.Empty;
 
             return GetInternalMetadataPath(basePath);
         }
@@ -1353,7 +1368,10 @@ namespace MediaBrowser.Controller.Entities
                         requiresSave = await RefreshedOwnedItems(options, GetFileSystemChildren(options.DirectoryService), cancellationToken).ConfigureAwait(false);
                     }
 
-                    await LibraryManager.UpdateImagesAsync(this).ConfigureAwait(false); // ensure all image properties in DB are fresh
+                    if (LibraryManager is not null)
+                    {
+                        await LibraryManager.UpdateImagesAsync(this, cancellationToken: cancellationToken).ConfigureAwait(false); // ensure all image properties in DB are fresh
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1367,6 +1385,11 @@ namespace MediaBrowser.Controller.Entities
                     ForceSave = true
                 }
                 : options;
+
+            if (ProviderManager is null)
+            {
+                return ItemUpdateType.None;
+            }
 
             return await ProviderManager.RefreshSingleItem(this, refreshOptions, cancellationToken).ConfigureAwait(false);
         }
@@ -1581,45 +1604,26 @@ namespace MediaBrowser.Controller.Entities
 
             if (string.IsNullOrEmpty(lang))
             {
-                lang = LibraryManager.GetCollectionFolders(this)
-                    .Select(i => i.PreferredMetadataLanguage)
-                    .FirstOrDefault(i => !string.IsNullOrEmpty(i));
+                var collectionFolders = LibraryManager?.GetCollectionFolders(this);
+                if (collectionFolders is not null)
+                {
+                    lang = collectionFolders
+                        .Select(i => i.PreferredMetadataLanguage)
+                        .FirstOrDefault(i => !string.IsNullOrEmpty(i));
+                }
             }
 
             if (string.IsNullOrEmpty(lang))
             {
-                lang = LibraryManager.GetLibraryOptions(this).PreferredMetadataLanguage;
+                lang = LibraryManager?.GetLibraryOptions(this)?.PreferredMetadataLanguage;
             }
 
             if (string.IsNullOrEmpty(lang))
             {
-                lang = ConfigurationManager.Configuration.PreferredMetadataLanguage;
+                lang = ConfigurationManager?.Configuration?.PreferredMetadataLanguage;
             }
-
-            lang = NormalizePreferredMetadataLanguage(lang, GetPreferredMetadataCountryCode());
 
             return lang;
-        }
-
-        private static string NormalizePreferredMetadataLanguage(string? language, string? countryCode)
-        {
-            if (string.IsNullOrWhiteSpace(language))
-            {
-                return string.Empty;
-            }
-
-            if (!string.Equals(countryCode, "BR", StringComparison.OrdinalIgnoreCase))
-            {
-                return language;
-            }
-
-            if (string.Equals(language, "pt", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(language, "pt-PT", StringComparison.OrdinalIgnoreCase))
-            {
-                return "pt-BR";
-            }
-
-            return language;
         }
 
         /// <summary>

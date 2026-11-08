@@ -13,6 +13,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Plugins.YouTube
@@ -178,7 +179,7 @@ namespace MediaBrowser.Providers.Plugins.YouTube
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching YouTube images for: {Id}", ytId);
+                _logger.LogError("Error fetching YouTube images for {Id}: {Error}", ytId, RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
 
             return results;
@@ -198,7 +199,7 @@ namespace MediaBrowser.Providers.Plugins.YouTube
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching Open Graph image from: {Url}", url);
+                _logger.LogError("Error fetching Open Graph image from {Url}: {Error}", RemoteUrlLogRedactor.Redact(url), RemoteUrlLogRedactor.Redact(ex.ToString()));
             }
 
             return string.Empty;

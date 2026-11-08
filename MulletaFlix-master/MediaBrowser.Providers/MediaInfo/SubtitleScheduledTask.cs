@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Tasks;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.MediaInfo
@@ -190,7 +191,7 @@ namespace MediaBrowser.Providers.MediaInfo
                 catch (Exception ex)
                 {
                     metrics.Failures++;
-                    _logger.LogError(ex, "Error downloading subtitles for {Path}", video.Path);
+                    _logger.LogError("{Error} downloading subtitles for {Path}", RemoteUrlLogRedactor.Redact(ex.ToString()), video.Path);
                 }
 
                 // Update progress

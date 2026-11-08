@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { getFixtureBaseUrl } from '../support/stage.mjs';
 
 test('autocomplete selects title/category/year by keyboard and submits the chosen identity', async ({ page }) => {
+    const fixtureBaseUrl = getFixtureBaseUrl(String(test.info().project.use.baseURL));
     await page.route('**/components/dialogHelper/dialogHelper.ts*', route => route.fulfill({
         contentType: 'application/javascript',
         body: `export default {
@@ -32,9 +34,9 @@ test('autocomplete selects title/category/year by keyboard and submits the chose
         return route.fulfill({ status: 204 });
     });
     await page.route('**/__autocomplete_fixture__', route => route.fulfill({ contentType: 'text/html', body: '<html lang="pt-BR"><body></body></html>' }));
-    await page.goto('/__autocomplete_fixture__');
+    await page.goto(new URL('/__autocomplete_fixture__', fixtureBaseUrl).toString());
     await page.addScriptTag({ type: 'module', content: `
-        import { showMediaRequestDialog } from '/components/userFeedback/userFeedback.ts';
+        import { showMediaRequestDialog } from '${getFixtureBaseUrl(String(test.info().project.use.baseURL))}/components/userFeedback/userFeedback.ts';
         showMediaRequestDialog({
             getUrl: url => '/test-api/' + url,
             getJSON: url => fetch(url).then(response => response.json()),
@@ -79,6 +81,7 @@ test('autocomplete selects title/category/year by keyboard and submits the chose
 });
 
 test('autocomplete debounces input and ignores suggestions returned for an older query', async ({ page }) => {
+    const fixtureBaseUrl = getFixtureBaseUrl(String(test.info().project.use.baseURL));
     await page.route('**/components/dialogHelper/dialogHelper.ts*', route => route.fulfill({
         contentType: 'application/javascript',
         body: `export default {
@@ -112,9 +115,9 @@ test('autocomplete debounces input and ignores suggestions returned for an older
         contentType: 'text/html',
         body: '<html lang="pt-BR"><body></body></html>'
     }));
-    await page.goto('/__autocomplete_race_fixture__');
+    await page.goto(new URL('/__autocomplete_race_fixture__', fixtureBaseUrl).toString());
     await page.addScriptTag({ type: 'module', content: `
-        import { showMediaRequestDialog } from '/components/userFeedback/userFeedback.ts';
+        import { showMediaRequestDialog } from '${getFixtureBaseUrl(String(test.info().project.use.baseURL))}/components/userFeedback/userFeedback.ts';
         showMediaRequestDialog({
             getUrl: url => '/test-api/' + url,
             getJSON: url => fetch(url).then(response => response.json()),

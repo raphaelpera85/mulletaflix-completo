@@ -728,6 +728,19 @@ public class ItemPersistenceService : IItemPersistenceService
         return false;
     }
 
+    internal static bool IsTransientMariaDbLockFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is MySqlException mySqlException && mySqlException.Number is 1205 or 1213)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Determines whether a save failed because the MariaDB connection did, rather than because the
     /// statement was rejected.

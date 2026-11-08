@@ -1,16 +1,23 @@
+import { existsSync } from 'node:fs';
 import { expect } from '@playwright/test';
+
+function configuredMediaPath(name) {
+    return process.env[name]?.trim() || '';
+}
 
 export const MOVIES_LIBRARY = {
     name: 'Filmes',
     type: 'movies',
-    path: 'D:\\Users\\Raphael\\Videos\\Filmes',
+    path: configuredMediaPath('MFLX_MOVIES_PATH'),
+    pathEnv: 'MFLX_MOVIES_PATH',
     aliases: [ 'Filmes', 'Movies', 'Movie', 'Filmes locais', 'Local movies' ]
 };
 
 export const SERIES_LIBRARY = {
     name: 'Series',
     type: 'tvshows',
-    path: 'D:\\Users\\Raphael\\Videos\\Series',
+    path: configuredMediaPath('MFLX_SERIES_PATH'),
+    pathEnv: 'MFLX_SERIES_PATH',
     aliases: [ 'Series', 'Séries', 'TV Shows', 'Shows', 'Programas de TV' ]
 };
 
@@ -49,7 +56,7 @@ function matchesLibrary(folder, library) {
 /**
  * Waits for the ApiClient to be ready and authenticated.
  * This prevents page.evaluate() errors caused by accessing ApiClient before it's initialized.
- * 
+ *
  * @param {Page} page - Playwright page object
  * @param {Object} options - Configuration options
  * @param {number} options.timeoutMs - Maximum time to wait (default: 30s)
@@ -108,7 +115,7 @@ export async function waitForApiClientReady(page, { timeoutMs = 30_000 } = {}) {
 /**
  * Executes a function with retry logic, handling navigation/context losses.
  * Retries with exponential backoff if page.evaluate() fails with Response error.
- * 
+ *
  * @param {Page} page - Playwright page object
  * @param {Function} fn - Function to execute in browser context
  * @param {*} args - Arguments to pass to the function
@@ -132,9 +139,9 @@ async function evaluateWithRetry(page, fn, args, { maxAttempts = 3, initialDelay
             lastError = error;
 
             // Check if this is a navigation/context loss error (Response error)
-            const isContextLoss = error?.message?.includes('Response') || 
-                                 error?.message?.includes('context') ||
-                                 error?.message?.includes('Target page');
+            const isContextLoss = error?.message?.includes('Response')
+                                 || error?.message?.includes('context')
+                                 || error?.message?.includes('Target page');
 
             if (!isContextLoss || attempt === maxAttempts) {
                 // Not a context loss error, or we're out of retries - throw immediately
@@ -155,6 +162,18 @@ async function evaluateWithRetry(page, fn, args, { maxAttempts = 3, initialDelay
 }
 
 export async function ensureMediaLibraries(page, libraries = DEFAULT_MEDIA_LIBRARIES) {
+    const missing = libraries.filter(library => !library.path).map(library => library.pathEnv);
+    if (missing.length) {
+        throw new Error(`Set ${missing.join(' and ')} before running media-library Playwright scenarios.`);
+    }
+
+    const unavailable = libraries
+        .filter(library => !existsSync(library.path))
+        .map(library => `${library.pathEnv}=${library.path}`);
+    if (unavailable.length) {
+        throw new Error(`Configured media path does not exist: ${unavailable.join('; ')}`);
+    }
+
     const createdLibraries = await evaluateWithRetry(page, async (librarySeed) => {
         const existing = await window.ApiClient.getVirtualFolders();
         const created = [];
@@ -180,7 +199,7 @@ export async function ensureMediaLibraries(page, libraries = DEFAULT_MEDIA_LIBRA
                 continue;
             }
 
-            await window.ApiClient.addVirtualFolder(library.name, library.type, true, {
+            await window.ApiClient.addVirtualFolder(library.name, library.type, false, {
                 PathInfos: [
                     { Path: library.path }
                 ]
@@ -199,9 +218,12 @@ export async function ensureMediaLibraries(page, libraries = DEFAULT_MEDIA_LIBRA
 
 export async function waitForMediaRecognition(page, {
     timeoutMs = 20 * 60 * 1000,
-    pollIntervalMs = 30_000
+    pollIntervalMs = 30_000,
+    libraries = DEFAULT_MEDIA_LIBRARIES
 } = {}) {
     const deadline = Date.now() + timeoutMs;
+    const requiresMovies = libraries.some(library => normalizeName(library.type) === 'movies');
+    const requiresSeries = libraries.some(library => normalizeName(library.type) === 'tvshows');
 
     while (Date.now() < deadline) {
         const counts = await evaluateWithRetry(
@@ -214,7 +236,7 @@ export async function waitForMediaRecognition(page, {
         const movieCount = Number(counts?.MovieCount || 0);
         const seriesCount = Number(counts?.SeriesCount || 0);
 
-        if (movieCount > 0 && seriesCount > 0) {
+        if ((!requiresMovies || movieCount > 0) && (!requiresSeries || seriesCount > 0)) {
             return {
                 MovieCount: movieCount,
                 SeriesCount: seriesCount
@@ -250,6 +272,7 @@ export async function ensureMediaLibrariesReady(page, options = {}) {
     );
 
     await page.waitForTimeout(options.settleMs ?? 60_000);
+    await waitForMediaRecognition(page, options);
     return null;
 }
 
@@ -290,7 +313,10 @@ export async function getVirtualFolderByName(page, name) {
 
 export async function getVirtualFolderByLibrary(page, library) {
     const folders = await getVirtualFolders(page);
-    return folders.find(folder => matchesLibrary(folder, library)) || null;
+    const folder = folders.find(candidate => matchesLibrary(candidate, library));
+    return folder ?
+        { ...folder, Id: folder.Id || folder.ItemId } :
+        null;
 }
 
 export async function getFirstItemFromVirtualFolder(page, folderId) {
@@ -305,6 +331,8 @@ export async function getFirstItemFromVirtualFolder(page, folderId) {
                 ParentId: parentId,
                 Limit: 1,
                 Recursive: true,
+                IsFolder: false,
+                IncludeItemTypes: 'Movie',
                 Fields: 'PrimaryImageAspectRatio,ParentId,Path,ProviderIds'
             });
             const item = result?.Items?.[0];

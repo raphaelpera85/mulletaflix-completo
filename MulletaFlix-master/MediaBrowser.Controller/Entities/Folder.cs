@@ -506,7 +506,7 @@ namespace MediaBrowser.Controller.Entities
                             // child on every library scan (it was the dominant per-child cost of the scan).
                             if (HasImageInfoChanged(currentChild, child))
                             {
-                                await LibraryManager.UpdateImagesAsync(currentChild).ConfigureAwait(false);
+                                await LibraryManager.UpdateImagesAsync(currentChild, cancellationToken: cancellationToken).ConfigureAwait(false);
                             }
                             else
                             {
@@ -615,6 +615,7 @@ namespace MediaBrowser.Controller.Entities
                 {
                     LibraryManager.CreateItems(newItems, this, cancellationToken);
                 }
+
 
                 // Process deferred replaced-primary deletions now that new primaries exist in DB/cache.
                 // This avoids the premature promotion that would occur if DeleteItem ran before CreateItems.
@@ -809,7 +810,7 @@ namespace MediaBrowser.Controller.Entities
         private async Task RefreshMetadataRecursive(IList<BaseItem> children, MetadataRefreshOptions refreshOptions, bool recursive, IProgress<double> progress, CancellationToken cancellationToken)
         {
             await RunTasks(
-                (baseItem, innerProgress) => RefreshChildMetadata(baseItem, refreshOptions, recursive && baseItem.IsFolder, innerProgress, cancellationToken),
+                (baseItem, innerProgress, workerCancellationToken) => RefreshChildMetadata(baseItem, refreshOptions, recursive && baseItem.IsFolder, innerProgress, workerCancellationToken),
                 children,
                 progress,
                 cancellationToken).ConfigureAwait(false);
@@ -857,7 +858,7 @@ namespace MediaBrowser.Controller.Entities
         private async Task ValidateSubFolders(IList<Folder> children, IDirectoryService directoryService, IProgress<double> progress, CancellationToken cancellationToken)
         {
             await RunTasks(
-                (folder, innerProgress) => folder.ValidateChildrenInternal(innerProgress, true, false, false, null, directoryService, cancellationToken),
+                (folder, innerProgress, workerCancellationToken) => folder.ValidateChildrenInternal(innerProgress, true, false, false, null, directoryService, workerCancellationToken),
                 children,
                 progress,
                 cancellationToken).ConfigureAwait(false);
@@ -871,7 +872,7 @@ namespace MediaBrowser.Controller.Entities
         /// <param name="progress">The progress.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>Task.</returns>
-        private async Task RunTasks<T>(Func<T, IProgress<double>, Task> task, IList<T> children, IProgress<double> progress, CancellationToken cancellationToken)
+        private async Task RunTasks<T>(Func<T, IProgress<double>, CancellationToken, Task> task, IList<T> children, IProgress<double> progress, CancellationToken cancellationToken)
         {
             await LimitedConcurrencyLibraryScheduler
                 .Enqueue(
@@ -892,8 +893,9 @@ namespace MediaBrowser.Controller.Entities
         {
             var collectionType = LibraryManager.GetContentType(this);
             var libraryOptions = LibraryManager.GetLibraryOptions(this);
+            var fileSystemChildren = GetFileSystemChildren(directoryService);
 
-            return LibraryManager.ResolvePaths(GetFileSystemChildren(directoryService), directoryService, this, libraryOptions, collectionType);
+            return LibraryManager.ResolvePaths(fileSystemChildren, directoryService, this, libraryOptions, collectionType);
         }
 
         /// <summary>

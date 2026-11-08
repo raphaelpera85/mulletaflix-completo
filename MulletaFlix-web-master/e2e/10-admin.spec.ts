@@ -1,14 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { TEST_USERS } from './support/constants';
-import { openLogin } from './support/utils';
+import { loginWithManualCredentials, openLogin } from './support/utils';
 
 test.describe.serial('10 - Admin', () => {
     test('logs in and reaches the users dashboard', async ({ page }) => {
         await openLogin(page);
-        await page.locator('.btnManual').click();
-        await page.locator('#txtManualName').fill(TEST_USERS.admin.name);
-        await page.locator('#txtManualPassword').fill(TEST_USERS.admin.password);
-        await page.locator('.manualLoginForm button[type="submit"]').click();
+        await loginWithManualCredentials(page, TEST_USERS.admin.name, TEST_USERS.admin.password);
 
         await expect(page.locator('#loginPage')).toHaveCount(0);
         await page.goto('/#/dashboard/users');

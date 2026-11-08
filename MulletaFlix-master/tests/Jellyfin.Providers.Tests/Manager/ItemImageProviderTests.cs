@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -20,6 +20,7 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Providers;
 using MediaBrowser.Providers.Manager;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -176,6 +177,98 @@ namespace MulletaFlix.Providers.Tests.Manager
             }
         }
 
+        [Fact]
+        public void MergeImages_StoredTimeTruncatedToMicroseconds_NoChange()
+        {
+            var fileTime = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddTicks(1234567);
+            var storedTime = fileTime.AddTicks(-7);
+            var fileSystem = new Mock<IFileSystem>();
+            fileSystem.Setup(fs => fs.GetLastWriteTimeUtc(It.IsAny<FileSystemMetadata>())).Returns(fileTime);
+            BaseItem.FileSystem = fileSystem.Object;
+
+            var item = GetItemWithImages(ImageType.Primary, 1, true);
+            var currentImage = item.GetImageInfo(ImageType.Primary, 0)!;
+            currentImage.DateModified = storedTime;
+            currentImage.Height = 1;
+            currentImage.Width = 1;
+
+            var images = GetImages(ImageType.Primary, 1, true);
+            var itemImageProvider = GetItemImageProvider(null, fileSystem);
+
+            var changed = itemImageProvider.MergeImages(item, images, new ImageRefreshOptions(Mock.Of<IDirectoryService>()));
+
+            Assert.False(changed);
+            Assert.Equal(1, currentImage.Height);
+            Assert.Equal(1, currentImage.Width);
+        }
+
+        [Fact]
+        public void MergeImages_SubfolderExtraFanartStoredWithMedia_DisablesBackdropReplacement()
+        {
+            BaseItem.FileSystem ??= Mock.Of<IFileSystem>();
+            var item = new Video { Path = Path.Combine("C:", "Media", "Movies", "Sample", "Sample.mkv") };
+            var images = new[]
+            {
+                new LocalImageInfo
+                {
+                    Type = ImageType.Backdrop,
+                    FileInfo = new FileSystemMetadata
+                    {
+                        FullName = Path.Combine("C:", "Media", "Movies", "Sample", "extrafanart", "fanart1.jpg")
+                    }
+                }
+            };
+            var refreshOptions = new ImageRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                ReplaceAllImages = true
+            };
+
+            var itemImageProvider = GetItemImageProvider(null, null);
+            var changed = itemImageProvider.MergeImages(item, images, refreshOptions);
+
+            Assert.True(changed);
+            Assert.False(refreshOptions.IsReplacingImage(ImageType.Backdrop));
+        }
+
+        [Fact]
+        public void MergeImages_InternalMetadataPathOrRelativePath_KeepsReplacementEnabled()
+        {
+            BaseItem.FileSystem ??= Mock.Of<IFileSystem>();
+            var item = new Video { Path = Path.Combine("C:", "Media", "Movies", "Sample", "Sample.mkv") };
+            var images = new[]
+            {
+                new LocalImageInfo
+                {
+                    Type = ImageType.Primary,
+                    FileInfo = new FileSystemMetadata
+                    {
+                        FullName = "poster.jpg"
+                    }
+                },
+                new LocalImageInfo
+                {
+                    Type = ImageType.Logo,
+                    FileInfo = new FileSystemMetadata
+                    {
+                        FullName = Path.Combine("C:", "Media", "Movie", "logo.png")
+                    }
+                }
+            };
+            var refreshOptions = new ImageRefreshOptions(Mock.Of<IDirectoryService>())
+            {
+                ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                ReplaceAllImages = true
+            };
+
+            var itemImageProvider = GetItemImageProvider(null, null);
+            var changed = itemImageProvider.MergeImages(item, images, refreshOptions);
+
+            Assert.True(changed);
+            Assert.True(refreshOptions.IsReplacingImage(ImageType.Primary));
+            Assert.True(refreshOptions.IsReplacingImage(ImageType.Logo));
+        }
+
         [Theory]
         [InlineData(ImageType.Primary, 0)]
         [InlineData(ImageType.Primary, 1)]
@@ -207,7 +300,7 @@ namespace MulletaFlix.Providers.Tests.Manager
             mockFileSystem.Verify(fs => fs.DeleteFile(It.IsAny<string>()), Times.Never);
         }
 
-        private static ItemImageProvider GetItemImageProvider(IProviderManager? providerManager, Mock<IFileSystem>? mockFileSystem)
+        private static ItemImageProvider GetItemImageProvider(IProviderManager? providerManager, Mock<IFileSystem>? mockFileSystem, ILogger? logger = null)
         {
             // strict to ensure this isn't accidentally used where a prepared mock is intended
             providerManager ??= Mock.Of<IProviderManager>(MockBehavior.Strict);
@@ -221,7 +314,22 @@ namespace MulletaFlix.Providers.Tests.Manager
                     string.Format(CultureInfo.InvariantCulture, _testDataImagePath, 1)
                 });
 
-            return new ItemImageProvider(new NullLogger<ItemImageProvider>(), providerManager, mockFileSystem.Object);
+            return new ItemImageProvider(logger ?? new NullLogger<ItemImageProvider>(), providerManager, mockFileSystem.Object);
+        }
+
+        private sealed class CapturingLogger : ILogger
+        {
+            public List<string> Messages { get; } = new();
+
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull
+                => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+                where TState : notnull
+                => Messages.Add(formatter(state, exception) + exception);
         }
 
         private static Video GetItemWithImages(ImageType type, int count, bool validPaths)

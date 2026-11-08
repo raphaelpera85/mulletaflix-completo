@@ -79,26 +79,26 @@ test.describe.serial('11 - Admin extended', () => {
         await expect(page.locator('input[name="BaseUrl"]')).toBeVisible();
         await expect(page.locator('input[name="KnownProxies"]')).toBeVisible();
         await page.locator('#networkingPage button[type="submit"]').click();
-        await expect(page.locator('[role="alert"]').last()).toContainText(/Settings saved\.?|SettingsSaved|Saved|Salvo/i);
+        await expect(page.locator('[role="alert"]').filter({ hasText: /Settings saved\.?|SettingsSaved|Saved|Salvo/i })).toBeVisible();
 
         await navigateStage(page, '/dashboard/libraries/display');
         await expect(page.locator('#libraryDisplayPage')).toBeVisible();
         await expect(page.locator('select[name="DateAddedBehavior"], [name="DateAddedBehavior"]')).toBeVisible();
         await page.locator('#libraryDisplayPage button[type="submit"]').click();
-        await expect(page.locator('[role="alert"]').last()).toContainText(/Settings saved\.?|SettingsSaved|Saved|Salvo/i);
+        await expect(page.locator('[role="alert"]').filter({ hasText: /Settings saved\.?|SettingsSaved|Saved|Salvo/i })).toBeVisible();
 
         await navigateStage(page, '/dashboard/libraries/metadata');
         await expect(page.locator('#metadataImagesConfigurationPage')).toBeVisible();
         await expect(page.locator('select[name="Language"], [name="Language"]')).toBeVisible();
         await expect(page.locator('select[name="Country"], [name="Country"]')).toBeVisible();
         await page.locator('#metadataImagesConfigurationPage button[type="submit"]').click();
-        await expect(page.locator('[role="alert"]').last()).toContainText(/Settings saved\.?|SettingsSaved|Saved|Salvo/i);
+        await expect(page.locator('[role="alert"]').filter({ hasText: /Settings saved\.?|SettingsSaved|Saved|Salvo/i })).toBeVisible();
 
         await navigateStage(page, '/dashboard/libraries/nfo');
         await expect(page.locator('#metadataNfoPage')).toBeVisible();
         await expect(page.locator('select[name="UserId"], [name="UserId"]')).toBeVisible();
         await page.locator('#metadataNfoPage button[type="submit"]').click();
-        await expect(page.locator('[role="alert"]').last()).toContainText(/Settings saved\.?|SettingsSaved|Saved|Salvo/i);
+        await expect(page.locator('[role="alert"]').filter({ hasText: /Settings saved\.?|SettingsSaved|Saved|Salvo/i })).toBeVisible();
 
         await navigateStage(page, '/dashboard/libraries/unidentified');
         await expect(page.locator('#unidentifiedMediaPage')).toBeVisible();

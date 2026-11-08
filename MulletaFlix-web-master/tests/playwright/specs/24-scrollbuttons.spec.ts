@@ -1,5 +1,6 @@
 import { expect, test, type Locator } from '@playwright/test';
 import { resolve } from 'node:path';
+import { getFixtureBaseUrl } from '../support/stage.mjs';
 
 const readScrollPosition = (scroller: Locator) => scroller.evaluate(element => (element as HTMLElement & {
     getScrollPosition: () => number;
@@ -10,7 +11,7 @@ test('real search results render cards with visible navigation controls', async 
         (window as Window & { __WEBPACK_SERVE__?: boolean }).__WEBPACK_SERVE__ = false;
     });
     await page.setViewportSize({ width: 1280, height: 800 });
-    const baseUrl = String(test.info().project.use.baseURL);
+    const baseUrl = getFixtureBaseUrl(String(test.info().project.use.baseURL));
     await page.route('**/apps/stable/features/search/api/useSearchItems.ts*', route => route.fulfill({
         contentType: 'application/javascript',
         body: `export const useSearchItems = () => ({
@@ -50,6 +51,7 @@ test('real search results render cards with visible navigation controls', async 
     }));
     const modulePath = resolve('tests/playwright/fixtures/searchresults.tsx').replaceAll('\\', '/');
     const fixture = new URL('/__playwright_searchresults_fixture__', baseUrl);
+    const moduleUrl = new URL(`/@fs/${modulePath}`, baseUrl).toString();
     fixture.searchParams.set('keyboard', 'tv');
     const fixtureUrl = fixture.toString();
     await page.route('**/__playwright_searchresults_fixture__*', route => {
@@ -61,7 +63,7 @@ test('real search results render cards with visible navigation controls', async 
             body{margin:16px;background:#111;color:white}.searchResults{width:calc(100vw - 32px)}
             .verticalSection{height:220px}.emby-scroller{position:relative;width:100%;height:180px;overflow:hidden}
             .emby-scrollbuttons{position:absolute;top:0;right:0;display:flex;gap:4px;z-index:2}
-        </style></head><body><div id="root"></div><script type="module" src="/@fs/${modulePath}"></script></body></html>`
+        </style></head><body><div id="root"></div><script type="module" src="${moduleUrl}"></script></body></html>`
         });
     });
     const pageErrors: string[] = [];
@@ -215,7 +217,7 @@ test('search-style scroller reveals and updates navigation after cards mount', a
         (window as Window & { __WEBPACK_SERVE__?: boolean }).__WEBPACK_SERVE__ = false;
     });
     await page.setViewportSize({ width: 1280, height: 800 });
-    const baseUrl = String(test.info().project.use.baseURL);
+    const baseUrl = getFixtureBaseUrl(String(test.info().project.use.baseURL));
     const fixtureUrl = new URL('/__playwright_scrollbuttons_fixture__', baseUrl).toString();
     await page.route(fixtureUrl, route => route.fulfill({
         status: 200,

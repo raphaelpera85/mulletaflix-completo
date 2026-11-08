@@ -95,6 +95,10 @@ namespace MulletaFlix.Server.Helpers
             }
         }
 
+        internal static bool ShouldSkipForIsolatedTestEnvironment(string? e2eTestMode, string? disableExternalBootstrap)
+            => string.Equals(e2eTestMode, "true", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(disableExternalBootstrap, "true", StringComparison.OrdinalIgnoreCase);
+
         /// <summary>
         /// Assegura que o proxy reverso Nginx e serviços necessários para conexão segura
         /// estejam iniciados junto com o servidor MulletaFlix.
@@ -108,7 +112,10 @@ namespace MulletaFlix.Server.Helpers
             ILogger logger,
             CancellationToken cancellationToken = default)
         {
-            if (!OperatingSystem.IsWindows())
+            if (!OperatingSystem.IsWindows()
+                || ShouldSkipForIsolatedTestEnvironment(
+                    Environment.GetEnvironmentVariable("MFLX_E2E_TEST_MODE"),
+                    Environment.GetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP")))
             {
                 return;
             }

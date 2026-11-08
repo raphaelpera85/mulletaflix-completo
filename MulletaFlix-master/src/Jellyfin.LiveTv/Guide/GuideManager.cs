@@ -136,7 +136,7 @@ public class GuideManager : IGuideManager
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error synchronizing EPG from iptv-org");
+            _logger.LogError("{Error} synchronizing EPG from iptv-org", LiveTvUrlRedactor.RedactText(ex.ToString()));
         }
 
         var numComplete = 0;
@@ -171,7 +171,7 @@ public class GuideManager : IGuideManager
             catch (Exception ex)
             {
                 cleanDatabase = false;
-                _logger.LogError(ex, "Error refreshing channels for service");
+                _logger.LogError("{Error} refreshing channels for service", LiveTvUrlRedactor.RedactText(ex.ToString()));
             }
 
             numComplete++;
@@ -235,7 +235,7 @@ public class GuideManager : IGuideManager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting channel information for {Name}", channelInfo.Item2.Name);
+                _logger.LogError("{Error} getting channel information for {Name}", LiveTvUrlRedactor.RedactText(ex.ToString()), channelInfo.Item2.Name);
             }
 
             numComplete++;
@@ -354,7 +354,7 @@ public class GuideManager : IGuideManager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting programs for channel {Name}", currentChannel.Name);
+                _logger.LogError("{Error} getting programs for channel {Name}", LiveTvUrlRedactor.RedactText(ex.ToString()), currentChannel.Name);
             }
 
             numComplete++;
@@ -822,19 +822,23 @@ public class GuideManager : IGuideManager
                         continue;
                     }
 
-                    _logger.LogDebug("Caching image locally: {Url}", imageInfo.Path);
+                    _logger.LogDebug("Caching image locally: {Url}", LiveTvUrlRedactor.RedactIfRemote(imageInfo.Path));
                     try
                     {
                         program.ImageInfos[i] = await _libraryManager.ConvertImageToLocal(
                                 program,
                                 imageInfo,
                                 imageIndex: 0,
-                                removeOnFailure: false)
+                                removeOnFailure: false,
+                                cancellationToken: cancellationToken)
                             .ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Unable to pre-cache {Url}", imageInfo.Path);
+                        _logger.LogWarning(
+                            "Unable to pre-cache {Url}: {Error}",
+                            LiveTvUrlRedactor.RedactIfRemote(imageInfo.Path),
+                            LiveTvUrlRedactor.RedactText(ex.ToString()));
                     }
                 }
             }).ConfigureAwait(false);

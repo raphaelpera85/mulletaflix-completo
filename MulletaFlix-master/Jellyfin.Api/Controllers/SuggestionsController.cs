@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Caching;
@@ -65,6 +65,7 @@ public class SuggestionsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the suggestions.</returns>
     [HttpGet("Items/Suggestions")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSuggestions(
         [FromQuery] Guid? userId,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] MediaType[] mediaType,
@@ -73,6 +74,16 @@ public class SuggestionsController : BaseMulletaFlixApiController
         [FromQuery] int? limit,
         [FromQuery] bool enableTotalRecordCount = false)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
         User? user;
         if (userId.IsNullOrEmpty())
         {
@@ -130,6 +141,7 @@ public class SuggestionsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the suggestions.</returns>
     [HttpGet("Users/{userId}/Suggestions")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSuggestionsLegacy(
@@ -139,6 +151,23 @@ public class SuggestionsController : BaseMulletaFlixApiController
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
         [FromQuery] bool enableTotalRecordCount = false)
-        => await GetSuggestions(userId, mediaType, type, startIndex, limit, enableTotalRecordCount).ConfigureAwait(false);
+    {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        return await GetSuggestions(userId, mediaType, type, startIndex, limit, enableTotalRecordCount).ConfigureAwait(false);
+    }
 }
 

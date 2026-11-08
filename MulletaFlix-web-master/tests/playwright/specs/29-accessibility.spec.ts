@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
+import { getFixtureBaseUrl } from '../support/stage.mjs';
 
 test('My Media Requests meets automated WCAG 2.2 AA checks across states and viewports', async ({ page }) => {
+    const fixtureBaseUrl = getFixtureBaseUrl(String(test.info().project.use.baseURL));
     await page.route('**/hooks/api/useMediaRequests.ts*', route => route.fulfill({
         contentType: 'application/javascript',
         body: `export const useMyClassifiedMediaRequests = () => {
@@ -18,6 +20,7 @@ test('My Media Requests meets automated WCAG 2.2 AA checks across states and vie
             };
             if (state === 'empty') return {
                 pending: [], included: [], priorityRequestIds: new Set(), isPending: false, isError: false,
+                hasData: true,
                 hasNextPage: false, isFetchingNextPage: false, isFetchNextPageError: false,
                 fetchNextPage: async () => {}, refetch: async () => {}
             };
@@ -25,6 +28,7 @@ test('My Media Requests meets automated WCAG 2.2 AA checks across states and vie
                 pending: [{ Id: 1, Name: 'Solicitação de mídia: Um título solicitado', Overview: 'Séries · 2026' }],
                 included: [{ Id: 2, Name: 'Solicitação de mídia: Atomic', Overview: 'Incluído' }],
                 priorityRequestIds: new Set([1]), isPending: false, isError: false,
+                hasData: true,
                 hasNextPage: true, isFetchingNextPage: false, isFetchNextPageError: false,
                 fetchNextPage: async () => {}, refetch: async () => {}
             };
@@ -45,13 +49,14 @@ test('My Media Requests meets automated WCAG 2.2 AA checks across states and vie
     }));
 
     const modulePath = resolve('tests/playwright/fixtures/myrequests.tsx').replaceAll('\\', '/');
+    const moduleUrl = new URL(`/@fs/${modulePath}`, fixtureBaseUrl).toString();
     await page.route('**/__accessibility_requests_fixture__**', route => route.fulfill({
         contentType: 'text/html',
         body: `<html lang="pt-BR"><head><meta charset="utf-8"><title>Minhas solicitações</title><style>
             html,body{margin:0;min-height:100%;background:#121212;color:#fff}
-        </style></head><body><div id="root"></div><script type="module" src="/@fs/${modulePath}"></script></body></html>`
+        </style></head><body><div id="root"></div><script type="module" src="${moduleUrl}"></script></body></html>`
     }));
-    await page.goto('/__accessibility_requests_fixture__');
+    await page.goto(new URL('/__accessibility_requests_fixture__', fixtureBaseUrl).toString());
     await expect(page.getByRole('heading', { name: 'Minhas solicitações' })).toBeVisible();
 
     const scan = async (width: number, state: string) => {
@@ -79,7 +84,7 @@ test('My Media Requests meets automated WCAG 2.2 AA checks across states and vie
             [ 'error', 'ErrorDefault' ],
             [ 'empty', 'MyMediaRequestsEmpty' ]
         ]) {
-            await page.goto(`/__accessibility_requests_fixture__?state=${state}`);
+            await page.goto(new URL(`/__accessibility_requests_fixture__?state=${state}`, fixtureBaseUrl).toString());
             if (state === 'loading') {
                 await expect(page.getByRole('status')).toContainText('Carregando');
                 await expect(page.locator('.docspinner.mdlSpinnerActive')).toBeAttached();

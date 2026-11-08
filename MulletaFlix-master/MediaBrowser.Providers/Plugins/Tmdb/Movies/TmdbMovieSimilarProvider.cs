@@ -6,6 +6,7 @@ using System.Threading;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 using Movie = MediaBrowser.Controller.Entities.Movies.Movie;
 
@@ -72,7 +73,7 @@ public class TmdbMovieSimilarProvider : IRemoteSimilarItemsProvider<Movie>
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get similar movies from TMDb for {TmdbId} page {Page}", tmdbId, page);
+                _logger.LogWarning("Failed to get similar movies from TMDb for {TmdbId} page {Page}: {Error}", tmdbId, page, RemoteUrlLogRedactor.Redact(ex.ToString()));
                 yield break;
             }
 

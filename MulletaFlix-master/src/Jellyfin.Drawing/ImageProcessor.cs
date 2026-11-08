@@ -31,7 +31,7 @@ namespace MulletaFlix.Drawing;
 public sealed class ImageProcessor : IImageProcessor, IDisposable
 {
     // Increment this when there's a change requiring caches to be invalidated
-    private const char Version = '3';
+    private const char Version = '4';
 
     private static readonly HashSet<string> _transparentImageTypes
         = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".webp", ".gif", ".svg" };
@@ -318,13 +318,13 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
 
         if (percentPlayed > 0)
         {
-            filename.Append(",p=");
+            filename.Append(",pp=");
             filename.Append(percentPlayed);
         }
 
         if (unwatchedCount.HasValue)
         {
-            filename.Append(",p=");
+            filename.Append(",uc=");
             filename.Append(unwatchedCount.Value);
         }
 

@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -44,15 +45,27 @@ public class DisplayPreferencesController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="client">Client.</param>
     /// <response code="200">Display preferences retrieved.</response>
+    /// <response code="400">Display preferences id or client is invalid.</response>
     /// <returns>An <see cref="OkResult"/> containing the display preferences on success, or a <see cref="NotFoundResult"/> if the display preferences could not be found.</returns>
     [HttpGet("{displayPreferencesId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [SuppressMessage("Microsoft.Performance", "CA1801:ReviewUnusedParameters", MessageId = "displayPreferencesId", Justification = "Imported from ServiceStack")]
     public ActionResult<DisplayPreferencesDto> GetDisplayPreferences(
         [FromRoute, Required] string displayPreferencesId,
         [FromQuery] Guid? userId,
         [FromQuery, Required] string client)
     {
+        if (string.IsNullOrWhiteSpace(displayPreferencesId))
+        {
+            return BadRequest("Display preferences id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(client))
+        {
+            return BadRequest("Client is required.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
 
         if (!Guid.TryParse(displayPreferencesId, out var itemId))
@@ -108,9 +121,11 @@ public class DisplayPreferencesController : BaseMulletaFlixApiController
     /// <param name="client">Client.</param>
     /// <param name="displayPreferences">New Display Preferences object.</param>
     /// <response code="204">Display preferences updated.</response>
+    /// <response code="400">Display preferences id, client, or body is invalid.</response>
     /// <returns>An <see cref="NoContentResult"/> on success.</returns>
     [HttpPost("{displayPreferencesId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [SuppressMessage("Microsoft.Performance", "CA1801:ReviewUnusedParameters", MessageId = "displayPreferencesId", Justification = "Imported from ServiceStack")]
     public ActionResult UpdateDisplayPreferences(
         [FromRoute, Required] string displayPreferencesId,
@@ -118,6 +133,23 @@ public class DisplayPreferencesController : BaseMulletaFlixApiController
         [FromQuery, Required] string client,
         [FromBody, Required] DisplayPreferencesDto displayPreferences)
     {
+        if (string.IsNullOrWhiteSpace(displayPreferencesId))
+        {
+            return BadRequest("Display preferences id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(client))
+        {
+            return BadRequest("Client is required.");
+        }
+
+        if (displayPreferences is null)
+        {
+            return BadRequest("Display preferences are required.");
+        }
+
+        displayPreferences.CustomPrefs ??= new Dictionary<string, string?>();
+
         userId = RequestHelpers.GetUserId(User, userId);
 
         HomeSectionType[] defaults =
@@ -145,24 +177,28 @@ public class DisplayPreferencesController : BaseMulletaFlixApiController
         existingDisplayPreferences.ScrollDirection = displayPreferences.ScrollDirection;
         existingDisplayPreferences.ChromecastVersion = displayPreferences.CustomPrefs.TryGetValue("chromecastVersion", out var chromecastVersion)
                                                        && !string.IsNullOrEmpty(chromecastVersion)
-            ? Enum.Parse<ChromecastVersion>(chromecastVersion, true)
+                                                       && Enum.TryParse<ChromecastVersion>(chromecastVersion, true, out var parsedVersion)
+            ? parsedVersion
             : ChromecastVersion.Stable;
         displayPreferences.CustomPrefs.Remove("chromecastVersion");
 
         existingDisplayPreferences.EnableNextVideoInfoOverlay = !displayPreferences.CustomPrefs.TryGetValue("enableNextVideoInfoOverlay", out var enableNextVideoInfoOverlay)
                                                                 || string.IsNullOrEmpty(enableNextVideoInfoOverlay)
-                                                                || bool.Parse(enableNextVideoInfoOverlay);
+                                                                || !bool.TryParse(enableNextVideoInfoOverlay, out var parsedOverlay)
+                                                                || parsedOverlay;
         displayPreferences.CustomPrefs.Remove("enableNextVideoInfoOverlay");
 
         existingDisplayPreferences.SkipBackwardLength = displayPreferences.CustomPrefs.TryGetValue("skipBackLength", out var skipBackLength)
                                                         && !string.IsNullOrEmpty(skipBackLength)
-            ? int.Parse(skipBackLength, CultureInfo.InvariantCulture)
+                                                        && int.TryParse(skipBackLength, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedSkipBack)
+            ? parsedSkipBack
             : 15000;
         displayPreferences.CustomPrefs.Remove("skipBackLength");
 
         existingDisplayPreferences.SkipForwardLength = displayPreferences.CustomPrefs.TryGetValue("skipForwardLength", out var skipForwardLength)
                                                        && !string.IsNullOrEmpty(skipForwardLength)
-            ? int.Parse(skipForwardLength, CultureInfo.InvariantCulture)
+                                                       && int.TryParse(skipForwardLength, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedSkipForward)
+            ? parsedSkipForward
             : 15000;
         displayPreferences.CustomPrefs.Remove("skipForwardLength");
 
@@ -178,9 +214,14 @@ public class DisplayPreferencesController : BaseMulletaFlixApiController
 
         existingDisplayPreferences.HomeSections.Clear();
 
-        foreach (var key in displayPreferences.CustomPrefs.Keys.Where(key => key.StartsWith("homesection", StringComparison.OrdinalIgnoreCase)))
+        foreach (var key in displayPreferences.CustomPrefs.Keys.Where(key => key.StartsWith("homesection", StringComparison.OrdinalIgnoreCase)).ToList())
         {
-            var order = int.Parse(key.AsSpan().Slice("homesection".Length), CultureInfo.InvariantCulture);
+            if (!int.TryParse(key.AsSpan().Slice("homesection".Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out var order))
+            {
+                displayPreferences.CustomPrefs.Remove(key);
+                continue;
+            }
+
             if (!Enum.TryParse<HomeSectionType>(displayPreferences.CustomPrefs[key], true, out var type))
             {
                 type = order < 8 ? defaults[order] : HomeSectionType.None;
@@ -190,7 +231,7 @@ public class DisplayPreferencesController : BaseMulletaFlixApiController
             existingDisplayPreferences.HomeSections.Add(new HomeSection { Order = order, Type = type });
         }
 
-        foreach (var key in displayPreferences.CustomPrefs.Keys.Where(key => key.StartsWith("landing-", StringComparison.OrdinalIgnoreCase)))
+        foreach (var key in displayPreferences.CustomPrefs.Keys.Where(key => key.StartsWith("landing-", StringComparison.OrdinalIgnoreCase)).ToList())
         {
             var viewType = displayPreferences.CustomPrefs[key];
 

@@ -58,11 +58,8 @@ public sealed class BackupRestoreMariaDbTests
             return;
         }
 
-        var configuredConnection = Environment.GetEnvironmentVariable(ConnectionStringVariable);
-        if (string.IsNullOrWhiteSpace(configuredConnection))
-        {
-            Assert.Skip($"Set {ConnectionStringVariable} to an isolated, disposable MariaDB instance to run this integration test.");
-        }
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var configuredConnection = Environment.GetEnvironmentVariable(ConnectionStringVariable)!;
 
         var adminConnection = CreateDisposableConnection(configuredConnection);
         var schema = "mulletaflix_restore_crash_test_" + Guid.NewGuid().ToString("N");
@@ -402,11 +399,8 @@ public sealed class BackupRestoreMariaDbTests
     public async Task RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var configuredConnection = Environment.GetEnvironmentVariable(ConnectionStringVariable);
-        if (string.IsNullOrWhiteSpace(configuredConnection))
-        {
-            Assert.Skip($"Set {ConnectionStringVariable} to an isolated, disposable MariaDB instance to run this integration test.");
-        }
+        MariaDbTestEnvironment.SkipUnlessConfigured();
+        var configuredConnection = Environment.GetEnvironmentVariable(ConnectionStringVariable)!;
 
         var adminConnection = CreateDisposableConnection(configuredConnection);
         var schema = "mulletaflix_restore_test_" + Guid.NewGuid().ToString("N");
@@ -976,7 +970,7 @@ public sealed class BackupRestoreMariaDbTests
     }
 
     private static MySqlConnectionStringBuilder CreateDisposableConnection(string connectionString)
-        => MariaDbTestEnvironment.Validate(connectionString);
+        => MariaDbTestEnvironment.Validate(connectionString, disposableInstanceConfirmed: true);
 
     private static MySqlConnectionStringBuilder CreateApplicationConnection(
         MySqlConnectionStringBuilder adminConnection,

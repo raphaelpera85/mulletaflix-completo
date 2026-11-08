@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -15,6 +16,36 @@ namespace Jellyfin.Server.Tests;
 
 public sealed class ProgramStartupRecoveryTests
 {
+    [Fact]
+    public async Task RunServerLoopAsync_RestartsInSameProcessAndStopsAfterRestartClears()
+    {
+        var order = new List<string>();
+        var restartPending = false;
+        var starts = 0;
+        var restarts = 0;
+
+        await MulletaFlix.Server.Program.RunServerLoopAsync(
+            () =>
+            {
+                starts++;
+                order.Add($"start{starts}");
+                restartPending = starts == 1;
+                return Task.CompletedTask;
+            },
+            () => restartPending,
+            () =>
+            {
+                restarts++;
+                order.Add("restart");
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal(2, starts);
+        Assert.Equal(1, restarts);
+        Assert.Equal(new[] { "start1", "restart", "start2" }, order);
+        Assert.False(restartPending);
+    }
+
     [Fact]
     public async Task StartupRecoveryGate_UsesProductionBackupRecoveryCallbackBeforeInitialization_WhenNoRestoreIsPending()
     {

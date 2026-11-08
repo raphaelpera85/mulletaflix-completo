@@ -49,6 +49,10 @@ test('Linux MariaDB CI executes restore crash-recovery integration test', () => 
     assert.match(job, /FullyQualifiedName~DeleteItem_WaitsForDatabaseAdvisoryLockHeldByAnotherSession/);
     assert.match(job, /FullyQualifiedName~FixDatesImageMigration_WaitsForAllImageAdvisoryLocks/);
     assert.match(job, /FullyQualifiedName~GetNextUpSeriesKeys_WithEqualLastPlayedDates_AppliesStableTieBreakBeforeLimit/);
+    assert.match(job, /FullyQualifiedName~SaveChaptersAsync_RetriesAfterRealMariaDbLockTimeout/);
+    assert.match(job, /FullyQualifiedName~SaveChapters_RetriesAfterRealMariaDbLockTimeout/);
+    assert.match(job, /FullyQualifiedName~SaveMediaStreamsAsync_RetriesAfterRealMariaDbLockTimeout/);
+    assert.match(job, /FullyQualifiedName~UpdatePeople_RetriesAfterRealMariaDbLockTimeout/);
 });
 
 test('Linux MariaDB CI boots the full server after interrupted-restore replay', () => {

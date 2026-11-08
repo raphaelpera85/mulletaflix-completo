@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <PackageReference Include="Polly" />
+    <PackageReference Include="MySqlConnector" />
     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

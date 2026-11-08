@@ -43,6 +43,10 @@ export function getStageBaseUrl() {
     return normalizeBaseUrl(process.env.PW_BASE_URL || DEFAULT_STAGE_BASE_URL);
 }
 
+export function getFixtureBaseUrl(baseUrl = getStageBaseUrl()) {
+    return normalizeBaseUrl(process.env.PW_FIXTURE_BASE_URL || baseUrl);
+}
+
 export function getStageClientIndexUrl() {
     return stripTrailingSlashes(String(process.env.PW_STAGE_CLIENT_INDEX || DEFAULT_STAGE_CLIENT_INDEX));
 }
@@ -95,9 +99,30 @@ export async function navigateStage(page, route) {
         await waitForDashboardBridge(page);
     }
 
-    await page.evaluate(targetRoute => {
-        window.Dashboard.navigate(targetRoute);
+    const currentRoute = await page.evaluate(() => window.location.hash.replace(/^#/, '') || '/');
+    if (currentRoute === normalizedRoute) {
+        return;
+    }
+
+    const navigationError = await page.evaluate(async targetRoute => {
+        try {
+            await Promise.race([
+                Promise.resolve(window.Dashboard.navigate(targetRoute)),
+                new Promise(resolve => setTimeout(resolve, 1000))
+            ]);
+            return null;
+        } catch (error) {
+            return String(error);
+        }
     }, normalizedRoute);
+
+    if (navigationError) {
+        throw new Error(`Dashboard navigation failed: ${navigationError}`);
+    }
+
+    await page.waitForFunction(targetRoute => window.location.hash.replace(/^#/, '') === targetRoute, normalizedRoute, {
+        timeout: 30_000
+    });
 }
 
 export async function fetchStagePublicInfo(baseUrl = getStageBaseUrl()) {

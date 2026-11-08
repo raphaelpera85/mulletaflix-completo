@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -10,9 +11,15 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations;
+using MediaBrowser.Controller;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Querying;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
@@ -54,6 +61,7 @@ public class MariaDbProcessManagerLifecycleTests
         var previousPort = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PORT");
         var previousDatabase = Environment.GetEnvironmentVariable("MulletaFlix_DATABASE_NAME");
         var port = GetFreePort();
+        Assert.NotEqual(3306, port);
         var dataPath = Path.Combine(Path.GetTempPath(), $"MfxMariaDbLifecycle-{Guid.NewGuid():N}");
         var databaseName = $"mfx_lifecycle_{Guid.NewGuid():N}";
         var paths = new ServerApplicationPaths(
@@ -201,7 +209,6 @@ public class MariaDbProcessManagerLifecycleTests
             var watchedBeforeNullCandidate = CreateEpisode(nullUnplayedSeriesKey, 1, 5);
             var nullUnplayedCandidate = CreateEpisode(nullUnplayedSeriesKey, null, null);
             var numberedAfterNullCandidate = CreateEpisode(nullUnplayedSeriesKey, 1, 6);
-
             using (var seed = CreateContext())
             {
                 seed.Database.EnsureCreated();
@@ -498,6 +505,278 @@ public class MariaDbProcessManagerLifecycleTests
         }
     }
 
+    [Fact]
+    public async Task GetLatestMedia_MariaDbMeasuresDuplicateMovieAndSeriesScan()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The embedded MariaDB runtime currently ships as a Windows portable package.");
+
+        var runtimeDirectory = Path.Combine(Path.GetDirectoryName(typeof(MariaDbProcessManager).Assembly.Location)!, "mariadb", "bin");
+        Assert.SkipUnless(
+            File.Exists(Path.Combine(runtimeDirectory, "mysqld.exe"))
+            && File.Exists(Path.Combine(runtimeDirectory, "mysql_install_db.exe"))
+            && File.Exists(Path.Combine(runtimeDirectory, "mysqladmin.exe")),
+            "Stage the portable MariaDB runtime beside the test assembly to run this query measurement.");
+
+        const int distinctMovies = 100;
+        const int versionsPerMovie = 100;
+        const int requestedLimit = 20;
+        const int batchSize = 500;
+        var port = GetFreePort();
+        Assert.NotEqual(3306, port);
+        var previousPort = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PORT");
+        var previousDatabase = Environment.GetEnvironmentVariable("MulletaFlix_DATABASE_NAME");
+        var dataPath = Path.Combine(Path.GetTempPath(), $"MfxLatestMediaMariaDb-{Guid.NewGuid():N}");
+        var paths = new ServerApplicationPaths(
+            dataPath,
+            Path.Combine(dataPath, "logs"),
+            Path.Combine(dataPath, "config"),
+            Path.Combine(dataPath, "cache"),
+            Path.Combine(dataPath, "web"));
+        Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PORT", port.ToString(CultureInfo.InvariantCulture));
+        Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", "mfx_latestmedia_measurement");
+
+        try
+        {
+            await MariaDbProcessManager.StartMariaDbAsync(
+                paths,
+                NullLogger.Instance,
+                requireEmbeddedProcess: true,
+                TestContext.Current.CancellationToken);
+
+            var provider = new MySqlDatabaseProvider(NullLogger<MySqlDatabaseProvider>.Instance);
+            var queryCapture = new LatestMovieQueryCaptureInterceptor();
+            var optionsBuilder = new DbContextOptionsBuilder<MulletaFlixDbContext>();
+            provider.Initialise(optionsBuilder, new DatabaseConfigurationOptions
+            {
+                DatabaseType = "MulletaFlix-MySQL",
+                LockingBehavior = DatabaseLockingBehaviorTypes.NoLock,
+                CustomProviderOptions = new CustomDatabaseOptions
+                {
+                    PluginName = string.Empty,
+                    PluginAssembly = string.Empty,
+                    ConnectionString = string.Empty,
+                    Options =
+                    [
+                        new CustomDatabaseOption { Key = "server", Value = "127.0.0.1" },
+                        new CustomDatabaseOption { Key = "port", Value = port.ToString(CultureInfo.InvariantCulture) },
+                        new CustomDatabaseOption { Key = "user", Value = "root" },
+                        new CustomDatabaseOption { Key = "password", Value = string.Empty },
+                        new CustomDatabaseOption { Key = "database", Value = "mulletaflix" },
+                    ],
+                },
+            });
+            optionsBuilder.AddInterceptors(queryCapture);
+            var options = optionsBuilder.Options;
+            var lockingBehavior = new Mock<IEntityFrameworkCoreLockingBehavior>();
+            lockingBehavior
+                .Setup(locking => locking.OnSaveChanges(It.IsAny<MulletaFlixDbContext>(), It.IsAny<Action>()))
+                .Callback<MulletaFlixDbContext, Action>((_, save) => save());
+            MulletaFlixDbContext CreateContext() => new(
+                options,
+                NullLogger<MulletaFlixDbContext>.Instance,
+                provider,
+                lockingBehavior.Object);
+
+            using (var seed = CreateContext())
+            {
+                seed.Database.EnsureCreated();
+                var batch = new List<BaseItemEntity>(batchSize);
+                var baseDate = new DateTime(2026, 10, 27, 12, 0, 0, DateTimeKind.Utc);
+                for (var version = 0; version < versionsPerMovie; version++)
+                {
+                    for (var movie = 0; movie < distinctMovies; movie++)
+                    {
+                        batch.Add(new BaseItemEntity
+                        {
+                            Id = Guid.NewGuid(),
+                            Type = typeof(Movie).FullName!,
+                            Name = $"Synthetic movie {movie:D3} version {version:D3}",
+                            PresentationUniqueKey = $"SyntheticMovie{movie:D3}",
+                            DateCreated = baseDate.AddTicks(-(((long)movie * versionsPerMovie) + version)),
+                            IsFolder = false
+                        });
+
+                        if (batch.Count == batchSize)
+                        {
+                            seed.BaseItems.AddRange(batch);
+                            seed.SaveChanges();
+                            seed.ChangeTracker.Clear();
+                            batch.Clear();
+                        }
+                    }
+                }
+
+                if (batch.Count > 0)
+                {
+                    seed.BaseItems.AddRange(batch);
+                    seed.SaveChanges();
+                }
+            }
+
+            var contexts = new Mock<IDbContextFactory<MulletaFlixDbContext>>();
+            contexts.Setup(factory => factory.CreateDbContext()).Returns(CreateContext);
+            var itemTypeLookup = new Mock<IItemTypeLookup>();
+            itemTypeLookup.SetupGet(lookup => lookup.BaseItemKindNames)
+                .Returns(new Dictionary<BaseItemKind, string>
+                {
+                    [BaseItemKind.Movie] = typeof(Movie).FullName!,
+                    [BaseItemKind.Episode] = typeof(Episode).FullName!,
+                    [BaseItemKind.Series] = typeof(Series).FullName!
+                });
+            var repository = new BaseItemRepository(
+                contexts.Object,
+                Mock.Of<IServerApplicationHost>(),
+                itemTypeLookup.Object,
+                Mock.Of<IServerConfigurationManager>(manager => manager.Configuration == new ServerConfiguration()),
+                NullLogger<BaseItemRepository>.Instance);
+
+            IReadOnlyList<BaseItem> result = [];
+            var elapsed = new List<double>(3);
+            for (var sample = 0; sample < 3; sample++)
+            {
+                var timer = Stopwatch.StartNew();
+                result = repository.GetLatestItemList(
+                    new InternalItemsQuery
+                    {
+                        IncludeItemTypes = [BaseItemKind.Movie],
+                        Limit = requestedLimit,
+                        SkipDeserialization = true
+                    },
+                    CollectionType.movies);
+                timer.Stop();
+                elapsed.Add(timer.Elapsed.TotalMilliseconds);
+            }
+
+            Assert.Equal(requestedLimit, result.Count);
+            Assert.NotNull(queryCapture.Query);
+            var plan = await AnalyzeQueryAsync(port, queryCapture.Query!);
+            using var planDocument = JsonDocument.Parse(plan);
+            var queryBlock = planDocument.RootElement.GetProperty("query_block");
+            var observedRows = EnumerateTableMetrics(queryBlock)
+                .Where(table => table.TryGetProperty("r_rows", out var rows) && rows.ValueKind == JsonValueKind.Number)
+                .Select(table => table.GetProperty("r_rows").GetDouble())
+                .ToArray();
+            Assert.NotEmpty(observedRows);
+            Assert.Contains(observedRows, rows => rows >= 9_000d);
+            var analyzeMs = queryBlock.GetProperty("r_total_time_ms").GetDouble();
+            _output.WriteLine(
+                "LatestMedia movies MariaDB measurement: seeded={0} versions ({1} keys x {2} versions), limit={3}, observed SQL rows={4}, ANALYZE full-query={5:F3} ms, endpoint wall samples=[{6}] ms. ANALYZE consumes the full ordered candidate query; endpoint timings stop after enough distinct keys and are host-specific.",
+                checked(distinctMovies * versionsPerMovie),
+                distinctMovies,
+                versionsPerMovie,
+                requestedLimit,
+                string.Join(", ", observedRows.Select(rows => rows.ToString(CultureInfo.InvariantCulture))),
+                analyzeMs,
+                string.Join(", ", elapsed.Select(milliseconds => milliseconds.ToString("F3", CultureInfo.InvariantCulture))));
+
+            const int distinctSeries = 100;
+            const int episodesPerSeries = 100;
+            queryCapture.Reset();
+            using (var seed = CreateContext())
+            {
+                var batch = new List<BaseItemEntity>(batchSize);
+                var seriesIds = Enumerable.Range(0, distinctSeries).Select(_ => Guid.NewGuid()).ToArray();
+                for (var series = 0; series < distinctSeries; series++)
+                {
+                    batch.Add(new BaseItemEntity
+                    {
+                        Id = seriesIds[series],
+                        Type = typeof(Series).FullName!,
+                        Name = $"Synthetic series {series:D3}",
+                        IsFolder = true,
+                        IsSeries = true
+                    });
+                }
+
+                for (var series = 0; series < distinctSeries; series++)
+                {
+                    for (var episode = 0; episode < episodesPerSeries; episode++)
+                    {
+                        batch.Add(new BaseItemEntity
+                        {
+                            Id = Guid.NewGuid(),
+                            Type = typeof(Episode).FullName!,
+                            Name = $"Synthetic series {series:D3} episode {episode:D3}",
+                            SeriesId = seriesIds[series],
+                            DateCreated = new DateTime(2026, 10, 27, 12, 0, 0, DateTimeKind.Utc)
+                                .AddTicks(-(((long)series * episodesPerSeries) + episode)),
+                            IsFolder = false
+                        });
+
+                        if (batch.Count >= batchSize)
+                        {
+                            seed.BaseItems.AddRange(batch);
+                            seed.SaveChanges();
+                            seed.ChangeTracker.Clear();
+                            batch.Clear();
+                        }
+                    }
+                }
+
+                if (batch.Count > 0)
+                {
+                    seed.BaseItems.AddRange(batch);
+                    seed.SaveChanges();
+                }
+            }
+
+            IReadOnlyList<BaseItem> seriesResult = [];
+            var seriesElapsed = new List<double>(3);
+            for (var sample = 0; sample < 3; sample++)
+            {
+                var timer = Stopwatch.StartNew();
+                seriesResult = repository.GetLatestItemList(
+                    new InternalItemsQuery
+                    {
+                        IncludeItemTypes = [BaseItemKind.Episode],
+                        Limit = requestedLimit,
+                        SkipDeserialization = true
+                    },
+                    CollectionType.tvshows);
+                timer.Stop();
+                seriesElapsed.Add(timer.Elapsed.TotalMilliseconds);
+            }
+
+            Assert.Equal(requestedLimit, seriesResult.Count);
+            Assert.NotNull(queryCapture.Query);
+            var seriesPlan = await AnalyzeQueryAsync(port, queryCapture.Query!);
+            using var seriesPlanDocument = JsonDocument.Parse(seriesPlan);
+            var seriesQueryBlock = seriesPlanDocument.RootElement.GetProperty("query_block");
+            var seriesObservedRows = EnumerateTableMetrics(seriesQueryBlock)
+                .Where(table => table.TryGetProperty("r_rows", out var rows) && rows.ValueKind == JsonValueKind.Number)
+                .Select(table => table.GetProperty("r_rows").GetDouble())
+                .ToArray();
+            Assert.NotEmpty(seriesObservedRows);
+            Assert.Contains(seriesObservedRows, rows => rows >= 18_000d);
+            var seriesAnalyzeMs = seriesQueryBlock.GetProperty("r_total_time_ms").GetDouble();
+            _output.WriteLine(
+                "LatestMedia series MariaDB measurement: seeded={0} episodes ({1} series x {2} episodes), limit={3}, observed SQL rows={4}, ANALYZE full-query={5:F3} ms, endpoint wall samples=[{6}] ms. ANALYZE consumes the full ordered candidate query; endpoint timings stop after enough distinct series and are host-specific.",
+                distinctSeries * episodesPerSeries,
+                distinctSeries,
+                episodesPerSeries,
+                requestedLimit,
+                string.Join(", ", seriesObservedRows.Select(rows => rows.ToString(CultureInfo.InvariantCulture))),
+                seriesAnalyzeMs,
+                string.Join(", ", seriesElapsed.Select(milliseconds => milliseconds.ToString("F3", CultureInfo.InvariantCulture))));
+        }
+        finally
+        {
+            try
+            {
+                await MariaDbProcessManager.StopMariaDbAsync(NullLogger.Instance, CancellationToken.None);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PORT", previousPort);
+                Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", previousDatabase);
+                if (Directory.Exists(dataPath))
+                {
+                    Directory.Delete(dataPath, recursive: true);
+                }
+            }
+        }
+    }
+
     private static BaseItemEntity CreateEpisode(string seriesKey, int? season, int? episode)
         => new()
         {
@@ -605,6 +884,39 @@ public class MariaDbProcessManagerLifecycleTests
                             parameter.ParameterName,
                             parameter.DbType,
                             parameter.Value))
+                        .ToArray());
+            }
+
+            return result;
+        }
+    }
+
+    private sealed class LatestMovieQueryCaptureInterceptor : DbCommandInterceptor
+    {
+        public CapturedQuery? Query { get; private set; }
+
+        public void Reset() => Query = null;
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result)
+        {
+            if (Query is null
+                && command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+                && (command.CommandText.Contains("PresentationUniqueKey", StringComparison.OrdinalIgnoreCase)
+                    || command.CommandText.Contains("SeriesId", StringComparison.OrdinalIgnoreCase))
+                && command.CommandText.Contains("DateCreated", StringComparison.OrdinalIgnoreCase)
+                && !command.CommandText.Contains(" IN (", StringComparison.OrdinalIgnoreCase))
+            {
+                Query = new CapturedQuery(
+                    command.CommandText,
+                    command.Parameters
+                        .Cast<DbParameter>()
+                        .Select(parameter => new CapturedParameter(
+                            parameter.ParameterName,
+                            parameter.DbType,
+                            parameter.Value ?? DBNull.Value))
                         .ToArray());
             }
 

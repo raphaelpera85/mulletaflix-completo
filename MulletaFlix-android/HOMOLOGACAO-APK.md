@@ -1,5 +1,9 @@
 # Homologação formal — MulletaFlix Android
 
+### Evidência local: falha real de persistência no logout — 2026-10-27
+
+`SessionRepositoryPersistenceTest.logoutReturnsFailureWhenRealSessionDataStoreCannotWrite` passou 1/1 em PHONE/API 35 com repositórios reais, sessão sintética e DataStore temporário sem escrita; `IOException` foi preservada e nenhum request saiu ao MockWebServer. A jornada Compose `ProfileLogoutDataStoreFailureIntegrationTest.failedRealDataStoreLogoutShowsErrorAndKeepsProfileVisible` passou 1/1: erro visível, progresso encerrado, Perfil mantido, callback não chamado, sessão preservada e zero requests. Suíte JVM 1.788/1.788 em 256 XML; lint de feature:user/app, compilação AndroidTest e `assembleDebug` passaram. NVIDIA RTX 3050 confirmada; wrapper encerrou o AVD e ADB terminou vazio. Portal local 359/359. Não cobre Activity/NavHost/Hilt nem hardware/servidor real e não concede crédito formal. Matriz permanece 10/21, 2 em validação, 9 pendentes e `formalSignoff=pending`.
+
 ### Android 17/API 37.0 — serviços do sistema morreram durante a instrumentação — 2026-10-16
 
 AVD descartável `MulletaflixApi37_0GoogleApis_20261016` completou boot e o Package Manager respondeu inicialmente; o wrapper confirmou QEMU na NVIDIA RTX 3050. Durante `:app:connectedDebugAndroidTest`, AndroidJUnit retornou `DeadObjectException`; `settings` e `package` ficaram indisponíveis. Gradle terminou `BUILD SUCCESSFUL`, porém o XML do runner contém `tests="0"` e o wrapper rejeitou o resultado. Contagem válida: zero testes. AVD encerrado pelo wrapper, ADB vazio e sem wipe; AVDs reservados pelo proprietário não foram tocados. É bloqueio sistêmico, não falha nem aprovação do APK. APK-H14 permanece pendente; matriz 10/21, 2 em validação, 9 pendentes, `formalSignoff=pending`.
@@ -279,4 +283,8 @@ O system image Play Store `android-37.2;google_apis_playstore_ps16k;x86_64` foi 
 ### Descoberta local API 37 e HTTPS na LAN — 2026-10-16
 
 A repetição de `LocalServerDiscoveryPermissionTest` em AVD Android 17/API 37 isolado não gerou XML JUnit: apesar do boot concluído, Package Manager ficou intermitente e `system_server.start_count` chegou a 28. Execução interrompida com zero testes contabilizáveis; inconclusiva de infraestrutura, não aprovação nem defeito do APK. O AVD foi desligado e preservado para inspeção. O responsável confirmou que o servidor pode fornecer HTTPS com certificado válido também na LAN. TLS real ainda não foi verificado. APK-H02/área de descoberta, matriz formal (10/21 concluídas, 2 em validação, 9 pendentes) e `formalSignoff=pending` não mudam.
+
+### Persistência real no logout — tentativa de cobertura — 2026-10-27
+
+Foi adicionado um teste instrumentado com `SessionRepositoryImpl` e `AuthRepositoryImpl` reais, apontando o DataStore para um caminho temporário que não pode ser diretório. A suíte JVM solicitada terminou `BUILD SUCCESSFUL`, mas todas as 470 tarefas ficaram `UP-TO-DATE`, portanto não há execução JVM fresca para contabilizar. O wrapper de emulador ficou sem saída antes de iniciar um AVD/AndroidJUnit; foi interrompido e `adb devices` ficou vazio. Resultado instrumentado: zero testes; evidência pendente, não aprovada nem reprovada. APK-H02 permanece aberto, sem alterar a matriz formal 10/21, 2 em validação, 9 pendentes ou `formalSignoff=pending`.
 

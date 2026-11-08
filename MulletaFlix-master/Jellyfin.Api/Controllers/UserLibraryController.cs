@@ -135,12 +135,24 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the item.</returns>
     [HttpGet("Users/{userId}/Items/{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public Task<ActionResult<BaseItemDto>> GetItemLegacy(
         [FromRoute, Required] Guid userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (userId == Guid.Empty)
+        {
+            return Task.FromResult<ActionResult<BaseItemDto>>(BadRequest("User id must not be empty."));
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return Task.FromResult<ActionResult<BaseItemDto>>(BadRequest("Item id must not be empty."));
+        }
+
         if (!UserExists(userId))
         {
             return Task.FromResult<ActionResult<BaseItemDto>>(NotFound());
@@ -176,14 +188,22 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="userId">User id.</param>
     /// <response code="200">Root folder returned.</response>
+    /// <response code="400">User id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the user's root folder.</returns>
     [HttpGet("Users/{userId}/Items/Root")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<BaseItemDto>> GetRootFolderLegacy(
         [FromRoute, Required] Guid userId)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
         if (!UserExists(userId))
         {
             return NotFound();
@@ -198,13 +218,20 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Intros returned.</response>
+    /// <response code="400">Item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the intros to play.</returns>
     [HttpGet("Items/{itemId}/Intros")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetIntros(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -245,15 +272,28 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Intros returned.</response>
+    /// <response code="400">User id or item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the intros to play.</returns>
     [HttpGet("Users/{userId}/Items/{itemId}/Intros")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public Task<ActionResult<QueryResult<BaseItemDto>>> GetIntrosLegacy(
         [FromRoute, Required] Guid userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (userId == Guid.Empty)
+        {
+            return Task.FromResult<ActionResult<QueryResult<BaseItemDto>>>(BadRequest("User id must not be empty."));
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return Task.FromResult<ActionResult<QueryResult<BaseItemDto>>>(BadRequest("Item id must not be empty."));
+        }
+
         if (!UserExists(userId))
         {
             return Task.FromResult<ActionResult<QueryResult<BaseItemDto>>>(NotFound());
@@ -268,14 +308,21 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Item marked as favorite.</response>
+    /// <response code="400">Item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>.</returns>
     [HttpPost("UserFavoriteItems/{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Tags("UserData")]
     public ActionResult<UserItemDataDto> MarkFavoriteItem(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -300,15 +347,28 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Item marked as favorite.</response>
+    /// <response code="400">User id or item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>.</returns>
     [HttpPost("Users/{userId}/FavoriteItems/{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public ActionResult<UserItemDataDto> MarkFavoriteItemLegacy(
         [FromRoute, Required] Guid userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         if (!UserExists(userId))
         {
             return NotFound();
@@ -323,14 +383,21 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Item unmarked as favorite.</response>
+    /// <response code="400">Item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>.</returns>
     [HttpDelete("UserFavoriteItems/{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Tags("UserData")]
     public ActionResult<UserItemDataDto> UnmarkFavoriteItem(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -355,15 +422,28 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Item unmarked as favorite.</response>
+    /// <response code="400">User id or item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>.</returns>
     [HttpDelete("Users/{userId}/FavoriteItems/{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public ActionResult<UserItemDataDto> UnmarkFavoriteItemLegacy(
         [FromRoute, Required] Guid userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         if (!UserExists(userId))
         {
             return NotFound();
@@ -378,14 +458,21 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Personal rating removed.</response>
+    /// <response code="400">Item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>.</returns>
     [HttpDelete("UserItems/{itemId}/Rating")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Tags("UserData")]
     public ActionResult<UserItemDataDto?> DeleteUserItemRating(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -410,15 +497,28 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Personal rating removed.</response>
+    /// <response code="400">User id or item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>.</returns>
     [HttpDelete("Users/{userId}/Items/{itemId}/Rating")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public ActionResult<UserItemDataDto?> DeleteUserItemRatingLegacy(
         [FromRoute, Required] Guid userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         if (!UserExists(userId))
         {
             return NotFound();
@@ -434,15 +534,22 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="itemId">Item id.</param>
     /// <param name="likes">Whether this <see cref="UpdateUserItemRating" /> is likes.</param>
     /// <response code="200">Item rating updated.</response>
+    /// <response code="400">Item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>.</returns>
     [HttpPost("UserItems/{itemId}/Rating")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [Tags("UserData")]
     public ActionResult<UserItemDataDto?> UpdateUserItemRating(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId,
         [FromQuery] bool? likes)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -468,9 +575,12 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="itemId">Item id.</param>
     /// <param name="likes">Whether this <see cref="UpdateUserItemRating" /> is likes.</param>
     /// <response code="200">Item rating updated.</response>
+    /// <response code="400">User id or item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>.</returns>
     [HttpPost("Users/{userId}/Items/{itemId}/Rating")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public ActionResult<UserItemDataDto?> UpdateUserItemRatingLegacy(
@@ -478,6 +588,15 @@ public class UserLibraryController : BaseMulletaFlixApiController
         [FromRoute, Required] Guid itemId,
         [FromQuery] bool? likes)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
         if (!UserExists(userId))
         {
             return NotFound();
@@ -492,13 +611,20 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">An <see cref="OkResult"/> containing the item's local trailers.</response>
+    /// <response code="400">Item id is empty.</response>
     /// <returns>The items local trailers.</returns>
     [HttpGet("Items/{itemId}/LocalTrailers")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<BaseItemDto>>> GetLocalTrailers(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -533,15 +659,28 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">An <see cref="OkResult"/> containing the item's local trailers.</response>
+    /// <response code="400">User id or item id is empty.</response>
     /// <returns>The items local trailers.</returns>
     [HttpGet("Users/{userId}/Items/{itemId}/LocalTrailers")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<IEnumerable<BaseItemDto>>> GetLocalTrailersLegacy(
         [FromRoute, Required] Guid userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         if (!UserExists(userId))
         {
             return NotFound();
@@ -556,13 +695,20 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Special features returned.</response>
+    /// <response code="400">Item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the special features.</returns>
     [HttpGet("Items/{itemId}/SpecialFeatures")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<BaseItemDto>>> GetSpecialFeatures(
         [FromQuery] Guid? userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(userId.Value);
         if (user is null)
@@ -593,15 +739,28 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userId">User id.</param>
     /// <param name="itemId">Item id.</param>
     /// <response code="200">Special features returned.</response>
+    /// <response code="400">User id or item id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the special features.</returns>
     [HttpGet("Users/{userId}/Items/{itemId}/SpecialFeatures")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<IEnumerable<BaseItemDto>>> GetSpecialFeaturesLegacy(
         [FromRoute, Required] Guid userId,
         [FromRoute, Required] Guid itemId)
     {
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("User id must not be empty.");
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         if (!UserExists(userId))
         {
             return NotFound();
@@ -625,9 +784,11 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="limit">Return item limit.</param>
     /// <param name="groupItems">Whether or not to group items into a parent container.</param>
     /// <response code="200">Latest media returned.</response>
+    /// <response code="400">Limit must be greater than or equal to 0.</response>
     /// <returns>An <see cref="OkResult"/> containing the latest media.</returns>
     [HttpGet("Items/Latest")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<BaseItemDto>>> GetLatestMedia(
         [FromQuery] Guid? userId,
         [FromQuery] Guid? parentId,
@@ -641,6 +802,16 @@ public class UserLibraryController : BaseMulletaFlixApiController
         [FromQuery] int limit = 20,
         [FromQuery] bool groupItems = true)
     {
+        if (limit < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         var requestUserId = RequestHelpers.GetUserId(User, userId);
         var user = _userManager.GetUserById(requestUserId);
         if (user is null)
@@ -719,9 +890,12 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="limit">Return item limit.</param>
     /// <param name="groupItems">Whether or not to group items into a parent container.</param>
     /// <response code="200">Latest media returned.</response>
+    /// <response code="400">User id is empty.</response>
     /// <returns>An <see cref="OkResult"/> containing the latest media.</returns>
     [HttpGet("Users/{userId}/Items/Latest")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public Task<ActionResult<IEnumerable<BaseItemDto>>> GetLatestMediaLegacy(
@@ -737,6 +911,11 @@ public class UserLibraryController : BaseMulletaFlixApiController
         [FromQuery] int limit = 20,
         [FromQuery] bool groupItems = true)
     {
+        if (userId == Guid.Empty)
+        {
+            return Task.FromResult<ActionResult<IEnumerable<BaseItemDto>>>(BadRequest("User id must not be empty."));
+        }
+
         if (!UserExists(userId))
         {
             return Task.FromResult<ActionResult<IEnumerable<BaseItemDto>>>(NotFound());

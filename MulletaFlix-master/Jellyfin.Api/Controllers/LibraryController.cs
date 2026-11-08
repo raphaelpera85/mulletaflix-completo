@@ -109,10 +109,16 @@ public class LibraryController : BaseMulletaFlixApiController
     [HttpGet("Items/{itemId}/File")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesFile("video/*", "audio/*")]
     public ActionResult GetFile([FromRoute, Required] Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var item = _libraryManager.GetItemById<BaseItem>(itemId, User.GetUserId());
         if (item is null)
         {
@@ -144,11 +150,13 @@ public class LibraryController : BaseMulletaFlixApiController
     /// <param name="sortBy">Optional. Specify one or more sort orders, comma delimited. Options: Album, AlbumArtist, Artist, Budget, CommunityRating, CriticRating, DateCreated, DatePlayed, PlayCount, PremiereDate, ProductionYear, SortName, Random, Revenue, Runtime.</param>
     /// <param name="sortOrder">Optional. Sort Order - Ascending, Descending.</param>
     /// <response code="200">Theme songs returned.</response>
+    /// <response code="400">Item id must not be empty.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>The item theme songs.</returns>
     [HttpGet("Items/{itemId}/ThemeSongs")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ThemeMediaResult>> GetThemeSongs(
@@ -161,6 +169,11 @@ public class LibraryController : BaseMulletaFlixApiController
         if (!TryResolveRequestUser(userId, out _))
         {
             return Unauthorized();
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
         }
 
         var result = await GetThemeSongsResultAsync(itemId, userId, inheritFromParent, sortBy, sortOrder).ConfigureAwait(false);
@@ -176,11 +189,13 @@ public class LibraryController : BaseMulletaFlixApiController
     /// <param name="sortBy">Optional. Specify one or more sort orders, comma delimited. Options: Album, AlbumArtist, Artist, Budget, CommunityRating, CriticRating, DateCreated, DatePlayed, PlayCount, PremiereDate, ProductionYear, SortName, Random, Revenue, Runtime.</param>
     /// <param name="sortOrder">Optional. Sort Order - Ascending, Descending.</param>
     /// <response code="200">Theme videos returned.</response>
+    /// <response code="400">Item id must not be empty.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>The item theme videos.</returns>
     [HttpGet("Items/{itemId}/ThemeVideos")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ThemeMediaResult>> GetThemeVideos(
@@ -193,6 +208,11 @@ public class LibraryController : BaseMulletaFlixApiController
         if (!TryResolveRequestUser(userId, out _))
         {
             return Unauthorized();
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
         }
 
         var result = await GetThemeVideosResultAsync(itemId, userId, inheritFromParent, sortBy, sortOrder).ConfigureAwait(false);
@@ -208,11 +228,13 @@ public class LibraryController : BaseMulletaFlixApiController
     /// <param name="sortBy">Optional. Specify one or more sort orders, comma delimited. Options: Album, AlbumArtist, Artist, Budget, CommunityRating, CriticRating, DateCreated, DatePlayed, PlayCount, PremiereDate, ProductionYear, SortName, Random, Revenue, Runtime.</param>
     /// <param name="sortOrder">Optional. Sort Order - Ascending, Descending.</param>
     /// <response code="200">Theme songs and videos returned.</response>
+    /// <response code="400">Item id must not be empty.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>The item theme videos.</returns>
     [HttpGet("Items/{itemId}/ThemeMedia")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<AllThemeMediaResult>> GetThemeMedia(
         [FromRoute, Required] Guid itemId,
@@ -224,6 +246,11 @@ public class LibraryController : BaseMulletaFlixApiController
         if (!TryResolveRequestUser(userId, out _))
         {
             return Unauthorized();
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
         }
 
         var themeSongsTask = GetThemeSongsResultAsync(
@@ -411,16 +438,23 @@ public class LibraryController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="itemId">The item id.</param>
     /// <response code="204">Item deleted.</response>
+    /// <response code="400">Item id must not be empty.</response>
     /// <response code="401">Unauthorized access.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpDelete("Items/{itemId}")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteItem(Guid itemId)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
         var userId = User.GetUserId();
         var isApiKey = User.GetIsApiKey();
         var user = userId.IsEmpty() && isApiKey
@@ -456,15 +490,26 @@ public class LibraryController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="ids">The item ids.</param>
     /// <response code="204">Items deleted.</response>
+    /// <response code="400">Item ids are invalid or missing.</response>
     /// <response code="401">Unauthorized access.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpDelete("Items")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteItems([FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] Guid[] ids)
     {
+        if (ids is null || ids.Length == 0)
+        {
+            return BadRequest("Item ids are required.");
+        }
+
+        if (ids.Any(id => id == Guid.Empty))
+        {
+            return BadRequest("Item id must not be empty.");
+        }
         var isApiKey = User.GetIsApiKey();
         var userId = User.GetUserId();
         var user = !isApiKey && !userId.IsEmpty()
@@ -538,11 +583,13 @@ public class LibraryController : BaseMulletaFlixApiController
     /// <param name="itemId">The item id.</param>
     /// <param name="userId">Optional. Filter by user id, and attach user data.</param>
     /// <response code="200">Item parents returned.</response>
+    /// <response code="400">Item id must not be empty.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>Item parents.</returns>
     [HttpGet("Items/{itemId}/Ancestors")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IEnumerable<BaseItemDto>>> GetAncestors([FromRoute, Required] Guid itemId, [FromQuery] Guid? userId)
@@ -550,6 +597,11 @@ public class LibraryController : BaseMulletaFlixApiController
         if (!TryResolveRequestUser(userId, out var user))
         {
             return Unauthorized();
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
         }
 
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
@@ -630,13 +682,20 @@ public class LibraryController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="tvdbId">The tvdbId.</param>
     /// <response code="204">Report success.</response>
+    /// <response code="400">TvdbId is required.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Library/Series/Added", Name = "PostAddedSeries")]
     [HttpPost("Library/Series/Updated")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult PostUpdatedSeries([FromQuery] string? tvdbId)
     {
+        if (string.IsNullOrWhiteSpace(tvdbId))
+        {
+            return BadRequest("TvdbId is required.");
+        }
+
         var series = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = new[] { BaseItemKind.Series },
@@ -660,13 +719,20 @@ public class LibraryController : BaseMulletaFlixApiController
     /// <param name="tmdbId">The tmdbId.</param>
     /// <param name="imdbId">The imdbId.</param>
     /// <response code="204">Report success.</response>
+    /// <response code="400">Either tmdbId or imdbId is required.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Library/Movies/Added", Name = "PostAddedMovies")]
     [HttpPost("Library/Movies/Updated")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult PostUpdatedMovies([FromQuery] string? tmdbId, [FromQuery] string? imdbId)
     {
+        if (string.IsNullOrWhiteSpace(tmdbId) && string.IsNullOrWhiteSpace(imdbId))
+        {
+            return BadRequest("Either tmdbId or imdbId is required.");
+        }
+
         var movies = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = new[] { BaseItemKind.Movie },
@@ -702,15 +768,32 @@ public class LibraryController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="dto">The update paths.</param>
     /// <response code="204">Report success.</response>
+    /// <response code="400">Media update info is invalid or missing.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("Library/Media/Updated")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult PostUpdatedMedia([FromBody, Required] MediaUpdateInfoDto dto)
     {
+        if (dto is null)
+        {
+            return BadRequest("Media update info is required.");
+        }
+
+        if (dto.Updates is null)
+        {
+            return BadRequest("Updates collection is required.");
+        }
+
+        if (dto.Updates.Any(i => i is null || string.IsNullOrWhiteSpace(i.Path)))
+        {
+            return BadRequest("Update path is required.");
+        }
+
         foreach (var item in dto.Updates)
         {
-            _libraryMonitor.ReportFileSystemChanged(item.Path ?? throw new ArgumentException("Item path can't be null."));
+            _libraryMonitor.ReportFileSystemChanged(item.Path);
         }
 
         return NoContent();
@@ -721,12 +804,13 @@ public class LibraryController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="itemId">The item id.</param>
     /// <response code="200">Media downloaded.</response>
+    /// <response code="400">Item id is invalid or item does not support downloading.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>A <see cref="FileResult"/> containing the media stream.</returns>
-    /// <exception cref="ArgumentException">User can't download or item can't be downloaded.</exception>
     [HttpGet("Items/{itemId}/Download")]
     [Authorize(Policy = Policies.Download)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesFile("video/*", "audio/*")]
@@ -736,6 +820,11 @@ public class LibraryController : BaseMulletaFlixApiController
         if (!TryResolveRequestUser(userId, out var user))
         {
             return Unauthorized();
+        }
+
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
         }
 
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
@@ -748,14 +837,14 @@ public class LibraryController : BaseMulletaFlixApiController
         {
             if (!item.CanDownload(user))
             {
-                throw new ArgumentException("Item does not support downloading");
+                return BadRequest("Item does not support downloading.");
             }
         }
         else
         {
             if (!item.CanDownload())
             {
-                throw new ArgumentException("Item does not support downloading");
+                return BadRequest("Item does not support downloading.");
             }
         }
 
@@ -806,12 +895,14 @@ public class LibraryController : BaseMulletaFlixApiController
     /// <param name="limit">Optional. The maximum number of records to return.</param>
     /// <param name="fields">Optional. Specify additional fields of information to return in the output.</param>
     /// <response code="200">Collections returned.</response>
+    /// <response code="400">Item id is invalid or paging parameters are out of range.</response>
     /// <response code="401">User context missing.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>The collections that contain the requested item.</returns>
     [HttpGet("Items/{itemId}/Collections")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetItemCollections(
         [FromRoute, Required] Guid itemId,
@@ -820,6 +911,21 @@ public class LibraryController : BaseMulletaFlixApiController
         [FromQuery] int? limit,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields)
     {
+        if (itemId == Guid.Empty)
+        {
+            return BadRequest("Item id must not be empty.");
+        }
+
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var user = userId.IsNullOrEmpty()
             ? null
@@ -873,6 +979,7 @@ public class LibraryController : BaseMulletaFlixApiController
     /// <param name="fields">Optional. Specify additional fields of information to return in the output. This allows multiple, comma delimited. Options: Budget, Chapters, DateCreated, Genres, HomePageUrl, IndexOptions, MediaStreams, Overview, ParentId, Path, People, ProviderIds, PrimaryImageAspectRatio, Revenue, SortName, Studios, Taglines, TrailerUrls.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <response code="200">Similar items returned.</response>
+    /// <response code="400">Limit must be greater than or equal to 0.</response>
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> containing the similar items.</returns>
     [HttpGet("Artists/{itemId}/Similar", Name = "GetSimilarArtists")]
     [HttpGet("Items/{itemId}/Similar")]
@@ -882,6 +989,7 @@ public class LibraryController : BaseMulletaFlixApiController
     [HttpGet("Trailers/{itemId}/Similar", Name = "GetSimilarTrailers")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSimilarItems(
         [FromRoute, Required] Guid itemId,
@@ -894,6 +1002,11 @@ public class LibraryController : BaseMulletaFlixApiController
         if (!TryResolveRequestUser(userId, out var user))
         {
             return Unauthorized();
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
         }
 
         var item = itemId.IsEmpty()

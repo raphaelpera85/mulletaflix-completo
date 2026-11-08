@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Plugins.NartoDrama
@@ -322,7 +323,7 @@ namespace MediaBrowser.Providers.Plugins.NartoDrama
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning("NartoDrama request to {Url} failed with {Status}", url, (int)response.StatusCode);
+                    _logger.LogWarning("NartoDrama request to {Url} failed with {Status}", RemoteUrlLogRedactor.Redact(url), (int)response.StatusCode);
                     return FetchResult.Failed;
                 }
 
@@ -331,12 +332,12 @@ namespace MediaBrowser.Providers.Plugins.NartoDrama
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning(ex, "NartoDrama request to {Url} failed", url);
+                _logger.LogWarning("NartoDrama request to {Url} failed: {Error}", RemoteUrlLogRedactor.Redact(url), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return FetchResult.Failed;
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "NartoDrama request to {Url} timed out", url);
+                _logger.LogWarning("NartoDrama request to {Url} timed out: {Error}", RemoteUrlLogRedactor.Redact(url), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return FetchResult.Failed;
             }
         }
@@ -368,12 +369,12 @@ namespace MediaBrowser.Providers.Plugins.NartoDrama
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning(ex, "NartoDrama request to {Url} failed", request.RequestUri);
+                _logger.LogWarning("NartoDrama request to {Url} failed: {Error}", RemoteUrlLogRedactor.Redact(request.RequestUri?.ToString() ?? string.Empty), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "NartoDrama request to {Url} timed out", request.RequestUri);
+                _logger.LogWarning("NartoDrama request to {Url} timed out: {Error}", RemoteUrlLogRedactor.Redact(request.RequestUri?.ToString() ?? string.Empty), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             finally

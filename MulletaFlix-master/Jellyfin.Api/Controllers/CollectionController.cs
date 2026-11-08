@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Constants;
@@ -48,12 +48,18 @@ public class CollectionController : BaseMulletaFlixApiController
     /// <returns>A <see cref="CollectionCreationOptions"/> with information about the new collection.</returns>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<CollectionCreationResult>> CreateCollection(
         [FromQuery] string? name,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] string[] ids,
         [FromQuery] Guid? parentId,
         [FromQuery] bool isLocked = false)
     {
+        if (parentId.HasValue && parentId.Value == Guid.Empty)
+        {
+            return BadRequest("Parent id must not be empty.");
+        }
+
         var userId = User.GetUserId();
 
         var item = await _collectionManager.CreateCollectionAsync(new CollectionCreationOptions
@@ -81,13 +87,25 @@ public class CollectionController : BaseMulletaFlixApiController
     /// <param name="collectionId">The collection id.</param>
     /// <param name="ids">Item ids, comma delimited.</param>
     /// <response code="204">Items added to collection.</response>
+    /// <response code="400">Invalid collection id or item ids.</response>
     /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
     [HttpPost("{collectionId}/Items")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> AddToCollection(
         [FromRoute, Required] Guid collectionId,
         [FromQuery, Required, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] Guid[] ids)
     {
+        if (collectionId == Guid.Empty)
+        {
+            return BadRequest("Collection id must not be empty.");
+        }
+
+        if (ids is null || ids.Length == 0)
+        {
+            return BadRequest("Item ids must not be empty.");
+        }
+
         await _collectionManager.AddToCollectionAsync(collectionId, ids).ConfigureAwait(false);
         return NoContent();
     }
@@ -98,13 +116,25 @@ public class CollectionController : BaseMulletaFlixApiController
     /// <param name="collectionId">The collection id.</param>
     /// <param name="ids">Item ids, comma delimited.</param>
     /// <response code="204">Items removed from collection.</response>
+    /// <response code="400">Invalid collection id or item ids.</response>
     /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
     [HttpDelete("{collectionId}/Items")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> RemoveFromCollection(
         [FromRoute, Required] Guid collectionId,
         [FromQuery, Required, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] Guid[] ids)
     {
+        if (collectionId == Guid.Empty)
+        {
+            return BadRequest("Collection id must not be empty.");
+        }
+
+        if (ids is null || ids.Length == 0)
+        {
+            return BadRequest("Item ids must not be empty.");
+        }
+
         await _collectionManager.RemoveFromCollectionAsync(collectionId, ids).ConfigureAwait(false);
         return NoContent();
     }

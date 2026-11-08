@@ -175,7 +175,8 @@ public sealed class NebulaSupabaseRestoreMongoTests : IDisposable
         Assert.Contains("/rest/v1/nebula_users?select=*&order=login.asc&limit=100", Uri.UnescapeDataString(handler.Requests[2].Uri), StringComparison.Ordinal);
         Assert.Contains("login=gt.%22restore-ftp-user%22", handler.Requests[3].Uri, StringComparison.Ordinal);
         Assert.Contains("/rest/v1/mulletaflix_users?select=*&order=id.asc&limit=100", Uri.UnescapeDataString(handler.Requests[4].Uri), StringComparison.Ordinal);
-        Assert.Contains($"id=gt.%22{appUserId:D}%22", handler.Requests[5].Uri, StringComparison.Ordinal);
+        Assert.Contains($"id=gt.{appUserId:D}", handler.Requests[5].Uri, StringComparison.Ordinal);
+        Assert.DoesNotContain("%22", handler.Requests[5].Uri, StringComparison.Ordinal);
         Assert.Contains("/rest/v1/nebula_bot_tokens?select=*&order=index.asc&limit=100", Uri.UnescapeDataString(handler.Requests[6].Uri), StringComparison.Ordinal);
         Assert.Contains("index=gt.2", Uri.UnescapeDataString(handler.Requests[7].Uri), StringComparison.Ordinal);
 

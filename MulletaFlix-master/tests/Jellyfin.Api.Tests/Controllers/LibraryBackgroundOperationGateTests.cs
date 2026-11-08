@@ -17,6 +17,7 @@ using Xunit;
 
 namespace MulletaFlix.Api.Tests.Controllers;
 
+[Collection("LibraryManagerTests")]
 public sealed class LibraryBackgroundOperationGateTests
 {
     [Fact]

@@ -42,6 +42,19 @@ public class LiveTvUrlRedactorTests
     }
 
     [Fact]
+    public void RedactText_RemovesUrlsEmbeddedInExceptionText()
+    {
+        const string secret = "http://alice:s3cr3t@provider.example:8080/live/1234.ts?token=private";
+
+        var redacted = LiveTvUrlRedactor.RedactText($"Request failed for '{secret}'\r\n at Provider.Call()");
+
+        Assert.DoesNotContain("alice", redacted, System.StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("s3cr3t", redacted, System.StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("private", redacted, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("provider.example:8080", redacted, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Redact_KeepsSchemeAndHostForDiagnostics()
     {
         var redacted = LiveTvUrlRedactor.Redact("https://epg.example.org:443/guide.xml.gz");

@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
@@ -54,11 +55,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
         public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
         {
             var episode = (Controller.Entities.TV.Episode)item;
-            var series = episode.Series;
+            var series = episode.Series ?? episode.FindParent<Series>();
+            var seriesTmdbId = series is null
+                ? 0
+                : await TmdbSeriesProvider.ResolveTmdbIdAsync(series, _tmdbClientManager, cancellationToken).ConfigureAwait(false);
 
-            var seriesTmdbId = Convert.ToInt32(series?.GetProviderId(MetadataProvider.Tmdb), CultureInfo.InvariantCulture);
-
-            if (series is null || seriesTmdbId <= 0)
+            if (seriesTmdbId <= 0)
             {
                 return Enumerable.Empty<RemoteImageInfo>();
             }
@@ -75,7 +77,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             var countryCode = item.GetPreferredMetadataCountryCode();
             // Keep the metadata lookup's display-order mapping while requesting localized art and English fallback.
             var episodeResult = await _tmdbClientManager
-                .GetEpisodeImagesAsync(seriesTmdbId, seasonNumber, episodeNumber.Value, series.DisplayOrder, language, countryCode, cancellationToken)
+                .GetEpisodeImagesAsync(seriesTmdbId, seasonNumber, episodeNumber.Value, series?.DisplayOrder, language, countryCode, cancellationToken)
                 .ConfigureAwait(false);
 
             var stills = episodeResult?.Images?.Stills;

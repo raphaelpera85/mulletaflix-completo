@@ -10,6 +10,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Plugins.GoodShort
@@ -532,7 +533,7 @@ namespace MediaBrowser.Providers.Plugins.GoodShort
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning("GoodShort request to {Url} failed with {Status}", url, (int)response.StatusCode);
+                    _logger.LogWarning("GoodShort request to {Url} failed with {Status}", RemoteUrlLogRedactor.Redact(url), (int)response.StatusCode);
                     return null;
                 }
 
@@ -540,12 +541,12 @@ namespace MediaBrowser.Providers.Plugins.GoodShort
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning(ex, "GoodShort request to {Url} failed", url);
+                _logger.LogWarning("GoodShort request to {Url} failed: {Error}", RemoteUrlLogRedactor.Redact(url), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "GoodShort request to {Url} timed out", url);
+                _logger.LogWarning("GoodShort request to {Url} timed out: {Error}", RemoteUrlLogRedactor.Redact(url), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
         }
@@ -581,7 +582,7 @@ namespace MediaBrowser.Providers.Plugins.GoodShort
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning("GoodShort request to {Path} failed with {Status}", path, (int)response.StatusCode);
+                    _logger.LogWarning("GoodShort request to {Path} failed with {Status}", RemoteUrlLogRedactor.Redact(path), (int)response.StatusCode);
                     return null;
                 }
 
@@ -597,17 +598,17 @@ namespace MediaBrowser.Providers.Plugins.GoodShort
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning(ex, "GoodShort request to {Path} failed", path);
+                _logger.LogWarning("GoodShort request to {Path} failed: {Error}", RemoteUrlLogRedactor.Redact(path), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "GoodShort request to {Path} timed out", path);
+                _logger.LogWarning("GoodShort request to {Path} timed out: {Error}", RemoteUrlLogRedactor.Redact(path), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             catch (JsonException ex)
             {
-                _logger.LogWarning(ex, "GoodShort returned an unreadable body for {Path}", path);
+                _logger.LogWarning("GoodShort returned an unreadable body for {Path}: {Error}", RemoteUrlLogRedactor.Redact(path), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
         }
@@ -639,12 +640,12 @@ namespace MediaBrowser.Providers.Plugins.GoodShort
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning(ex, "GoodShort request to {Url} failed", request.RequestUri);
+                _logger.LogWarning("GoodShort request to {Url} failed: {Error}", RemoteUrlLogRedactor.Redact(request.RequestUri?.ToString() ?? string.Empty), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, "GoodShort request to {Url} timed out", request.RequestUri);
+                _logger.LogWarning("GoodShort request to {Url} timed out: {Error}", RemoteUrlLogRedactor.Redact(request.RequestUri?.ToString() ?? string.Empty), RemoteUrlLogRedactor.Redact(ex.ToString()));
                 return null;
             }
             finally

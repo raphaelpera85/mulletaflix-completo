@@ -21,6 +21,7 @@ using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Providers;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Manager
@@ -96,6 +97,7 @@ namespace MediaBrowser.Providers.Manager
             var isFirstRefresh = item.DateLastRefreshed == DateTime.MinValue;
             var hasRefreshedMetadata = true;
             var hasRefreshedImages = true;
+            var refreshStampNeedsSaving = false;
 
             var requiresRefresh = libraryOptions.AutomaticRefreshIntervalDays > 0 && (DateTime.UtcNow - item.DateLastRefreshed).TotalDays >= libraryOptions.AutomaticRefreshIntervalDays;
 
@@ -193,6 +195,12 @@ namespace MediaBrowser.Providers.Manager
                 }
             }
 
+            // A local image failure invalidates the complete image refresh, even when remote providers are skipped.
+            if (localImagesFailed)
+            {
+                hasRefreshedImages = false;
+            }
+
             // Next run remote image providers, but only if local image providers didn't throw an exception
             if (!localImagesFailed && refreshOptions.ImageRefreshMode > MetadataRefreshMode.ValidationOnly)
             {
@@ -210,22 +218,26 @@ namespace MediaBrowser.Providers.Manager
                 }
             }
 
-            if (hasRefreshedMetadata && hasRefreshedImages)
+            var attemptedFetch = refreshOptions.MetadataRefreshMode > MetadataRefreshMode.ValidationOnly
+                || refreshOptions.ImageRefreshMode > MetadataRefreshMode.ValidationOnly;
+            if (attemptedFetch && hasRefreshedMetadata && hasRefreshedImages)
             {
                 item.DateLastRefreshed = DateTime.UtcNow;
                 updateType |= item.OnMetadataChanged();
+                refreshStampNeedsSaving = refreshOptions.MetadataRefreshMode == MetadataRefreshMode.FullRefresh
+                    || refreshOptions.ImageRefreshMode == MetadataRefreshMode.FullRefresh;
             }
 
-            updateType = await SaveInternal(item, refreshOptions, updateType, isFirstRefresh, requiresRefresh, metadataResult, cancellationToken).ConfigureAwait(false);
+            updateType = await SaveInternal(item, refreshOptions, updateType, isFirstRefresh, requiresRefresh, refreshStampNeedsSaving, metadataResult, cancellationToken).ConfigureAwait(false);
 
             await AfterMetadataRefresh(itemOfType, refreshOptions, cancellationToken).ConfigureAwait(false);
 
             return updateType;
 
-            async Task<ItemUpdateType> SaveInternal(BaseItem item, MetadataRefreshOptions refreshOptions, ItemUpdateType updateType, bool isFirstRefresh, bool requiresRefresh, MetadataResult<TItemType> metadataResult, CancellationToken cancellationToken)
+            async Task<ItemUpdateType> SaveInternal(BaseItem item, MetadataRefreshOptions refreshOptions, ItemUpdateType updateType, bool isFirstRefresh, bool requiresRefresh, bool refreshStampNeedsSaving, MetadataResult<TItemType> metadataResult, CancellationToken cancellationToken)
             {
                 // Save if changes were made, or it's never been saved before
-                if (refreshOptions.ForceSave || updateType > ItemUpdateType.None || isFirstRefresh || refreshOptions.ReplaceAllMetadata || requiresRefresh)
+                if (refreshOptions.ForceSave || updateType > ItemUpdateType.None || isFirstRefresh || refreshOptions.ReplaceAllMetadata || requiresRefresh || refreshStampNeedsSaving)
                 {
                     if (item.IsFileProtocol)
                     {
@@ -783,6 +795,21 @@ namespace MediaBrowser.Providers.Manager
 
                         if (localItem.HasMetadata)
                         {
+                            if (imageService.MergeImages(item, localItem.Images, options))
+                            {
+                                refreshResult.UpdateType |= ItemUpdateType.ImageUpdate;
+                            }
+
+                            foreach (var localImage in localItem.Images)
+                            {
+                                if (item.ImageInfos.Any(x => x.Type == localImage.Type))
+                                {
+                                    successfullySavedImageTypes.Add(localImage.Type);
+                                }
+                            }
+
+                            var existingImageTypesBeforeRemote = item.ImageInfos.Select(x => x.Type).ToHashSet();
+
                             foreach (var remoteImage in localItem.RemoteImages)
                             {
                                 if (!item.AllowsMultipleImages(remoteImage.Type) && successfullySavedImageTypes.Contains(remoteImage.Type))
@@ -792,7 +819,7 @@ namespace MediaBrowser.Providers.Manager
 
                                 try
                                 {
-                                    if (item.ImageInfos.Any(x => x.Type == remoteImage.Type)
+                                    if (existingImageTypesBeforeRemote.Contains(remoteImage.Type)
                                         && !options.IsReplacingImage(remoteImage.Type))
                                     {
                                         continue;
@@ -821,18 +848,13 @@ namespace MediaBrowser.Providers.Manager
                                         failedLocalSingleImageTypes[remoteImage.Type] = ex.Message;
                                     }
 
-                                    Logger.LogError(ex, "Could not save {ImageType} image from {Provider}", Enum.GetName(remoteImage.Type), providerName);
+                                    Logger.LogError("{Error} while saving {ImageType} image from {Provider}", RemoteUrlLogRedactor.Redact(ex.ToString()), Enum.GetName(remoteImage.Type), providerName);
                                 }
                             }
 
                             if (foundImageTypes.Count > 0)
                             {
                                 imageService.UpdateReplaceImages(options, foundImageTypes);
-                            }
-
-                            if (imageService.MergeImages(item, localItem.Images, options))
-                            {
-                                refreshResult.UpdateType |= ItemUpdateType.ImageUpdate;
                             }
 
                             MergeData(localItem, temp, [], false, true);
@@ -849,10 +871,10 @@ namespace MediaBrowser.Providers.Manager
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError(ex, "Error in {Provider} for {Item}", provider.Name, logName);
+                        Logger.LogError("{Error} in {Provider} for {Item}", RemoteUrlLogRedactor.Redact(ex.ToString()), provider.Name, logName);
 
                         // If a local provider fails, consider that a failure
-                        refreshResult.ErrorMessage = ex.Message;
+                        refreshResult.ErrorMessage = RemoteUrlLogRedactor.Redact(ex.Message);
                     }
                 }
             }
@@ -932,8 +954,8 @@ namespace MediaBrowser.Providers.Manager
             }
             catch (Exception ex)
             {
-                refreshResult.ErrorMessage = ex.Message;
-                Logger.LogError(ex, "Error in {Provider} for {Item}", provider.Name, logName);
+                refreshResult.ErrorMessage = RemoteUrlLogRedactor.Redact(ex.Message);
+                Logger.LogError("{Error} in {Provider} for {Item}", RemoteUrlLogRedactor.Redact(ex.ToString()), provider.Name, logName);
             }
         }
 
@@ -961,7 +983,15 @@ namespace MediaBrowser.Providers.Manager
                 MergeNewData(temp.Item, id);
             }
 
-            var providerList = providers.ToList();
+            var selectedProviderName = options.SearchResult?.SearchProviderName;
+            var providerList = string.IsNullOrWhiteSpace(selectedProviderName)
+                ? providers.ToList()
+                : providers
+                    .OrderBy(provider => !string.Equals(provider.Name, selectedProviderName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            var preferredLanguage = id?.MetadataLanguage;
+            var overviewIsFallback = false;
+            var taglineIsFallback = false;
 
             // Fetch metadata from all remote providers concurrently — each call is an
             // independent HTTP request. Results are collected in index order and merged
@@ -981,7 +1011,7 @@ namespace MediaBrowser.Providers.Manager
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "Error in {Provider} for {Item}", provider.Name, logName);
+                    Logger.LogError("{Error} in {Provider} for {Item}", RemoteUrlLogRedactor.Redact(ex.ToString()), provider.Name, logName);
                     return (index, provider, result: (MetadataResult<TItemType>?)null, error: ex);
                 }
             }).ToList();
@@ -1009,7 +1039,7 @@ namespace MediaBrowser.Providers.Manager
                 if (error is not null)
                 {
                     refreshResult.Failures++;
-                    refreshResult.ErrorMessage = error.Message;
+                    refreshResult.ErrorMessage = RemoteUrlLogRedactor.Redact(error.Message);
                     continue;
                 }
 
@@ -1022,6 +1052,26 @@ namespace MediaBrowser.Providers.Manager
                 result.Provider = provider.Name;
 
                 var isIdentifiedProvider = HasProviderId(id, provider.Name);
+
+                if (MatchesPreferredMetadataLanguage(result.ResultLanguage, preferredLanguage))
+                {
+                    if (overviewIsFallback && !string.IsNullOrEmpty(result.Item.Overview))
+                    {
+                        temp.Item.Overview = null;
+                        overviewIsFallback = false;
+                    }
+
+                    if (taglineIsFallback && !string.IsNullOrEmpty(result.Item.Tagline))
+                    {
+                        temp.Item.Tagline = null;
+                        taglineIsFallback = false;
+                    }
+                }
+                else
+                {
+                    overviewIsFallback |= string.IsNullOrEmpty(temp.Item.Overview) && !string.IsNullOrEmpty(result.Item.Overview);
+                    taglineIsFallback |= string.IsNullOrEmpty(temp.Item.Tagline) && !string.IsNullOrEmpty(result.Item.Tagline);
+                }
 
                 var foundImageTypes = await SaveRemoteResultImages(
                     item,
@@ -1070,6 +1120,18 @@ namespace MediaBrowser.Providers.Manager
                 || exception.StatusCode == HttpStatusCode.RequestTimeout
                 || exception.StatusCode == HttpStatusCode.TooManyRequests
                 || ((int)exception.StatusCode.Value >= 500 && (int)exception.StatusCode.Value <= 599);
+        }
+
+        private static bool MatchesPreferredMetadataLanguage(string? resultLanguage, string? preferredLanguage)
+        {
+            if (string.IsNullOrWhiteSpace(resultLanguage) || string.IsNullOrWhiteSpace(preferredLanguage))
+            {
+                return false;
+            }
+
+            return string.Equals(resultLanguage, preferredLanguage, StringComparison.OrdinalIgnoreCase)
+                || resultLanguage.StartsWith(preferredLanguage + '-', StringComparison.OrdinalIgnoreCase)
+                || preferredLanguage.StartsWith(resultLanguage + '-', StringComparison.OrdinalIgnoreCase);
         }
 
         internal async Task<List<ImageType>> SaveRemoteResultImages(

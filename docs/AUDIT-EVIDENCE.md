@@ -1,5 +1,257 @@
 # Matriz de evidências da auditoria
 
+# Atualização de imagens respeita cancelamento HTTP — 2026-11-03 14:38 BRT
+
+- RED: `ImageControllerIndexTests` não compilava porque `ILibraryManager.UpdateImagesAsync` não aceitava token.
+- GREEN: `UpdateImagesAsync` e `RunMetadataSavers` aceitam `CancellationToken` opcional; `LibraryManager` encaminha o token a `ConvertImageToLocal` e `IItemPersistenceService.SaveImagesAsync`, e verifica cancelamento antes de cada imagem.
+- Propagação adicional: `ImageController`, `BaseItem.RefreshMetadata`, `Folder` e `UpdateItemsAsync` usam tokens já disponíveis. Callers sem token preservam compatibilidade pelo default.
+- Evidência: `ImageControllerIndexTests` **3/3**; `LibraryManagerImageConversionTests` **2/2**; `Jellyfin.Api.Tests` sem Integration **830 aprovados, 3 ignorados, 0 falhas/833**; regressão serial sem Integration **5.545 aprovados, 98 ignorados, 0 falhas/5.643 casos observados**; `dotnet build MulletaFlix.sln --configuration Release --no-restore -m:1` **0 erros, 600 avisos**; `git diff --check` passou. O agregado histórico do portal **5.642/5.740** foi preservado, sem misturar denominadores.
+- Comparação Jellyfin upstream somente leitura. A mudança local é deliberada para permitir cancelamento do request durante conversão, processamento e persistência.
+- Runtime instalado `12.1.45` não contém a correção. Nenhuma instalação, restart, refresh, alteração de banco/configuração, commit, push ou release foi executada.
+- `PENDING: instalar a correção por procedimento autorizado e repetir probe read-only do runtime - awaiting your authorization`
+
+## Cancelamento em `ConvertImageToLocal` — 2026-11-03 14:20 BRT
+
+- RED anterior terminou com falha de compilação porque o teste exigia um `CancellationToken` que a interface ainda não aceitava.
+- GREEN adicionou `CancellationToken cancellationToken = default` a `ILibraryManager.ConvertImageToLocal`; `LibraryManager` encaminha o token a `ProviderManager.SaveImage` e `UpdateToRepositoryAsync`.
+- `ImageController` e `GuideManager` encaminham seus tokens disponíveis. Callers sem token preservam compatibilidade via default; nenhum token foi inventado.
+- TDD focal `LibraryManagerImageConversionTests`: **2/2**. Build Release da solução: **0 erros, 600 avisos existentes**.
+- `TWINS: searched ConvertImageToLocal(` - found **5** callers adicionais; `ImageController` e `GuideManager` receberam propagação explícita, `LibraryManager.UpdateImagesAsync` e `RecordingsMetadataManager` permanecem sem token na assinatura atual.
+- Runtime instalado `12.1.45` não contém a correção. Nenhuma instalação, restart, release, commit, push ou mutação de produção foi executada.
+
+## Probe read-only de produção e comparação upstream — 2026-11-03 14:04 BRT
+
+- Runtime instalado confirmado em `12.1.45`, PID `24732`; MariaDB empacotado `11.4.4`, PID `8792`, ouvindo em `127.0.0.1:3306`. `/health`, `/System/Info/Public` e `/metrics` responderam HTTP 200.
+- `/metrics` publicou `pool_name` em **158** linhas, com **158** ocorrências de `User ID`, **158** de `Server=` e **188** de `127.0.0.1`. Nenhum valor foi preservado; a contagem anterior de 130 linhas foi corrigida.
+- MariaDB read-only: `max_connections=300`, buffer pool `256 MiB`, 0 transações ativas e três conexões de aplicação em `Sleep` no instante da consulta.
+- `SHOW ENGINE INNODB STATUS` confirmou deadlock entre `INSERT` em lote de `BaseItemImageInfos` e `DELETE ... WHERE ItemId = ...`, ambos no índice `IX_BaseItemImageInfos_ItemId_ImageType`; MariaDB reverteu a transação de inserção.
+- A working tree atual possui stripes locais, lock MariaDB e retry em `ItemPersistenceService.SaveImagesAsync`/`DeleteItem`; o runtime instalado não contém essas correções nem `MetricsLabelRedactor`.
+- Comparação read-only com Jellyfin upstream: o upstream atual mantém a substituição `DELETE` + `INSERT` sem a serialização/retry local; o fluxo upstream de imagens só poda stale após novos downloads. A mitigação local é deliberada e continua compatível com a semântica upstream de refresh parcial.
+- Nenhuma instalação, restart, refresh, alteração de configuração/banco, commit, push, release ou mutação de mídia foi executada.
+
+## Log de produção: deadlocks, contenção de arquivos e starvation — 2026-11-03 13:59 BRT
+
+O log anexado contém 5.981 linhas e 732 entradas estruturadas entre `07:10:15.464` e `11:28:56.252` (279 ERR, 312 WRN, 141 INF). Foram contadas 182 ocorrências de deadlock MariaDB, 124 comandos SQL falhos, 96 retries de `SaveImagesAsync` e 29 retries de persistência de itens. O SQL repetido é `DELETE FROM BaseItemImageInfos`; o recorte termina durante um novo retry e não permite afirmar se a operação posterior concluiu.
+
+Há 21 avisos de heartbeat do Kestrel, com atraso máximo de 1m14,232s, indicando starvation/contensão relevante. Também há 59 falhas de gravação de imagens por arquivo em uso, 2 falhas de blurhash, 1 falha de dimensões e 16 erros de metadata saver por arquivos temporários MariaDB `#sql-temptable-*` ausentes. O recorte registra um timeout de conexão ao MariaDB e 3 falhas de refresh de itens `.strm`.
+
+Foram observadas 23 requisições de autenticação com `request.AppVersion` vazio e 13 avisos de rate limit subsequentes; isso deve ser tratado como cliente/probe inválido em loop até correlação adicional. Não apareceram `pool_name`, connection string, senha, `UnauthorizedAccessException`, startup ou shutdown no recorte. O runtime não foi alterado.
+
+O retry de imagens no log não inclui `processId`/`assemblyVersion`, campos presentes no código atual em `Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs:439-443`; isso sugere divergência de binário, mas a versão deve ser confirmada por probe independente.
+
+## Cancelamento em ItemLookup e regressão sistêmica — 2026-11-03 13:45 BRT
+
+- RED reproduziu que buscas remotas e `ApplySearchCriteria` passavam `CancellationToken.None`, impedindo cancelamento do request chegar ao provider/refresh.
+- GREEN usa `HttpContext.RequestAborted` em todos os métodos assíncronos de `ItemLookupController`, incluindo oito buscas remotas, `RefreshFullItem`, fallback `SaveImage` e `UpdateToRepositoryAsync`.
+- TDD focal passou **3/3**. `TWINS: searched CancellationToken.None em ItemLookupController.cs e RemoteImageController.cs` - found **0** ocorrências.
+- `Jellyfin.Api.Tests` sem Integration passou **828 aprovados, 3 ignorados, 0 falhas/831**; build Release passou **0 erros**; regressão serial sem Integration passou **5.642 aprovados, 98 ignorados, 0 falhas, 5.740 casos**.
+- Runtime instalado `12.1.45` não contém a correção. Nenhuma instalação, restart, release ou mutação de produção foi executada.
+
+## Runtime instalado expõe label sensível em `/metrics` — 2026-11-03 13:34 BRT
+
+- Probe read-only identificou `MulletaFlix.exe` em `C:\\Program Files\\MulletaFlix\\Server\\MulletaFlix.exe`, versão `12.1.45`, PID `24732`.
+- `/health` respondeu HTTP 200 `Healthy`; `/System/Info/Public` respondeu HTTP 200; `/metrics` respondeu HTTP 200.
+- A resposta de `/metrics` contém `pool_name` em **130 linhas** da instrumentação do MySqlConnector. Os valores foram redigidos e não foram preservados.
+- A working tree contém `MetricsLabelRedactor`; `MetricsLabelRedactionTests` passou **8/8** em Release. Isso valida o código local, não o binário instalado.
+- Runtime instalado continua sem crédito pelas correções locais. Não houve restart, update, refresh, alteração de configuração, banco, commit, push, release ou mutação deliberada de produção.
+- `PENDING: instalar a correção por procedimento autorizado e repetir probe read-only de /metrics - awaiting your authorization`
+
+## Cancelamento HTTP em imagens remotas e regressão sistêmica — 2026-11-03 13:20 BRT
+
+- RED confirmou que `RemoteImageController.DownloadRemoteImage` enviava `CancellationToken.None` ao lookup de `RemoteImageInfo`; o request abortado não chegava ao provider.
+- GREEN usa `HttpContext.RequestAborted` em `GetRemoteImages` e `DownloadRemoteImage`, incluindo `GetAvailableRemoteImages`, `SaveImage` e `UpdateToRepositoryAsync`.
+- TDD focal de propagação passou **2/2**; `RemoteImageControllerTests` passou; `Jellyfin.Api.Tests` sem Integration passou **826 aprovados, 3 ignorados, 0 falhas/829**.
+- Build Release serial passou **0 erros**; regressão serial sem Integration passou **5.640 aprovados, 98 ignorados, 0 falhas, 5.738 casos**; portal passou **361/361**.
+- `TWINS: searched CancellationToken.None em RemoteImageController.cs` - found **0** outros sites; os dois métodos auditados agora usam o token de cancelamento do request.
+- Runtime instalado 12.1.45, provider/CDN remoto real, CI/Linux, instalação persistente, banco operacional e produção não foram validados ou alterados.
+
+## Fallback de imagem após falha não-HTTP e regressão sistêmica — 2026-11-03 12:57 BRT
+
+- RED reproduziu que `ItemImageProvider` interrompia o fluxo singular quando `IRemoteImageProvider.GetImageResponse` lançava `IOException`; o próximo candidato não era tentado.
+- GREEN mantém `OperationCanceledException` propagada e trata outras exceções como falha do candidato, com warning redigido, contador e continuação para o próximo candidato nos fluxos singular e múltiplo.
+- TDD focal `RefreshImages_SingularNonHttpFailureContinuesWithNextCandidate`: **1/1**. `Jellyfin.Providers.Tests` sem Integration: **923/923**.
+- Regressão serial da solução sem Integration: **5.638 aprovados, 98 ignorados, 0 falhas, 5.736 casos**. Build Release serial: **0 erros**.
+- `TWINS: searched catch (HttpRequestException ex)` - found **2** fluxos relevantes no `ItemImageProvider.cs`; ambos receberam tratamento simétrico para cancelamento e falhas não-HTTP.
+- Runtime instalado 12.1.45, banco operacional e produção não foram alterados; correções da working tree continuam sem crédito no runtime instalado.
+
+## Proveniência no download manual de RemoteImageInfo e isolamento de testes — 2026-11-03 12:43 BRT
+
+- RED reproduziu que `RemoteImageController.DownloadRemoteImage` chamava `SaveImage` e persistia o item, mas descartava `RemoteImageInfo.ProviderName` e `Language`; o `ItemImageInfo` salvo permanecia sem proveniência.
+- GREEN consulta `GetAvailableRemoteImages` pelo tipo e URL selecionados antes do download, copia `ProviderName`/`Language` para a imagem salva e persiste a atualização existente.
+- TDD focal `RemoteImageControllerTests.DownloadRemoteImage_PersistsSelectedRemoteImageProvenance`: RED falhou com `ProviderName=null`; GREEN passou **1/1**.
+- A primeira suíte API combinada revelou corrida em `BaseItem.LibraryManager` (`ImageControllerIndexTests`); `ImageControllerIndexTests`, `ImageControllerBookFallbackTests`, `ItemLookupControllerImageFallbackTests` e `RemoteImageControllerTests` foram serializados em `LibraryManagerTests`. Filtro combinado passou **5/5**; API sem Integration passou **824 aprovados, 3 ignorados, 0 falhas/827**.
+- Build Release serial passou **0 erros, 576 avisos** existentes/analizadores; nenhuma instalação, release, commit, push ou produção foi alterada.
+- `TWINS: searched SaveImage(item, imageUrl, type, null, ...)` - found **0** other sites; callers de fallback usam variáveis/assinaturas distintas e foram auditados separadamente.
+- Pendente: runtime instalado 12.1.45 não contém a correção; ainda falta leitura real em repositório para este endpoint e validação com provider/CDN remoto real.
+
+## Persistência do fallback de capa, proveniência dinâmica e idioma global — 2026-11-03 12:22 BRT
+
+- RED confirmou que `ImageController.TryRecoverMissingBookPrimaryImageAsync` retornava após `SaveImage` sem chamar `UpdateToRepositoryAsync`; o teste passou a verificar persistência com `ItemUpdateType.ImageUpdate`.
+- GREEN adiciona `UpdateToRepositoryAsync` depois de aplicar `ProviderName` e `Language` à imagem salva. `ImageControllerBookFallbackTests`: **2/2**.
+- RED confirmou que os quatro caminhos locais de `IDynamicImageProvider` marcavam imagens extraídas/cacheadas com `ProviderName`, apesar de `ItemImageInfo.ProviderName` documentar origem remota. GREEN remove essa marcação nos caminhos HTTP, stream e arquivo; teste dinâmico: **4/4**.
+- O teste de preferência global inicialmente falhou por fixture sem `BaseItem.MediaSourceManager` configurado como protocolo de arquivo; após corrigir somente a fixture, passou **1/1** sem alteração adicional no ordenamento singular.
+- Auditoria de imagens locais em `MetadataService` não produziu correção: `MetadataResult.RemoteImages` contém somente `(Url, ImageType)`, sem `ProviderName` ou `Language` para persistir.
+- Verificação: `Jellyfin.Providers.Tests` sem Integration **921/921**; `Jellyfin.Api.Tests` sem Integration **823 aprovados, 3 ignorados, 0 falhas/826**; regressão serial sem Integration **5.537 aprovados, 98 ignorados, 0 falhas, 5.635 casos**; build Release **0 erros, 595 avisos**; `git diff --check` aprovado.
+- TWINS: searched `ProviderName = provider.Name` em `MulletaFlix-master` - found **2** outros sites relevantes: `ProviderManager.cs` para `IRemoteImageProvider` e `ListingsManager.cs` para listings; nenhum outro site dinâmico de imagem.
+- Runtime instalado 12.1.45, banco operacional e produção não foram alterados; correções da working tree continuam sem crédito no runtime instalado.
+
+## Seleção exclusiva do provider identificado e regressão sistêmica — 2026-11-03 11:28 BRT
+
+- RED reproduziu que `MetadataService.RefreshWithProviders` ignorava `MetadataRefreshOptions.SearchResult.SearchProviderName` e executava providers não selecionados durante a identificação.
+- GREEN filtra `providerList` por `SearchProviderName` com comparação ordinal sem distinção de maiúsculas/minúsculas; sem provider identificado, preserva o comportamento anterior de executar a lista disponível.
+- TDD focal: `RefreshWithProviders_IdentifySearchProvider_OnlyRunsSelectedProvider` passou **1/1** após falha RED anterior. `MetadataServiceTests`: **49/49**. `Jellyfin.Providers.Tests` sem Integration: **921/921**.
+- Regressão serial da solução sem Integration após a correção: **5.537 aprovados, 98 ignorados, 0 falhas, 5.635 casos**. Build Release: **0 erros, 593 avisos existentes**.
+- Comparação read-only com Jellyfin upstream: `ProviderManager` já restringe providers em buscas por `SearchProviderName`; `MetadataService` upstream prioriza o provider identificado, mas não limita a execução. A restrição local é intencional para impedir que um provider diferente sobrescreva o resultado escolhido.
+- TWINS: searched `providers.ToList()` em `MediaBrowser.Providers/Manager` - found **1** other site, `ItemImageProvider.cs:161`, pertencente a fluxo distinto de imagens e sem `SearchProviderName`; nenhuma outra ocorrência de `SearchProviderName` sem filtro no caminho de metadata foi encontrada.
+- Revalidação do caso anteriormente observado como falha `SaveRemoteResultImages_SingularFailureRecoveredByNextProvider_DoesNotRemainFailed`: **1/1** aprovado isoladamente; a falha não reproduziu após a execução serializada atual.
+- Runtime instalado 12.1.45, banco operacional e produção não foram alterados; correções da working tree ainda não recebem crédito no runtime instalado.
+
+## Proteção contra referências compartilhadas, fallback inglês e regressão sistêmica — 2026-11-03 10:47 BRT
+
+- Revisão adversarial encontrou três gaps concretos no refresh: prune podia remover stale sem replacement em falha parcial; fallback inglês usava somente o índice zero do tipo; e a exclusão física não verificava referências em outros tipos/entidades nem tratava `IOException`.
+- TDD RED/GREEN: `RefreshImages_DoesNotDeleteReplacedImageReferencedByAnotherImageType` reproduziu exclusão indevida de caminho compartilhado; `RefreshImages_DeleteFailureStillDetachesReplacedImage` reproduziu propagação de `IOException`; `RefreshImages_EnglishFallbackReplacesNonEnglishStaleBackdropWhenFirstBackdropIsEnglish` reproduziu a escolha do backdrop inglês errado; `RefreshImages_DynamicStreamImage_PreservesProviderName` cobriu a terceira forma de resposta dinâmica.
+- GREEN: `PruneImages` agora só remove arquivo físico quando a referência global está disponível e o caminho não aparece em outro tipo do item nem em outra entidade; se a consulta falhar/estiver indisponível, a operação fica detach-only. Falhas `IOException` geram warning e não impedem `RemoveImages`.
+- GREEN adicional: fallback inglês avalia imagens stale do tipo inteiro, e o prune parcial prioriza stale não-inglês para preservar o fallback inglês ainda válido. Proveniência de `ProviderName` agora é propagada também no branch de stream dinâmico.
+- Testes focais novos: referências compartilhadas **1/1**; `IOException` **1/1**; fallback inglês multi-backdrop **1/1**; stream dinâmico **1/1**. Classe `ItemImageProviderTests`: **85/85**; `Jellyfin.Providers.Tests` sem Integration: **920 aprovados, 0 ignorados, 0 falhas, 920 casos**.
+- Build Release da solução: **0 erros; 593 avisos existentes**. Regressão serial sem Integration: **5.536 aprovados, 98 ignorados, 0 falhas, 5.634 casos**.
+- A consulta global de referências é conservadora e bloqueia exclusão física quando o índice não está disponível; isso evita perda de dados, mas a validação contra runtime instalado/produção continua sem crédito porque as correções ainda não foram instaladas.
+- Nenhum runtime instalado, banco operacional ou produção foi alterado.
+
+## Seleção localizada, limpeza, prune parcial e preferência global — 2026-11-03 10:00 BRT
+
+- RED reproduziu dois gaps no refresh de imagens: candidato `pt` localizado podia perder para backdrop sem idioma quando o idioma era recalculado dentro de `RefreshFromProvider`; e backdrop remoto local substituído perdia somente a referência, deixando arquivo órfão.
+- GREEN: `preferredLanguage` agora é propagado explicitamente até `RefreshFromProvider`, que prioriza `EnumerableExtensions.MatchesLanguage(...)`; `PruneImages` remove arquivo local somente para imagem com `ProviderName` remoto durante refresh, preservando arquivo manual sem proveniência e mantendo `RemoveImages` não destrutivo.
+- GREEN adicional: quando apenas parte dos candidatos localizados baixa com sucesso, o prune remove somente a mesma quantidade de backdrops obsoletos; candidatos obsoletos sem replacement permanecem.
+- GREEN adicional: item sem imagens agora resolve `preferredLanguage` via `BaseItem.GetPreferredMetadataLanguage` quando a preferência não vem do item nem das opções da biblioteca; teste seleciona `pt` sobre `en` usando configuração global.
+- Testes focais anteriores: classe `ItemImageProviderTests` **81/81**; `Jellyfin.Providers.Tests` **916 aprovados, 13 ignorados, 0 falhas/929**.
+- Nenhum runtime instalado, banco operacional ou produção foi alterado.
+
+## Cobertura adicional de backdrops e serialização dos testes ImageSaver — 2026-11-03 07:59 BRT
+
+- Adicionado teste para dois backdrops remotos obsoletos + um backdrop manual sob limite `1`; o refresh substitui ambos antes do prune e preserva o manual.
+- Teste `RefreshImages_ReplacesMultipleStaleRemoteBackdropsBeforePruning`: **1/1**. Classe `ItemImageProviderTests`: **75/75**.
+- Revisão adversarial do `ImageSaver` encontrou dois riscos baixos nos testes: mutação concorrente de `BaseItem.FileSystem`/`MediaSourceManager` e asserts incompletos de destinos. A classe `ImageSaverTests` agora usa a coleção não paralela `LibraryManagerTests`; o escopo de asserts adicionais permanece melhoria futura, sem falha funcional observada.
+- `ImageSaverTests` após serialização: **5/5**.
+- Nenhum runtime, banco operacional ou produção foi alterado.
+
+## Substituição de backdrop remoto obsoleto com limite baixo — 2026-11-03 07:53 BRT
+
+- Comparação read-only com Jellyfin upstream confirmou o mesmo algoritmo geral, mas a combinação local de backdrop remoto obsoleto + backdrop manual + limite `1` expôs uma falha de capacidade temporária.
+- RED: `RefreshImages_ReplacesStaleRemoteBackdropAndPreservesManualBackdrop(backdropLimit: 1)` não chamou o download localizado; o remoto obsoleto seria podado e somente o backdrop manual permaneceria.
+- Causa: `backdropLimit` ficava em `limite + staleRemoteBackdrops`, igual à contagem atual, impedindo a criação temporária do replacement antes do prune.
+- GREEN: `ItemImageProvider` agora reserva uma posição temporária por backdrop remoto obsoleto (`item.GetImages(Backdrop).Count() + staleRemoteBackdrops.Length`) antes de podar os arquivos antigos. O backdrop manual é preservado e o candidato `pt` é salvo.
+- TDD focal: RED **1 falha/2 casos**; GREEN **2/2**. Classe `ItemImageProviderTests`: **74/74**.
+- Regressão Providers sem Integration: primeira execução observou uma falha isolada de `MediaInfoResolverOptimizationTests` por estado estático `BaseItem.MediaSourceManager`; teste isolado passou 1/1 e a repetição completa passou **909/909**.
+- Build Release da solução: **0 erros, 20 avisos existentes**.
+- TWINS: searched `oldBackdropImages = staleRemoteBackdrops` - found **0** other sites; a fórmula anterior de capacidade permanece apenas no caminho distinto de `ReplaceAllImages`.
+- Runtime instalado, banco operacional e produção não foram alterados.
+
+## Regressão serial do servidor sem Integration — 2026-11-03 07:41 BRT
+
+- Comando: `dotnet test MulletaFlix.sln --no-restore --no-build --configuration Release --filter 'FullyQualifiedName!~Integration' --logger 'console;verbosity=minimal' -m:1`.
+- Resultado observado: **5.523 aprovados, 98 ignorados, 0 falhas, 5.621 casos**.
+- Projetos relevantes: Providers **908/908**, Server.Implementations **1.752 aprovados + 95 ignorados**, API **822 aprovados + 3 ignorados**, Controller **73/73**, Server **91/91**.
+- Os 98 ignorados são dependentes de plataforma/infraestrutura ou opt-in. Não foram convertidos em aprovação e não fecham homologação formal.
+- Build Release anterior à regressão: **0 erros, 20 avisos existentes**.
+
+## Probe read-only do runtime instalado — 2026-11-03 07:30 BRT
+
+- Processo observado: `C:\Program Files\MulletaFlix\Server\MulletaFlix.exe`, PID `24732`, iniciado em **03/11/2026 03:51:49**.
+- `GET http://127.0.0.1:8096/health`: HTTP **200**, corpo `Healthy`.
+- `GET http://127.0.0.1:8096/System/Info/Public`: HTTP **200**, `Version=12.1.45`, `ProductName=MulletaFlix`.
+- O binário instalado também reporta `FileVersion=12.1.45` e `ProductVersion=12.1.45`.
+- Probe foi somente leitura. A instalação não contém automaticamente as correções locais atuais; não recebe crédito por elas.
+
+## Retry de ImageSaver em múltiplos caminhos e streams non-seekable — 2026-11-03 07:25 BRT
+
+- RED: com `ImageSavingConvention.Compatible`, `EnableExtraThumbsDuplication=true` e backdrop adicional, `paths` tinha dois destinos (`extrafanart` e `extrathumbs`) enquanto `retryPaths` tinha um destino interno. O primeiro destino foi tornado inválido por uma entrada de arquivo ocupando o diretório `extrafanart`; o save falhou sem tentar o destino interno.
+- GREEN: `ImageSaver` agora escolhe `retryPaths[i]` quando o índice existe, sem exigir que os arrays tenham o mesmo comprimento. Isso cobre o primeiro caminho compatível mesmo quando existem cópias adicionais.
+- Teste focal `SaveImage_MultipleCompatibleBackdropPaths_FallsBackToMetadataPath`: RED reproduziu `IOException` em `ImageSaver.cs:266`; GREEN passou junto com `ImageSaverTests` **4/4**.
+- Segundo RED: `SaveImage_NonSeekableSource_IsRewoundBeforeSave` persistiu arquivo vazio porque o `MemoryStream` usado para bufferização permanecia no fim após `CopyToAsync`. GREEN reposiciona o buffer em `Position = 0`; `ImageSaverTests` passou **5/5**.
+- Jellyfin upstream mantém a condição `paths.Length == retryPaths.Length`; a divergência local é intencional, mínima e coberta por regressão para o cenário de duplicação local.
+- TWINS: searched `source = memoryStream` - found **0** other sites; `CopyToAsync(memoryStream)` existe em outros fluxos, mas nenhum reatribui o buffer como fonte de retry em `MulletaFlix-master`.
+- Nenhum runtime, banco operacional ou produção foi alterado.
+
+## Fallback de idioma preferido para overview e tagline — 2026-11-03 06:54 BRT
+
+- Comparação read-only com Jellyfin upstream encontrou o controle de `overviewIsFallback`/`taglineIsFallback` durante a fusão de providers: conteúdo em idioma fallback deve ser substituído quando um provider posterior entrega o idioma preferido.
+- RED: dois providers retornaram primeiro inglês e depois `pt-BR`; o servidor manteve `English overview` e `English tagline`.
+- GREEN: `MetadataService.ExecuteRemoteProviders` agora acompanha fallback por campo, compara idioma exato/regional e limpa o valor fallback antes de mesclar o resultado preferido.
+- Teste focal `RefreshWithProviders_PrefersPreferredLanguageOverEarlierFallback`: **1/1**. Classe `MetadataServiceTests`: **48/48**.
+- A correção cobre metadata textual; seleção de idioma de imagens e múltiplos backdrops continuam auditorias separadas. Nenhum runtime, banco operacional ou produção foi alterado.
+
+## Reexecução MariaDB concorrente não é promovida — 2026-11-03 06:54 BRT
+
+- Duas execuções do script de persistência MariaDB foram iniciadas em paralelo. Uma terminou com falha: 21 aprovados, 13 falhas, 1 ignorado, 35 casos; a falha ocorreu durante a resolução de `Contexts` em `ServerPersistenceMariaDbTests.InitializeAsync`, antes de representar uma regressão funcional isolada.
+- A outra execução, limpa, concluiu 34 aprovados, 1 ignorado, 0 falhas/35. O caso ignorado continua sendo `SaveImagesAsync_RetriesAfterMariaDbProcessRestartDuringDelete`, opt-in.
+- O resultado verde permanece a evidência válida para o slice; o resultado concorrente fica preservado como falha de execução, sem ser ocultado nem contado como aprovação. O MariaDB operacional na porta 3306 não foi tocado; após cleanup só o processo operacional permaneceu.
+- Build Release paralelo concluiu com 0 erros e 20 avisos existentes. Homologação formal permanece 2/7 (28,6%).
+
+## Idioma regional explícito não é reescrito — 2026-11-03 06:47 BRT
+
+- A comparação com Jellyfin upstream encontrou uma normalização local em `BaseItem.GetPreferredMetadataLanguage` que convertia `pt-PT` para `pt-BR` quando o país era `BR`. Isso alterava uma preferência regional explícita antes de os providers específicos aplicarem suas próprias regras.
+- TDD RED: `BaseItemTests.GetPreferredMetadataLanguage_PreservesExplicitRegionalLanguage` falhou porque o resultado era `pt-BR` em vez de `pt-PT`.
+- GREEN: removida a normalização global; `GetPreferredMetadataLanguage` volta a retornar o idioma resolvido sem reescrita. A normalização limitada ao formato exigido pelo TMDb permanece em `TmdbUtils`, no ponto de integração da API.
+- Verificação: teste focal 1/1; `BaseItemTests` 13/13; `Jellyfin.Providers.Tests` sem `Integration` 905/905; build Release da solução 0 erros. `git diff --check` passou; avisos existentes permaneceram. Busca de twins não encontrou `NormalizePreferredMetadataLanguage` nem outro helper equivalente no servidor.
+- Runtime instalado 12.1.45, banco operacional e produção não foram alterados. Homologação formal permanece 2/7 (28,6%).
+
+## IDs TMDb inválidos não interrompem providers de imagens — 2026-11-03 06:29 BRT
+
+- A comparação dos fluxos de imagens encontrou `Convert.ToInt32` sem guarda em `TmdbSeriesImageProvider`, `TmdbSeasonImageProvider`, `TmdbEpisodeImageProvider` e `TmdbBoxSetImageProvider`. IDs `ProviderId` corrompidos podiam lançar `FormatException` durante a busca de capas/stills.
+- TDD RED: quatro testes com `not-a-number` falharam; séries primeiro alcançaram `BaseItem.GetPreferredMetadataLanguage`, e temporada, episódio e box set lançaram `FormatException` diretamente em `Convert.ToInt32`.
+- GREEN: os quatro providers agora usam `int.TryParse(..., NumberStyles.Integer, CultureInfo.InvariantCulture, ...)` e retornam conjunto vazio para IDs ausentes, inválidos ou não positivos, antes de consultar idioma/API.
+- Verificação: filtro `TmdbImageProviderInvalidIdTests` passou 4/4; filtro combinado de IDs, fluxo de imagem de filme, `TmdbUtilsTests` e `ProviderManagerImageProviderTests` passou 36/36; regressão `Jellyfin.Providers.Tests` sem `Integration` passou 905/905. A primeira execução teve uma falha transitória em `AudioResolverTests.GetExternalStreams_MixedFilenames_PicksAudio`; o teste isolado passou 4/4 e a repetição completa passou 905/905. `git diff --check` passou. Build Release da solução terminou serialmente com 0 erros e 20 avisos existentes.
+- Busca de twins nos providers de imagem TMDb não encontrou `Convert.ToInt32` remanescente. Outros providers de metadata não-imagem ainda possuem conversões diretas e permanecem fora deste slice. Nenhuma API TMDb, runtime instalado, produção ou banco operacional foi acessado.
+
+## Persistência MariaDB de imagens em scratch descartável — 2026-11-03 05:41 BRT
+
+- MariaDB 11.4.4 real foi iniciado em `127.0.0.1:51588`, com datadir temporário e `max-connections=500`; a instância operacional na porta 3306 não foi acessada nem alterada.
+- Filtro focal de imagens (`SaveImagesAsync` e `RefreshImages_PersistsSelectedPortugueseCandidateToMariaDb`): 11 aprovados, 1 ignorado, 0 falhas. O skip é o cenário opt-in de reinício do processo MariaDB durante delete.
+- A classe `ServerPersistenceMariaDbTests` inicialmente encontrou FK em `GetNextUpSeriesKeys_WithEqualLastPlayedDates_AppliesStableTieBreakBeforeLimit`: o fixture criava `UserData` sem inserir o `User` correspondente. O fixture foi corrigido; o teste passou 1/1 e a classe completa passou 34 aprovados, 1 ignorado, 0 falhas/35.
+- Build Release da solução passou com 0 erros e 603 avisos existentes. Pós-cleanup confirmou `51588=no-listener` e `scratch-dirs=0`. Nenhum código de produção, instalação ou produção foi alterado. Homologação formal permanece 2/7.
+
+## Imagens dinâmicas preservam provider — 2026-11-03 05:17 BRT
+
+- `ItemImageProvider.RefreshFromProvider` perdia `ProviderName` nos dois caminhos de `IDynamicImageProvider`: URL HTTP direta e arquivo local salvo via `IProviderManager`.
+- TDD: `RefreshImages_DynamicHttpImage_PreservesProviderName` e `RefreshImages_DynamicFileImage_PreservesProviderName` falharam com `Actual: null`. Correção grava `provider.Name` nos dois caminhos.
+- Testes focais: 2/2. Filtro `ItemImageProviderTests`: 73/73. `Jellyfin.Providers.Tests`: 901 aprovados, 13 ignorados, 0 falhas/914 na segunda execução. Build Release: 0 erros e 1 aviso XML preexistente. A primeira execução ampla expôs uma falha intermitente em `LyricResolverTests`; o teste isolado e a reexecução ampla passaram. Nenhuma alteração no runtime instalado ou produção.
+
+## Retry de gravação reinicia stream após falha parcial — 2026-11-03 04:56 BRT
+
+- `ImageSaver.SaveImageToLocation` repetia o retry com o stream na posição após a escrita parcial; a segunda gravação produzia arquivo truncado. Streams não seekable também não eram bufferizados quando havia `retryPaths`.
+- TDD: `ImageSaverTests.SaveImage_RetryAfterPartialRead_WritesCompleteBytes` falhou com esperado `[1,2,3,4,5,6]` e atual `[3,4,5,6]`. Correção reposiciona streams seekable em zero antes do retry e bufferiza streams não seekable quando retry paths existem.
+- `ImageSaverTests`: 3/3. `Jellyfin.Providers.Tests`: 899 aprovados, 13 ignorados, 0 falhas/912. Build Release: 0 erros e 1 aviso XML preexistente. Nenhuma alteração no runtime instalado ou produção.
+
+## Conversão de imagem preserva proveniência — 2026-11-03 04:46 BRT
+
+- `LibraryManager.ConvertImageToLocal` chamava `ProviderManager.SaveImage`; `BaseItem.SetImagePath` limpava `ProviderName` e `Language`, então a conversão remota→local perdia a origem da imagem.
+- TDD: `LibraryManagerImageConversionTests.ConvertImageToLocal_PreservesImageProvenance` falhou com `ProviderName=null`; a correção captura a proveniência antes do save e restaura no `ItemImageInfo` convertido. Teste focal 1/1.
+- Regressão `Jellyfin.Server.Implementations.Tests`: 1.752 aprovados, 95 ignorados, 0 falhas/1.847. Build Release: 0 erros, 4 avisos XML preexistentes. Nenhuma alteração no runtime instalado ou produção.
+
+## `SetItemImageByIndex` preserva índice de imagem — 2026-11-03 04:33 BRT
+
+- A rota `POST Items/{itemId}/Images/{imageType}/{imageIndex}` recebia `imageIndex`, mas chamava `IProviderManager.SaveImage` com `null`; o endpoint por índice podia salvar no slot incorreto.
+- TDD: `ImageControllerIndexTests.SetItemImageByIndex_PassesRouteIndexToProviderManager` falhou primeiro com mock estrito observando `null`; correção mínima encaminha `imageIndex`. Teste focal passou 1/1; filtro `FullyQualifiedName~ImageController` passou 53/53.
+- Busca de twins encontrou apenas o endpoint sem índice `SetItemImage`, que usa `null` de forma intencional; nenhum segundo bypass no endpoint por índice. Build Release passou com 0 erros e 4 avisos XML preexistentes. Nenhuma alteração no runtime instalado ou produção.
+
+## Cache de imagem separa progresso e contagem de não assistidos — 2026-11-03 04:18 BRT
+
+- Comparação com Jellyfin upstream encontrou colisão em `src/Jellyfin.Drawing/ImageProcessor.cs`: `PercentPlayed` e `UnwatchedCount` eram serializados como `,p=...`; versão local também não invalidava caches anteriores.
+- TDD: `ImageProcessorCacheKeyTests.GetCacheFilePath_ProgressAndUnwatchedCountDoNotCollide` falhou com paths iguais para valor 50. Correção usa `,pp=`, `,uc=` e incrementa versão de cache para `4`. Filtro focal passou 1/1; filtro combinado de API/imagens passou 3/3.
+- Build Release passou com 0 erros e 3 avisos XML preexistentes. Nenhum cache de produção foi limpo; runtime instalado 12.1.45 não contém a working tree corrigida. Homologação formal permanece 2/7.
+
+## DateLastRefreshed só avança após tentativa real de busca — 2026-11-03 04:05 BRT
+
+- Comparação com Jellyfin upstream mostrou que `RefreshMetadata` precisa distinguir execução sem busca (`MetadataRefreshMode.None` e `ImageRefreshMode.None`) de busca real. O código local atualizava `DateLastRefreshed` sem operação.
+- TDD: `RefreshMetadata_NoRefresh_DoesNotAdvanceDateLastRefreshed` falhou com avanço de 2 para 3 de novembro de 2026; a guarda passou a exigir `MetadataRefreshMode > ValidationOnly` ou `ImageRefreshMode > ValidationOnly`. Filtro focal 2/2; `Jellyfin.Providers.Tests` passou 898 aprovados, 13 ignorados, 0 falhas/911.
+- Build Release passou com 0 erros e 1 aviso XML preexistente (`CS1574`). Busca de twins não encontrou segundo uso do padrão incorreto. Homologação formal continua 2/7; sem release ou mutação de produção.
+
+## ValidationOnly não avança DateLastRefreshed — 2026-11-03 03:31 BRT
+
+- Achado reproduzido em `MediaBrowser.Providers/Manager/MetadataService.cs`: `RefreshMetadata` atualizava `DateLastRefreshed` mesmo com `MetadataRefreshMode.ValidationOnly`, podendo atrasar refreshes/downloads futuros.
+- TDD: `RefreshMetadata_ValidationOnly_DoesNotAdvanceDateLastRefreshed` falhou antes com avanço do timestamp e passou após a guarda de modo. `MetadataServiceTests`: 46/46; `Jellyfin.Providers.Tests`: 897 aprovados, 13 ignorados, 0 falhas/910.
+- `dotnet build MulletaFlix.sln -c Release --no-restore -p:RunAnalyzersDuringBuild=false`: 0 erros e 1 aviso XML preexistente. Nenhum provider remoto, instalação, CI hospedada, Linux/POSIX ou produção foi validado. Homologação formal permanece 2/7, sem release.
+
 ## Nebula: auditoria de aliases físicos da identidade da fila — 2026-10-26 19:31 BRT
 
 - Revisão estática de C#, Python e testes: `NormalizeQueueIdentity` usa `Path.GetFullPath`; `queue_identity` usa `abspath`/`normcase`. Symlink/junction não é resolvido, portanto caminhos distintos para o mesmo arquivo podem criar identidades de fila distintas.

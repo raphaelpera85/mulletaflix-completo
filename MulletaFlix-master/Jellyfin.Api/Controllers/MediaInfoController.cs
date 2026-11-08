@@ -348,9 +348,17 @@ public class MediaInfoController : BaseMulletaFlixApiController
         {
             return Unauthorized();
         }
+
         userId = resolvedUserId;
 
+        var requestedOpenToken = openToken ?? openLiveStreamDto?.OpenToken;
         var requestedItemId = itemId ?? openLiveStreamDto?.ItemId ?? Guid.Empty;
+
+        if (string.IsNullOrWhiteSpace(requestedOpenToken) && requestedItemId == Guid.Empty)
+        {
+            return BadRequest("Either openToken or itemId must be provided.");
+        }
+
         if (requestedItemId != Guid.Empty)
         {
             var item = _libraryManager.GetItemById<BaseItem>(requestedItemId, user);
@@ -543,18 +551,17 @@ public class MediaInfoController : BaseMulletaFlixApiController
     /// <returns>A <see cref="FileResult"/> with specified bitrate.</returns>
     [HttpGet("Playback/BitrateTest")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesFile(MediaTypeNames.Application.Octet)]
     public ActionResult GetBitrateTestBytes([FromQuery][Range(1, 100_000_000, ErrorMessage = "The requested size must be greater than or equal to {1} and less than or equal to {2}")] int size = 102400)
     {
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(size);
-        try
+        if (size <= 0)
         {
-            Random.Shared.NextBytes(buffer);
-            return File(buffer, MediaTypeNames.Application.Octet);
+            return BadRequest("Size must be greater than zero.");
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+
+        byte[] buffer = GC.AllocateUninitializedArray<byte>(size);
+        Random.Shared.NextBytes(buffer);
+        return File(buffer, MediaTypeNames.Application.Octet);
     }
 }

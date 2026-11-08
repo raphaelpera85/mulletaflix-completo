@@ -86,6 +86,7 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> AddVirtualFolder(
         [FromQuery]
         [RegularExpression(@"^(?:\S(?:.*\S)?)$", ErrorMessage = "Library name cannot be empty or have leading/trailing spaces.")]
@@ -95,6 +96,11 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         [FromBody] AddVirtualFolderDto? libraryOptionsDto,
         [FromQuery] bool refreshLibrary = false)
     {
+        if (string.IsNullOrWhiteSpace(name) || name != name.Trim())
+        {
+            return BadRequest("Library name cannot be empty or have leading/trailing spaces.");
+        }
+
         var libraryOptions = libraryOptionsDto?.LibraryOptions ?? new LibraryOptions();
         ApplyLibraryDefaults(libraryOptions);
 
@@ -114,14 +120,22 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <param name="name">The name of the folder.</param>
     /// <param name="refreshLibrary">Whether to refresh the library.</param>
     /// <response code="204">Folder removed.</response>
+    /// <response code="400">Library name is required.</response>
     /// <response code="404">Folder not found.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpDelete]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> RemoveVirtualFolder(
         [FromQuery] string name,
         [FromQuery] bool refreshLibrary = false)
     {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return BadRequest("Library name is required.");
+        }
+
         // TODO: refactor! this relies on an FileNotFound exception to return NotFound when attempting to remove a library that does not exist.
         await _libraryManager.RemoveVirtualFolder(name, refreshLibrary).ConfigureAwait(false);
 
@@ -141,6 +155,7 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <exception cref="ArgumentNullException">The new name may not be null.</exception>
     [HttpPost("Name")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -182,7 +197,11 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         var operationLease = LibraryBackgroundOperationGate.TryAcquire();
         if (operationLease is null)
         {
-            Response.Headers.RetryAfter = "1";
+            if (Response is not null)
+            {
+                Response.Headers.RetryAfter = "1";
+            }
+
             return StatusCode(StatusCodes.Status429TooManyRequests);
         }
 
@@ -276,9 +295,11 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <param name="refreshLibrary">Whether to refresh the library.</param>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     /// <response code="204">Media path added.</response>
-    /// <exception cref="ArgumentNullException">The name of the library may not be empty.</exception>
+    /// <response code="400">Media path data is invalid or missing.</response>
+    /// <response code="429">Too many requests.</response>
     [HttpPost("Paths")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public ActionResult AddMediaPath(
         [FromBody, Required] MediaPathDto mediaPathDto,
@@ -287,8 +308,30 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         var operationLease = LibraryBackgroundOperationGate.TryAcquire();
         if (operationLease is null)
         {
-            Response.Headers.RetryAfter = "1";
+            if (Response is not null)
+            {
+                Response.Headers.RetryAfter = "1";
+            }
+
             return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        if (mediaPathDto is null)
+        {
+            operationLease.Dispose();
+            return BadRequest("Media path data is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(mediaPathDto.Name))
+        {
+            operationLease.Dispose();
+            return BadRequest("Library name is required.");
+        }
+
+        if (mediaPathDto.PathInfo is null && string.IsNullOrWhiteSpace(mediaPathDto.Path))
+        {
+            operationLease.Dispose();
+            return BadRequest("Path or PathInfo is required.");
         }
 
         try
@@ -327,14 +370,25 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <param name="mediaPathRequestDto">The name of the library and path infos.</param>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     /// <response code="204">Media path updated.</response>
-    /// <exception cref="ArgumentNullException">The name of the library may not be empty.</exception>
+    /// <response code="400">Media path request is invalid or missing.</response>
     [HttpPost("Paths/Update")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult UpdateMediaPath([FromBody, Required] UpdateMediaPathRequestDto mediaPathRequestDto)
     {
+        if (mediaPathRequestDto is null)
+        {
+            return BadRequest("Media path request is required.");
+        }
+
         if (string.IsNullOrWhiteSpace(mediaPathRequestDto.Name))
         {
-            throw new ArgumentNullException(nameof(mediaPathRequestDto), "Name must not be null or empty");
+            return BadRequest("Name must not be null or empty.");
+        }
+
+        if (mediaPathRequestDto.PathInfo is null)
+        {
+            return BadRequest("PathInfo is required.");
         }
 
         _libraryManager.UpdateMediaPath(mediaPathRequestDto.Name, mediaPathRequestDto.PathInfo);
@@ -349,19 +403,39 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <param name="refreshLibrary">Whether to refresh the library.</param>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     /// <response code="204">Media path removed.</response>
-    /// <exception cref="ArgumentException">The name of the library and path may not be empty.</exception>
+    /// <response code="400">Library name or path is required.</response>
+    /// <response code="429">Too many requests.</response>
     [HttpDelete("Paths")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public ActionResult RemoveMediaPath(
         [FromQuery] string name,
         [FromQuery] string path,
         [FromQuery] bool refreshLibrary = false)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-
         var operationLease = LibraryBackgroundOperationGate.TryAcquire();
+        if (operationLease is null)
+        {
+            if (Response is not null)
+            {
+                Response.Headers.RetryAfter = "1";
+            }
+
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            operationLease.Dispose();
+            return BadRequest("Library name is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            operationLease.Dispose();
+            return BadRequest("Media path is required.");
+        }
         if (operationLease is null)
         {
             Response.Headers.RetryAfter = "1";
@@ -401,14 +475,26 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// </summary>
     /// <param name="request">The library name and options.</param>
     /// <response code="204">Library updated.</response>
+    /// <response code="400">Library options request is invalid or missing.</response>
     /// <response code="404">Item not found.</response>
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost("LibraryOptions")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult UpdateLibraryOptions(
         [FromBody] UpdateLibraryOptionsDto request)
     {
+        if (request is null)
+        {
+            return BadRequest("Library options request is required.");
+        }
+
+        if (request.Id == Guid.Empty)
+        {
+            return BadRequest("Library id must not be empty.");
+        }
+
         var item = _libraryManager.GetItemById<CollectionFolder>(request.Id);
         if (item is null)
         {

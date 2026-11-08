@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading.Tasks;
@@ -73,6 +73,8 @@ public class MusicGenresController : BaseMulletaFlixApiController
     /// <response code="200">Music genres returned.</response>
     /// <returns>An <see cref="OkResult"/> containing the queryresult of music genres.</returns>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Use GetGenres instead")]
     [ApiExplorerSettings(IgnoreApi = true)]
@@ -96,6 +98,21 @@ public class MusicGenresController : BaseMulletaFlixApiController
         [FromQuery] bool? enableImages = true,
         [FromQuery] bool enableTotalRecordCount = true)
     {
+        if (startIndex.HasValue && startIndex.Value < 0)
+        {
+            return BadRequest("StartIndex must be greater than or equal to 0.");
+        }
+
+        if (limit.HasValue && limit.Value < 0)
+        {
+            return BadRequest("Limit must be greater than or equal to 0.");
+        }
+
+        if (imageTypeLimit.HasValue && imageTypeLimit.Value < 0)
+        {
+            return BadRequest("ImageTypeLimit must be greater than or equal to 0.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var dtoOptions = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, false, imageTypeLimit, enableImageTypes);
@@ -152,9 +169,16 @@ public class MusicGenresController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing a <see cref="BaseItemDto"/> with the music genre.</returns>
     [HttpGet("{genreName}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Obsolete("Use GetGenre instead")]
     public async Task<ActionResult<BaseItemDto>> GetMusicGenre([FromRoute, Required] string genreName, [FromQuery] Guid? userId)
     {
+        if (string.IsNullOrWhiteSpace(genreName))
+        {
+            return BadRequest("Genre name is required.");
+        }
+
         userId = RequestHelpers.GetUserId(User, userId);
         var dtoOptions = new DtoOptions();
 

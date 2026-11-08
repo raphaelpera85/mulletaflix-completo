@@ -520,7 +520,7 @@ namespace MulletaFlix.LiveTv.Listings
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error getting image info from schedules direct");
+                    _logger.LogError("{Error} getting image info from schedules direct", LiveTvUrlRedactor.RedactText(ex.ToString()));
                 }
             }
 
@@ -565,7 +565,7 @@ namespace MulletaFlix.LiveTv.Listings
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting headends");
+                _logger.LogError("{Error} getting headends", LiveTvUrlRedactor.RedactText(ex.ToString()));
             }
 
             return lineups;
@@ -678,11 +678,10 @@ namespace MulletaFlix.LiveTv.Listings
             }
 
             _logger.LogError(
-                "Request to {Url} failed with HTTP {StatusCode}, SD code {SdCode}: {Response}",
-                message.RequestUri,
+                "Request to {Url} failed with HTTP {StatusCode}, SD code {SdCode}",
+                LiveTvUrlRedactor.Redact(message.RequestUri?.ToString()),
                 (int)response.StatusCode,
-                sdCode?.ToString() ?? "N/A",
-                responseBody);
+                sdCode?.ToString() ?? "N/A");
 
             if (sdCode is SdErrorCode.AccountExpired or SdErrorCode.InvalidHash or SdErrorCode.InvalidUser or SdErrorCode.AccountLocked or SdErrorCode.AppLocked or SdErrorCode.AccountInactive)
             {

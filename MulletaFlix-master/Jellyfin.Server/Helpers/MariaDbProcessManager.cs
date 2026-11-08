@@ -45,9 +45,10 @@ namespace MulletaFlix.Server.Helpers
                     return;
                 }
 
+                var (mutexName, fallbackMutexName) = ResolveStartupMutexNames(requireEmbeddedProcess, port);
                 _startupMutex = await StartupMutexLease.AcquireAsync(
-                    "Global\\MulletaFlix.EmbeddedMariaDb",
-                    "MulletaFlix.EmbeddedMariaDb",
+                    mutexName,
+                    fallbackMutexName,
                     TimeSpan.FromSeconds(45),
                     cancellationToken).ConfigureAwait(false);
                 var databaseAvailable = await WaitForDatabaseAsync(masterConnString, TimeSpan.FromSeconds(2), logger, cancellationToken).ConfigureAwait(false);
@@ -291,6 +292,22 @@ namespace MulletaFlix.Server.Helpers
             {
                 return false;
             }
+        }
+
+        internal static (string MutexName, string FallbackMutexName) ResolveStartupMutexNames(bool requireEmbeddedProcess, int port)
+        {
+            if (requireEmbeddedProcess)
+            {
+                return ("Global\\MulletaFlix.EmbeddedMariaDb.Tests", "MulletaFlix.EmbeddedMariaDb.Tests");
+            }
+
+            if (port != 3306)
+            {
+                var portSuffix = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return ($"Global\\MulletaFlix.EmbeddedMariaDb.Port.{portSuffix}", $"MulletaFlix.EmbeddedMariaDb.Port.{portSuffix}");
+            }
+
+            return ("Global\\MulletaFlix.EmbeddedMariaDb", "MulletaFlix.EmbeddedMariaDb");
         }
 
         internal static int ResolveDatabasePort(string? configuredPort)
@@ -549,7 +566,7 @@ namespace MulletaFlix.Server.Helpers
                     var result = WaitHandle.WaitAny([mutex, _releaseRequested], _timeout);
                     if (result == WaitHandle.WaitTimeout)
                     {
-                        throw new TimeoutException("Timed out waiting for another MulletaFlix process to finish MariaDB startup.");
+                        throw new TimeoutException("Timed out waiting for another MulletaFlix process to release the embedded MariaDB lock.");
                     }
 
                     return result == 0;

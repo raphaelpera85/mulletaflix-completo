@@ -188,9 +188,15 @@ async function openStage(driver, route = '/') {
 }
 
 async function navigateSpa(driver, route = '/') {
-    await driver.executeScript((targetRoute) => {
-        window.Dashboard.navigate(targetRoute);
+    const result = await driver.executeAsyncScript((targetRoute, done) => {
+        Promise.resolve(window.Dashboard.navigate(targetRoute))
+            .then(() => done(null))
+            .catch(error => done({ navigationError: String(error?.message || error) }));
     }, normalizeSpaRoute(route));
+
+    if (result?.navigationError) {
+        throw new Error(result.navigationError);
+    }
 }
 
 async function openLogin(driver, serverId = null) {

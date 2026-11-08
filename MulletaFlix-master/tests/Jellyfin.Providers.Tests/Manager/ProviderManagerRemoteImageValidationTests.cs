@@ -8,6 +8,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Providers.Manager;
 using Moq;
@@ -100,5 +101,84 @@ public partial class ProviderManagerTests
         {
             Directory.Delete(temporaryDirectory, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task SaveImage_NullOrWhiteSpaceUrl_ThrowsArgumentException(string? url)
+    {
+        var item = new Movie();
+        using var providerManager = GetProviderManager();
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => providerManager.SaveImage(
+            item,
+            url!,
+            ImageType.Primary,
+            null,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SaveImage_NullItem_ThrowsArgumentNullException()
+    {
+        using var providerManager = GetProviderManager();
+        await Assert.ThrowsAsync<ArgumentNullException>(() => providerManager.SaveImage(
+            null!,
+            "https://example.com/poster.jpg",
+            ImageType.Primary,
+            null,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetRemoteSearchResults_NullSearchInfo_ThrowsArgumentNullException()
+    {
+        using var providerManager = GetProviderManager();
+        await Assert.ThrowsAsync<ArgumentNullException>(() => providerManager.GetRemoteSearchResults<Movie, MovieInfo>(
+            null!,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SaveImage_Stream_NullItem_ThrowsArgumentNullException()
+    {
+        using var providerManager = GetProviderManager();
+        await Assert.ThrowsAsync<ArgumentNullException>(() => providerManager.SaveImage(
+            null!,
+            new MemoryStream(new byte[] { 1, 2, 3 }),
+            "image/jpeg",
+            ImageType.Primary,
+            null,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SaveImage_Path_NullItem_ThrowsArgumentNullException()
+    {
+        using var providerManager = GetProviderManager();
+        await Assert.ThrowsAsync<ArgumentNullException>(() => providerManager.SaveImage(
+            null!,
+            "temp.jpg",
+            "image/jpeg",
+            ImageType.Primary,
+            null,
+            null,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task SaveImage_Path_NullSource_ThrowsArgumentNullException()
+    {
+        var item = new Movie();
+        using var providerManager = GetProviderManager();
+        await Assert.ThrowsAsync<ArgumentNullException>(() => providerManager.SaveImage(
+            item,
+            null!,
+            "image/jpeg",
+            ImageType.Primary,
+            null,
+            null,
+            TestContext.Current.CancellationToken));
     }
 }

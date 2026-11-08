@@ -322,6 +322,111 @@ public class UserFeedbackControllerTests
         Assert.Equal("MediaRequest", capturedQuery.Type);
     }
 
+    [Fact]
+    public async Task CreateMediaRequest_NullPayload_ReturnsBadRequest()
+    {
+        var controller = new UserFeedbackController(Mock.Of<IActivityManager>(), Mock.Of<ILibraryManager>(), Mock.Of<INebulaFtpManager>());
+        SetCallerUser(controller);
+
+        var result = await controller.CreateMediaRequest(null!);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Media request is required.", badRequest.Value);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CreateMediaRequest_NullOrWhitespaceTitle_ReturnsBadRequest(string? title)
+    {
+        var controller = new UserFeedbackController(Mock.Of<IActivityManager>(), Mock.Of<ILibraryManager>(), Mock.Of<INebulaFtpManager>());
+        SetCallerUser(controller);
+
+        var result = await controller.CreateMediaRequest(new MediaRequestDto { Title = title!, MediaType = "Movie" });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Title is required.", badRequest.Value);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CreateMediaRequest_NullOrWhitespaceMediaType_ReturnsBadRequest(string? mediaType)
+    {
+        var controller = new UserFeedbackController(Mock.Of<IActivityManager>(), Mock.Of<ILibraryManager>(), Mock.Of<INebulaFtpManager>());
+        SetCallerUser(controller);
+
+        var result = await controller.CreateMediaRequest(new MediaRequestDto { Title = "Inception", MediaType = mediaType! });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Media type is required.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreatePlaybackIssue_NullPayload_ReturnsBadRequest()
+    {
+        var controller = new UserFeedbackController(Mock.Of<IActivityManager>(), Mock.Of<ILibraryManager>(), Mock.Of<INebulaFtpManager>());
+        SetCallerUser(controller);
+
+        var result = await controller.CreatePlaybackIssue(null!);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Playback issue request is required.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreatePlaybackIssue_EmptyItemId_ReturnsBadRequest()
+    {
+        var controller = new UserFeedbackController(Mock.Of<IActivityManager>(), Mock.Of<ILibraryManager>(), Mock.Of<INebulaFtpManager>());
+        SetCallerUser(controller);
+
+        var result = await controller.CreatePlaybackIssue(new PlaybackIssueDto
+        {
+            ItemId = Guid.Empty,
+            Category = "Playback"
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Item id must not be empty.", badRequest.Value);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CreatePlaybackIssue_NullOrWhitespaceCategory_ReturnsBadRequest(string? category)
+    {
+        var callerUserId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+        var item = new Mock<BaseItem>();
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager.Setup(m => m.GetItemById<BaseItem>(itemId, callerUserId)).Returns(item.Object);
+
+        var controller = new UserFeedbackController(Mock.Of<IActivityManager>(), libraryManager.Object, Mock.Of<INebulaFtpManager>())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                        [new Claim(InternalClaimTypes.UserId, callerUserId.ToString("D"))],
+                        "test"))
+                }
+            }
+        };
+
+        var result = await controller.CreatePlaybackIssue(new PlaybackIssueDto
+        {
+            ItemId = itemId,
+            Category = category!
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Category is required.", badRequest.Value);
+    }
+
     private static void SetCallerUser(UserFeedbackController controller)
     {
         controller.ControllerContext = new ControllerContext

@@ -16,6 +16,7 @@ using Xunit;
 
 namespace MulletaFlix.Providers.Tests.MediaInfo;
 
+[Collection("LibraryManagerTests")]
 public class LyricResolverTests
 {
     private readonly LyricResolver _lyricResolver;

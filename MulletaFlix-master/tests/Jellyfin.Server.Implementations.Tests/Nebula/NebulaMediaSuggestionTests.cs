@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
@@ -15,6 +16,25 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public class NebulaMediaSuggestionTests
 {
+    [Fact]
+    public void AddDownloaderLog_RedactsUrlCredentialsBeforeStoringLog()
+    {
+        var configurationManager = new Mock<IServerConfigurationManager>();
+        using var manager = new NebulaFtpManager(
+            configurationManager.Object,
+            NullLogger<NebulaFtpManager>.Instance,
+            NullLoggerFactory.Instance);
+        var addDownloaderLog = typeof(NebulaFtpManager).GetMethod("AddDownloaderLog", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(addDownloaderLog);
+
+        addDownloaderLog.Invoke(manager, ["Download failed: https://media.test/get.php?username=demo&password=secret"]);
+
+        var log = Assert.Single(manager.GetLogs(0, 0).DownloaderLogs);
+        Assert.DoesNotContain("demo", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", log, StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", log, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void SearchMediaSuggestions_IndexesStrmFilesFromConfiguredLibraryLocations()
     {

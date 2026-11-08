@@ -94,6 +94,66 @@ namespace MulletaFlix.Providers.Tests.Manager
         }
 
         [Fact]
+        public async Task GetAvailableRemoteImages_PropagatesProviderCancellation()
+        {
+            var item = new Movie
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            var provider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            provider.Setup(p => p.Name).Returns("cancelling-provider");
+            provider.Setup(p => p.Supports(item)).Returns(true);
+            provider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            provider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new OperationCanceledException());
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "cancelling-provider"))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [provider.Object]);
+
+            await Assert.ThrowsAsync<OperationCanceledException>(() => providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(string.Empty),
+                TestContext.Current.CancellationToken));
+        }
+
+        [Fact]
+        public async Task GetAvailableRemoteImages_ExtraDoesNotUseRemoteImageProviders()
+        {
+            var item = new Movie
+            {
+                ExtraType = ExtraType.Trailer,
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            var provider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            provider.Setup(p => p.Name).Returns("remote-provider");
+            provider.Setup(p => p.Supports(item)).Returns(true);
+            provider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            provider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>())).ReturnsAsync(
+                [new RemoteImageInfo { Type = ImageType.Primary, Language = "pt-BR" }]);
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "remote-provider"))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [provider.Object]);
+
+            var result = await providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(string.Empty),
+                TestContext.Current.CancellationToken);
+
+            Assert.Empty(result);
+            provider.Verify(p => p.GetImages(item, It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
         public async Task GetAvailableRemoteImages_PortugueseArtworkFromOneProviderSuppressesEnglishFromOthers()
         {
             var item = new Movie
@@ -197,6 +257,76 @@ namespace MulletaFlix.Providers.Tests.Manager
                 TestContext.Current.CancellationToken);
 
             Assert.Equal(new string?[] { "en", null }, result.Select(image => image.Language));
+        }
+
+        [Fact]
+        public async Task GetAvailableRemoteImages_SelectedProviderFailureIsNotReportedAsEmpty()
+        {
+            var item = new Movie
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            var provider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            provider.Setup(p => p.Name).Returns("failing-provider");
+            provider.Setup(p => p.Supports(item)).Returns(true);
+            provider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            provider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("provider unavailable"));
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "failing-provider"))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [provider.Object]);
+
+            var exception = await Assert.ThrowsAsync<AggregateException>(() => providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery("failing-provider"),
+                TestContext.Current.CancellationToken));
+
+            Assert.IsType<InvalidOperationException>(Assert.Single(exception.InnerExceptions));
+        }
+
+        [Fact]
+        public async Task GetAvailableRemoteImages_ContinuesWithHealthyProviderWhenAnotherFails()
+        {
+            var item = new Movie
+            {
+                PreferredMetadataLanguage = "pt-BR",
+                PreferredMetadataCountryCode = "BR"
+            };
+            var failingProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            failingProvider.Setup(p => p.Name).Returns("failing-provider");
+            failingProvider.Setup(p => p.Supports(item)).Returns(true);
+            failingProvider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            failingProvider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("provider unavailable"));
+
+            var healthyProvider = new Mock<IRemoteImageProvider>(MockBehavior.Strict);
+            healthyProvider.Setup(p => p.Name).Returns("healthy-provider");
+            healthyProvider.Setup(p => p.Supports(item)).Returns(true);
+            healthyProvider.Setup(p => p.GetSupportedImages(item)).Returns([ImageType.Primary]);
+            healthyProvider.Setup(p => p.GetImages(item, It.IsAny<CancellationToken>())).ReturnsAsync(
+                [new RemoteImageInfo { Type = ImageType.Primary, Language = "pt-BR" }]);
+
+            var baseItemManager = new Mock<IBaseItemManager>(MockBehavior.Strict);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "failing-provider"))
+                .Returns(true);
+            baseItemManager.Setup(manager => manager.IsImageFetcherEnabled(item, It.IsAny<TypeOptions>(), "healthy-provider"))
+                .Returns(true);
+
+            using var providerManager = GetProviderManager(baseItemManager: baseItemManager.Object);
+            AddParts(providerManager, imageProviders: [failingProvider.Object, healthyProvider.Object]);
+
+            var result = (await providerManager.GetAvailableRemoteImages(
+                item,
+                new RemoteImageQuery(string.Empty),
+                TestContext.Current.CancellationToken)).ToArray();
+
+            var image = Assert.Single(result);
+            Assert.Equal("healthy-provider", image.ProviderName);
         }
 
         [Theory]

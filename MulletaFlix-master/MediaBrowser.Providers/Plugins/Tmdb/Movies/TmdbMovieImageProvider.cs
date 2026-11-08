@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
 using TMDbLib.Objects.Find;
+using TMDbLib.Objects.Search;
 
 namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
 {
@@ -61,19 +62,76 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
             var language = item.GetPreferredMetadataLanguage();
             var countryCode = item.GetPreferredMetadataCountryCode();
 
-            var movieTmdbId = Convert.ToInt32(item.GetProviderId(MetadataProvider.Tmdb), CultureInfo.InvariantCulture);
+            var movieTmdbId = 0;
+            _ = int.TryParse(
+                item.GetProviderId(MetadataProvider.Tmdb),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out movieTmdbId);
             if (movieTmdbId <= 0)
             {
                 var movieImdbId = item.GetProviderId(MetadataProvider.Imdb);
-                if (string.IsNullOrEmpty(movieImdbId))
+                if (!string.IsNullOrEmpty(movieImdbId))
                 {
-                    return Enumerable.Empty<RemoteImageInfo>();
+                    var movieResult = await _tmdbClientManager.FindByExternalIdAsync(movieImdbId, FindExternalSource.Imdb, language, countryCode, cancellationToken).ConfigureAwait(false);
+                    if (movieResult?.MovieResults is not null && movieResult.MovieResults.Count > 0)
+                    {
+                        movieTmdbId = movieResult.MovieResults[0].Id;
+                    }
                 }
+            }
 
-                var movieResult = await _tmdbClientManager.FindByExternalIdAsync(movieImdbId, FindExternalSource.Imdb, language, countryCode, cancellationToken).ConfigureAwait(false);
-                if (movieResult?.MovieResults is not null && movieResult.MovieResults.Count > 0)
+            if (movieTmdbId <= 0)
+            {
+                var queryName = !string.IsNullOrWhiteSpace(item.Name) ? item.Name : item.OriginalTitle;
+                if (!string.IsNullOrWhiteSpace(queryName))
                 {
-                    movieTmdbId = movieResult.MovieResults[0].Id;
+                    IReadOnlyList<SearchMovie>? movieResults = null;
+                    string? matchedQueryName = null;
+                    var queryNames = new[] { item.Name, item.OriginalTitle }
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .SelectMany(TmdbUtils.BuildSearchNameVariants)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    var targetYear = item.ProductionYear > 0 ? item.ProductionYear : null;
+
+                    if (targetYear.HasValue)
+                    {
+                        foreach (var searchName in queryNames)
+                        {
+                            movieResults = await _tmdbClientManager
+                                .SearchMovieAsync(searchName, targetYear.Value, language, countryCode, cancellationToken)
+                                .ConfigureAwait(false);
+                            if (movieResults is { Count: > 0 })
+                            {
+                                matchedQueryName = searchName;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (movieResults is not { Count: > 0 })
+                    {
+                        foreach (var searchName in queryNames)
+                        {
+                            movieResults = await _tmdbClientManager
+                                .SearchMovieAsync(searchName, 0, language, countryCode, cancellationToken)
+                                .ConfigureAwait(false);
+                            if (movieResults is { Count: > 0 })
+                            {
+                                matchedQueryName = searchName;
+                                break;
+                            }
+                        }
+                    }
+
+                    var bestMatch = movieResults is { Count: > 0 }
+                        ? TmdbMovieProvider.FindBestMatch(movieResults, matchedQueryName ?? queryName, targetYear)
+                        : null;
+                    if (bestMatch is not null)
+                    {
+                        movieTmdbId = bestMatch.Id;
+                    }
                 }
             }
 
@@ -92,7 +150,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
             var posters = movie.Posters;
             var backdrops = movie.Backdrops;
             var logos = movie.Logos;
-            var remoteImages = new List<RemoteImageInfo>(posters?.Count ?? 0 + backdrops?.Count ?? 0 + logos?.Count ?? 0);
+            var remoteImages = new List<RemoteImageInfo>((posters?.Count ?? 0) + (backdrops?.Count ?? 0) + (logos?.Count ?? 0));
 
             if (posters is not null)
             {

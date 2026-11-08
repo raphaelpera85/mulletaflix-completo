@@ -74,11 +74,11 @@ test('Search and Player pages meet automated WCAG 2.2 AA accessibility checks at
     // We'll try to find and click the first playable media item
     const firstPlayableLink = page.locator('a[href*="/details"]').first();
     if (await firstPlayableLink.isVisible()) {
-        await firstPlayableLink.click();
-        await expect(page.locator('#itemDetailsPage')).toBeVisible({ timeout: 30_000 });
+        await firstPlayableLink.evaluate((element) => (element as HTMLAnchorElement).click());
+        await expect(page.locator('#itemDetailPage:visible, #itemDetailsPage:visible').first()).toBeVisible({ timeout: 30_000 });
 
         // Try to find and click a play button to navigate to the player
-        const playButton = page.locator('button[title*="play" i], button[title*="reproduzir" i], button:has-text(/play|reproduzir/i), [role="button"]:has-text(/play|reproduzir/i)').first();
+        const playButton = page.getByRole('button', { name: /play|reproduzir/i }).first();
         if (await playButton.isVisible()) {
             await playButton.click();
             // Wait for video player or playback page to load

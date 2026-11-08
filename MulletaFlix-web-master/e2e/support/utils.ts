@@ -27,6 +27,26 @@ export async function openLogin(page: Page) {
     await expect(page.locator('#loginPage')).toBeVisible({ timeout: 30_000 });
 }
 
+export async function loginWithManualCredentials(page: Page, username: string, password: string) {
+    const manualForm = page.locator('.manualLoginForm');
+
+    if (!await manualForm.isVisible().catch(() => false)) {
+        const manualButton = page.locator('.btnManual:visible');
+        if (await manualButton.count()) {
+            await manualButton.click();
+        } else {
+            const userCard = page.locator('.cardContent[data-username]').filter({ hasText: username }).first();
+            await expect(userCard).toBeVisible({ timeout: 30_000 });
+            await userCard.click();
+        }
+    }
+
+    await expect(manualForm).toBeVisible({ timeout: 30_000 });
+    await page.locator('#txtManualName').fill(username);
+    await page.locator('#txtManualPassword').fill(password);
+    await manualForm.locator('button[type="submit"]').click();
+}
+
 export async function openDashboard(page: Page) {
     await page.goto('/#/dashboard/users');
 }

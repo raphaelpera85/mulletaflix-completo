@@ -290,3 +290,4 @@ mono_crash.*.json
 .devcontainer/devcontainer-lock.json
 dotnet/
 nebula_context.md
+.tmp-mongod-integration/

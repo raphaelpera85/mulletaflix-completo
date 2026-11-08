@@ -7,6 +7,7 @@ using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Providers.Helpers;
 using MediaBrowser.Providers.Plugins.ListenBrainz.Api;
 using Microsoft.Extensions.Logging;
 
@@ -71,7 +72,7 @@ public class ListenBrainzSimilarArtistProvider : IRemoteSimilarItemsProvider<Mus
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch similar artists from ListenBrainz for {ArtistMbid}", mbid);
+            _logger.LogWarning("Failed to fetch similar artists from ListenBrainz for {ArtistMbid}: {Error}", mbid, RemoteUrlLogRedactor.Redact(ex.ToString()));
             yield break;
         }
 

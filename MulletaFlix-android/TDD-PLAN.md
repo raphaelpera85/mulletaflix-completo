@@ -1,5 +1,16 @@
 # Plano de TDD do MulletaFlix Android
 
+### Cobertura de falha real do DataStore durante logout — 2026-10-27
+
+- `FIXTURE`: a primeira execução alcançou o runner, mas o logout teve sucesso porque não havia sessão persistida e o edit não exigia gravação. A fixture foi corrigida para semear sessão sintética no DataStore isolado e retirar permissão de escrita do diretório antes do logout; isso não demonstrou defeito no runtime.
+- `GREEN`: `SessionRepositoryPersistenceTest.logoutReturnsFailureWhenRealSessionDataStoreCannotWrite` passou 1/1 em PHONE/API 35, 0 falhas/erros/ignorados. O XML confirma a execução; `Result.failure` preserva `IOException` e MockWebServer registra 0 chamadas.
+- `GREEN UI+DATA`: `ProfileLogoutDataStoreFailureIntegrationTest.failedRealDataStoreLogoutShowsErrorAndKeepsProfileVisible` passou 1/1 em PHONE/API 35. A interação tocou “Sair da Conta” e confirmou “Sair” usando a tela/ViewModel reais, `AuthRepositoryImpl` e `SessionRepositoryImpl`; mostrou o erro, encerrou progresso, manteve Perfil, preservou sessão e fez zero requests. XML em `feature/user/build/outputs/androidTest-results/connected/debug/TEST-MulletaflixLogoutPhoneApi35_20261027(AVD) - 15.xml`.
+- `AMBIENTE`: o AVD antigo apontava para `system-images;android-35-ext14;google_apis_playstore;x86_64`, ausente no SDK. Imagem oficial instalada e AVD descartável `MulletaflixLogoutPhoneApi35_20261027` criado. Wrapper verificou NVIDIA RTX 3050, fechou o AVD e ADB terminou vazio.
+- `FIXTURE`: duas tentativas iniciais no AndroidTest de `app` falharam antes de compor a tela: o diretório DataStore isolado não foi criado. O delegate global ligado a outro contexto é hipótese, não causa confirmada. O caso cross-layer foi movido ao target de teste `feature:user`, onde o contexto isolado funcionou; AndroidJUnit passou. Não foi falha do comportamento de logout.
+- `VERIFICAÇÃO`: `:data:connectedDebugAndroidTest` passou; o teste Compose/DataStore passou novamente 1/1 após endurecer cleanup; `testDebugUnitTest --rerun-tasks` passou 1.788/1.788 em 256 XML; `:feature:user:lintDebug :app:lintDebug :app:assembleDebug :feature:user:compileDebugAndroidTestKotlin` passou. Portal local validado por 359/359 testes Node.
+- `STATUS`: cobertura de persistência e feedback Compose concluídas para PHONE/API 35; sem alteração de runtime, versão, release ou assinatura; matriz formal permanece sem crédito novo.
+- `LIMITE`: o cenário modifica permissões apenas num diretório temporário, restaura permissão e tenta remover o fixture no teardown. Não testa `MainActivity`/NavHost/Hilt, disco físico, perda de energia, servidor real, TABLET/TV ou homologação formal.
+
 ### Repetição de permissão LAN API 37.0 — bloqueio sistêmico, sem alteração produtiva — 2026-10-16
 
 - A tarefa foi diagnóstica; não houve mudança de comportamento nem RED/GREEN de produção. Rodado o teste já existente `LocalServerDiscoveryPermissionTest` via wrapper em AVD novo Google APIs API 37.0/PHONE.

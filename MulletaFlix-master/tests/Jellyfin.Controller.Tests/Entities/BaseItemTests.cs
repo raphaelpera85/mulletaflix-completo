@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
@@ -86,6 +87,18 @@ public class BaseItemTests
 
         Assert.True(book.SupportsLocalMetadata);
         Assert.True(book.IsSaveLocalMetadataEnabled());
+    }
+
+    [Fact]
+    public void GetPreferredMetadataLanguage_PreservesExplicitRegionalLanguage()
+    {
+        var item = new Movie
+        {
+            PreferredMetadataLanguage = "pt-PT",
+            PreferredMetadataCountryCode = "BR"
+        };
+
+        Assert.Equal("pt-PT", item.GetPreferredMetadataLanguage());
     }
 
     [Fact]

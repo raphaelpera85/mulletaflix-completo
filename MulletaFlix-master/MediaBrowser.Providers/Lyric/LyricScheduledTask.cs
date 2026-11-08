@@ -14,6 +14,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Lyrics;
 using MediaBrowser.Model.Tasks;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Lyric;
@@ -162,7 +163,7 @@ public class LyricScheduledTask : IScheduledTask
                         catch (Exception ex)
                         {
                             failures++;
-                            _logger.LogError(ex, "Error downloading lyrics for {Path}", audioItem.Path);
+                            _logger.LogError("{Error} downloading lyrics for {Path}", RemoteUrlLogRedactor.Redact(ex.ToString()), audioItem.Path);
                         }
 
                         completed++;

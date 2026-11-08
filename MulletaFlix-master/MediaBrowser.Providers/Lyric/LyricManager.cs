@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -18,6 +18,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Lyrics;
 using MediaBrowser.Model.Providers;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 using MulletaFlix.Extensions;
 
@@ -248,11 +249,19 @@ public class LyricManager : ILyricManager
         foreach (var stream in streams)
         {
             var path = stream.Path;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
             _libraryMonitor.ReportFileSystemChangeBeginning(path);
 
             try
             {
-                _fileSystem.DeleteFile(path);
+                if (_fileSystem.FileExists(path))
+                {
+                    _fileSystem.DeleteFile(path);
+                }
             }
             finally
             {
@@ -382,7 +391,7 @@ public class LyricManager : ILyricManager
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error downloading lyrics from {Provider}", provider.Name);
+            _logger.LogError("{Error} downloading lyrics from {Provider}", RemoteUrlLogRedactor.Redact(ex.ToString()), provider.Name);
             return [];
         }
     }

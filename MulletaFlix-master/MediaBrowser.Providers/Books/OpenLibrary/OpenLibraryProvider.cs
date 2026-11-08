@@ -15,6 +15,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using MediaBrowser.Providers.Helpers;
 using Microsoft.Extensions.Logging;
 
 namespace MediaBrowser.Providers.Books.OpenLibrary
@@ -197,7 +198,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching OpenLibrary metadata by OLID {Id}", olId);
+                _logger.LogError("{Error} fetching OpenLibrary metadata by OLID {Id}", RemoteUrlLogRedactor.Redact(ex.ToString()), olId);
             }
 
             return result;
@@ -312,7 +313,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error searching OpenLibrary for {Query}", query);
+                _logger.LogError("{Error} searching OpenLibrary for {Query}", RemoteUrlLogRedactor.Redact(ex.ToString()), query);
             }
 
             return results;
@@ -342,7 +343,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error searching OpenLibrary for ISBN {Isbn}", isbn);
+                _logger.LogError("{Error} searching OpenLibrary for ISBN {Isbn}", RemoteUrlLogRedactor.Redact(ex.ToString()), isbn);
             }
 
             return results;

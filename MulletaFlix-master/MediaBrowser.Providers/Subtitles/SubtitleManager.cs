@@ -1,4 +1,4 @@
-﻿#pragma warning disable CS1591
+#pragma warning disable CS1591
 
 using System;
 using System.Collections.Generic;
@@ -205,13 +205,19 @@ namespace MediaBrowser.Providers.Subtitles
                 }
 
                 var savePaths = new List<string>();
-                var language = response.Language.ToLowerInvariant();
-                if (language.AsSpan().IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) >= 0)
+                var language = response.Language?.ToLowerInvariant() ?? string.Empty;
+                if (!string.IsNullOrEmpty(language) && language.AsSpan().IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) >= 0)
                 {
                     throw new ArgumentException("Language contains invalid characters.");
                 }
 
-                var saveFileName = Path.GetFileNameWithoutExtension(video.Path) + "." + language;
+                var baseFileName = Path.GetFileNameWithoutExtension(video.Path);
+                if (string.IsNullOrEmpty(baseFileName))
+                {
+                    baseFileName = video.Id.ToString("N", CultureInfo.InvariantCulture);
+                }
+
+                var saveFileName = string.IsNullOrEmpty(language) ? baseFileName : baseFileName + "." + language;
 
                 if (response.IsForced)
                 {
@@ -249,13 +255,19 @@ namespace MediaBrowser.Providers.Subtitles
 
             foreach (var savePath in savePaths)
             {
+                if (string.IsNullOrEmpty(savePath))
+                {
+                    continue;
+                }
+
                 var path = Path.GetFullPath(savePath + "." + extension);
+                bool reportStarted = false;
                 try
                 {
-                    var containingFolder = video.ContainingFolderPath + Path.DirectorySeparatorChar;
-                    var metadataFolder = video.GetInternalMetadataPath() + Path.DirectorySeparatorChar;
-                    if (path.StartsWith(containingFolder, StringComparison.Ordinal)
-                            || path.StartsWith(metadataFolder, StringComparison.Ordinal))
+                    var containingFolder = !string.IsNullOrEmpty(video.ContainingFolderPath) ? video.ContainingFolderPath + Path.DirectorySeparatorChar : null;
+                    var metadataFolder = !string.IsNullOrEmpty(video.GetInternalMetadataPath()) ? video.GetInternalMetadataPath() + Path.DirectorySeparatorChar : null;
+                    if ((containingFolder is not null && path.StartsWith(containingFolder, StringComparison.Ordinal))
+                            || (metadataFolder is not null && path.StartsWith(metadataFolder, StringComparison.Ordinal)))
                     {
                         var fileExists = File.Exists(path);
                         var counter = 0;
@@ -269,6 +281,7 @@ namespace MediaBrowser.Providers.Subtitles
 
                         _logger.LogInformation("Saving subtitles to {SavePath}", path);
                         _monitor.ReportFileSystemChangeBeginning(path);
+                        reportStarted = true;
 
                         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Path can't be a root directory."));
 
@@ -295,7 +308,10 @@ namespace MediaBrowser.Providers.Subtitles
                 }
                 finally
                 {
-                    _monitor.ReportFileSystemChangeComplete(path, false);
+                    if (reportStarted)
+                    {
+                        _monitor.ReportFileSystemChangeComplete(path, false);
+                    }
                 }
 
                 stream.Position = 0;
@@ -376,19 +392,33 @@ namespace MediaBrowser.Providers.Subtitles
         /// <inheritdoc />
         public Task DeleteSubtitles(BaseItem item, int index)
         {
-            var stream = _mediaSourceManager.GetMediaStreams(new MediaStreamQuery
+            var streams = _mediaSourceManager.GetMediaStreams(new MediaStreamQuery
             {
                 Index = index,
                 ItemId = item.Id,
                 Type = MediaStreamType.Subtitle
-            })[0];
+            });
 
+            if (streams.Count == 0)
+            {
+                return Task.CompletedTask;
+            }
+
+            var stream = streams[0];
             var path = stream.Path;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return Task.CompletedTask;
+            }
+
             _monitor.ReportFileSystemChangeBeginning(path);
 
             try
             {
-                _fileSystem.DeleteFile(path);
+                if (_fileSystem.FileExists(path))
+                {
+                    _fileSystem.DeleteFile(path);
+                }
             }
             finally
             {

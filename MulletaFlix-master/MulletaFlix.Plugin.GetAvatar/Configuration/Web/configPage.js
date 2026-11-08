@@ -37,7 +37,7 @@
     function escapeHtml(value) {
         const node = document.createElement('div');
         node.textContent = value == null ? '' : String(value);
-        return node.innerHTML;
+        return node.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     async function loadSettings() {

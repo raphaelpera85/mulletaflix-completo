@@ -19,6 +19,7 @@ using Xunit;
 
 namespace MulletaFlix.Providers.Tests.MediaInfo;
 
+[Collection("LibraryManagerTests")]
 public class SubtitleResolverTests
 {
     private readonly SubtitleResolver _subtitleResolver;

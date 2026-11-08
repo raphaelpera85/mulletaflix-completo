@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
 import { getAdminCredentials, loginWithManualForm } from '../support/admin-user.mjs';
 import { navigateStage, openStage } from '../support/stage.mjs';
+import { ensureWizardCompleted } from '../support/wizard.mjs';
 import { ensureMediaLibrariesReady, getVirtualFolderByLibrary, getFirstItemFromVirtualFolder, MOVIES_LIBRARY } from '../support/media-library.mjs';
 
 test('Home and Item Details pages meet automated WCAG 2.2 AA accessibility checks at mobile (390px) and desktop (1280px) viewports', async ({ page }) => {
@@ -9,6 +10,7 @@ test('Home and Item Details pages meet automated WCAG 2.2 AA accessibility check
 
     // Login with admin user
     try {
+        await ensureWizardCompleted(page, admin.username, admin.password);
         await loginWithManualForm(page, admin.username, admin.password);
     } catch (error) {
         throw new Error(`Failed to login with admin user ${admin.username}. The server must be running and properly configured. Error: ${error.message}`);

@@ -36,6 +36,11 @@ interface HlsInstance {
     [key: string]: any;
 }
 
+const HLS_EVENTS = {
+    manifestParsed: 'hlsManifestParsed',
+    error: 'hlsError'
+} as const;
+
 export function getSavedVolume(): number {
     return (appSettings.get('volume') as unknown as number) || 1;
 }
@@ -293,7 +298,7 @@ export function destroyFlvPlayer(instance: HlsInstance): void {
 }
 
 export function bindEventsToHlsPlayer(instance: HlsInstance, hls: any, elem: HTMLMediaElement, onErrorFn: (e: Event) => void, resolve: () => void, reject?: ((code?: number) => void) | null): void {
-    hls.on('MANIFEST_PARSED', function () {
+    hls.on(HLS_EVENTS.manifestParsed, function () {
         playWithPromise(elem, onErrorFn).then(resolve, function () {
             if (reject) {
                 reject();
@@ -302,7 +307,7 @@ export function bindEventsToHlsPlayer(instance: HlsInstance, hls: any, elem: HTM
         });
     });
 
-    hls.on('ERROR', function (_event: any, data: any) {
+    hls.on(HLS_EVENTS.error, function (_event: any, data: any) {
         console.error('HLS Error: Type: ' + data.type + ' Details: ' + (data.details || '') + ' Fatal: ' + (data.fatal || false));
 
         // try to recover network error
