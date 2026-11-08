@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T12:30:20-03:00",
+  "generatedAt": "2026-11-08T20:44:32-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15806,6 +15806,23 @@
       "updatedAt": "2026-11-08T12:30:20-03:00",
       "evidence": "O teste focal passou 8/8. A suíte paralela completa passou em quatro execuções consecutivas: 80 arquivos e 430 testes aprovados em cada execução, sem timeout do ActionLogPage. Permaneceram apenas os warnings conhecidos de jsdom/webcomponents (`getComputedStyle` com pseudo-elementos e callback após `window` indisponível).",
       "release": "A flakiness histórica não foi reproduzida no checkout atual; não houve alteração de produto. Os warnings de teardown continuam melhoria de harness, e o gate web formal permanece condicionado aos bloqueios Playwright autenticados, ESLint baseline e ambientes externos.",
+      "links": []
+    },
+    {
+      "id": "web-media-recognition-timeout-diagnostics-2026-11-08-2044",
+      "title": "TDD de diagnóstico do timeout de reconhecimento de mídia",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": ["ROADMAP.015"],
+      "local": "Windows checkout; helper Playwright e Node test runner",
+      "location": "MulletaFlix-web-master/tests/playwright/support/media-library.mjs; media-library.test.mjs",
+      "scope": "Preservar os últimos counts observados quando a materialização do catálogo não estabiliza.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T20:40:46-03:00",
+      "updatedAt": "2026-11-08T20:44:32-03:00",
+      "evidence": "RED reproduzido contra o helper anterior: a exceção não continha os counts. GREEN focal passou 4/4 após incluir `MovieCount` e `SeriesCount` finais na mensagem. A regressão web passou 80/80 arquivos e 430/430 testes; `tsc --noEmit` e `verify:build` passaram, com 1.928 artefatos e 295,8 KB gzip inicial dentro do budget de 420 KB.",
+      "release": "Melhora a observabilidade do harness, mas não fecha a causa do scanner nem promove catálogo autenticado, runtime instalado ou playback. Nenhuma produção foi alterada.",
       "links": []
     }
   ]

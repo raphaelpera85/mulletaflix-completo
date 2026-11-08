@@ -14,7 +14,12 @@ mkdirSync(seriesPath);
 process.env.MFLX_MOVIES_PATH = moviesPath;
 process.env.MFLX_SERIES_PATH = seriesPath;
 
-const { ensureMediaLibraries, ensureMediaLibrariesReady, MOVIES_LIBRARY } = await import('./media-library.mjs');
+const {
+    ensureMediaLibraries,
+    ensureMediaLibrariesReady,
+    waitForMediaRecognition,
+    MOVIES_LIBRARY
+} = await import('./media-library.mjs');
 
 test.after(() => rmSync(scratchRoot, { recursive: true, force: true }));
 
@@ -81,6 +86,26 @@ test('does not require series recognition when only movies are requested', async
     });
 
     assert.equal(itemCountCalls, 1);
+});
+
+test('includes the last observed counts when media recognition times out', async () => {
+    const page = {
+        async evaluate(fn) {
+            if (fn.toString().includes('getItemCounts')) {
+                return { MovieCount: 0, SeriesCount: 0 };
+            }
+
+            return true;
+        },
+        async waitForTimeout() {
+            await Promise.resolve();
+        }
+    };
+
+    await assert.rejects(
+        () => waitForMediaRecognition(page, { timeoutMs: 5, pollIntervalMs: 0, libraries: [ MOVIES_LIBRARY ] }),
+        /Last counts: MovieCount=0, SeriesCount=0\./
+    );
 });
 
 test('creates libraries without starting a concurrent scan before the explicit refresh', async () => {

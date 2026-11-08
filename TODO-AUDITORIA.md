@@ -28,6 +28,13 @@
 - [~] Bloqueio atual refinado: a prontidão do catálogo/API (`getItemCounts` ou chamada anterior de tarefas) permanece pendurada ou não observável após o scan; ainda não é possível atribuir causalidade definitiva ao produto ou ao cliente legado sem uma chamada HTTP com timeout explícito e evidência de status/resposta.
 - [x] Após o encerramento, nenhuma instância Node/dotnet/MariaDB scratch permaneceu; somente o MariaDB produtivo em `3306` foi observado.
 
+## TDD do diagnóstico de timeout de reconhecimento — 2026-11-08 20:44 BRT
+
+- [x] RED reproduzido contra o helper anterior: o timeout retornava apenas `Media recognition did not stabilize before timeout.` e descartava os últimos counts observados.
+- [x] GREEN: `waitForMediaRecognition` agora inclui `MovieCount` e `SeriesCount` finais na exceção; teste focal passou **4/4**.
+- [x] Regressão web: **80/80 arquivos, 430/430 testes**; `tsc --noEmit` passou; **1.928 artefatos** válidos e **295,8 KB gzip / 420 KB** no budget.
+- [~] A mudança melhora a evidência do harness, mas não prova a causa do scanner nem promove catálogo autenticado, runtime ou playback.
+
 - [x] Restauração oficial do backup de 04/11 concluída; o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às 04:34:56 BRT e `Startup complete` às 04:35:44 BRT.
 - [x] Runtime `12.1.51` em `C:/Program Files/MulletaFlix/Server` com datadir oficial `C:/ProgramData/MulletaFlix/Server`; `/health` 200 `Healthy`; `/System/Info/Public` confirma `Version=12.1.51`, `TargetAbi=12.1.51` e wizard concluído.
 - [x] Banco restaurado confirmado por leitura: `users=16`, `baseitems=194203`, `peoplebaseitemmap=850927`, `activitylogs=2671`; `Username='Raphael'` ocorre uma vez.

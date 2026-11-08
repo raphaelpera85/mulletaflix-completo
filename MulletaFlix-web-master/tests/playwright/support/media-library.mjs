@@ -224,6 +224,7 @@ export async function waitForMediaRecognition(page, {
     const deadline = Date.now() + timeoutMs;
     const requiresMovies = libraries.some(library => normalizeName(library.type) === 'movies');
     const requiresSeries = libraries.some(library => normalizeName(library.type) === 'tvshows');
+    let lastCounts = { MovieCount: 0, SeriesCount: 0 };
 
     while (Date.now() < deadline) {
         const counts = await evaluateWithRetry(
@@ -235,6 +236,7 @@ export async function waitForMediaRecognition(page, {
 
         const movieCount = Number(counts?.MovieCount || 0);
         const seriesCount = Number(counts?.SeriesCount || 0);
+        lastCounts = { MovieCount: movieCount, SeriesCount: seriesCount };
 
         if ((!requiresMovies || movieCount > 0) && (!requiresSeries || seriesCount > 0)) {
             return {
@@ -246,7 +248,9 @@ export async function waitForMediaRecognition(page, {
         await page.waitForTimeout(pollIntervalMs);
     }
 
-    throw new Error('Media recognition did not stabilize before timeout.');
+    throw new Error(
+        `Media recognition did not stabilize before timeout. Last counts: MovieCount=${lastCounts.MovieCount}, SeriesCount=${lastCounts.SeriesCount}.`
+    );
 }
 
 export async function ensureMediaLibrariesReady(page, options = {}) {
