@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T02:26:36-03:00",
+  "generatedAt": "2026-11-08T02:29:39-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15636,6 +15636,23 @@
       "updatedAt": "2026-11-08T02:26:36-03:00",
       "evidence": "`npm run lint` terminou exit 1 com 1.415 problemas: 1.305 erros e 110 warnings. O lint focal dos arquivos web alterados reportou 240 problemas: 226 erros e 14 warnings, concentrados em `any`/complexidade legada, scripts Playwright, `@ts-nocheck` e regras de segurança/estilo; `build:check` e Vitest continuam verdes.",
       "release": "Não promover o lint como GREEN nem corrigir em massa sem classificação por baseline/causalidade. Abrir fatias TDD isoladas para erros introduzidos ou arquivos que receberem mudança; manter o gate web parcial.",
+      "links": []
+    },
+    {
+      "id": "web-build-artifact-gates-2026-11-08-0229",
+      "title": "Gates de artefato, bundle e estilo web",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; dist web local",
+      "location": "MulletaFlix-web-master/dist; scripts/verify-build-artifacts.mjs; scripts/check-bundle-budget.mjs",
+      "scope": "Validar artefatos produzidos, orçamento inicial comprimido e estilo sem confundir build local com aceite de runtime.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T02:29:39-03:00",
+      "updatedAt": "2026-11-08T02:29:39-03:00",
+      "evidence": "`npm run verify:build` passou: 1.928 arquivos válidos, limite individual 1.536 KiB; payload inicial 295,8 KB gzip contra orçamento de 420 KB. `npm run stylelint` passou sem findings.",
+      "release": "Gates locais de artefato e estilo verdes; isso não valida CI hospedada, distribuição no runtime Kestrel, browser autenticado ou produção. Lint ESLint continua parcial no evento separado.",
       "links": []
     }
   ]

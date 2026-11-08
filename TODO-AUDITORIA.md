@@ -30,6 +30,13 @@
 - [x] `npm run build:check` e as três reexecuções Vitest continuam verdes; lint não foi mascarado nem corrigido em massa.
 - [x] Evento `web-eslint-baseline-2026-11-08-0226` adicionado ao portal; gate web permanece `partial`.
 
+## Gates de artefato e estilo web — 2026-11-08 02:29 BRT
+
+- [x] `npm run verify:build` passou: **1.928 arquivos válidos**, limite individual **1.536 KiB**, payload inicial **295,8 KB gzip** contra orçamento de **420 KB**.
+- [x] `npm run stylelint` passou sem findings.
+- [~] Evidência local não equivale a CI hospedada, distribuição no runtime Kestrel, browser autenticado ou produção; ESLint segue parcial.
+- [x] Evento `web-build-artifact-gates-2026-11-08-0229` adicionado ao portal.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.

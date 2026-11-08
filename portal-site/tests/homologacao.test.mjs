@@ -61,6 +61,19 @@ test('registra o baseline ESLint web sem converter legado em GREEN', () => {
     assert.match(event.release, /Não promover o lint como GREEN/is);
 });
 
+test('registra os gates locais de artefato e estilo sem promover runtime', () => {
+    const eventId = 'web-build-artifact-gates-2026-11-08-0229';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /1\.928 arquivos válidos.*1\.536 KiB/is);
+    assert.match(event.evidence, /295,8 KB gzip.*420 KB/is);
+    assert.match(event.evidence, /stylelint.*passou sem findings/is);
+    assert.match(event.release, /não valida CI hospedada.*runtime Kestrel/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 
