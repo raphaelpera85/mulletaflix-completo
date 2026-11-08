@@ -79,6 +79,15 @@
 - [~] Os **171 resíduos antigos** não foram apagados por esta alteração; requerem retenção/limpeza operacional separada.
 - [x] Evento `web-playwright-stage-cleanup-tdd-2026-11-08-0305` adicionado ao portal.
 
+## Probe real do cleanup sem specs — 2026-11-08 03:08 BRT
+
+- [x] Executado com `PW_RESET_STAGE=false`, `--no-reset-stage`, specs vazios e marker sintético.
+- [x] Resultado: `status=no-specs`, `specCount=0`, `stageReachable=true`; o diretório fornecido pelo wrapper foi removido.
+- [x] Nenhum Node/Playwright/Vite/dotnet ficou ativo após a execução; o runtime instalado não foi tocado.
+- [~] Esta prova exercita somente cleanup; não equivale à suíte Playwright completa.
+- [~] Os **171 diretórios antigos** permanecem preservados.
+- [x] Evento `web-playwright-stage-cleanup-probe-2026-11-08-0308` adicionado ao portal.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.

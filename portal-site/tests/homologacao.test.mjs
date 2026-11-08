@@ -137,6 +137,18 @@ test('registra o TDD de cleanup do stage sem apagar o stage padrão', () => {
     assert.match(event.release, /sem tocar no stage-data padrão.*171 resíduos/is);
 });
 
+test('registra o probe real do cleanup sem promover a suíte Playwright', () => {
+    const eventId = 'web-playwright-stage-cleanup-probe-2026-11-08-0308';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /status=no-specs.*specCount=0.*stageReachable=true/is);
+    assert.match(event.evidence, /removeu o diretório fornecido.*nenhum Node\/Playwright\/Vite\/dotnet ficou ativo/is);
+    assert.match(event.release, /não a suíte Playwright completa.*171 diretórios antigos/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 
