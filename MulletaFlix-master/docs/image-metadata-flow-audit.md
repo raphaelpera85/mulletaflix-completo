@@ -401,11 +401,440 @@ Títulos recebem metadados textuais, mas parte dos posters permanece ausente (pl
 - **Testes:** novas regressões validam JPEG válido/inválido, fallback de decoder/formatos não suportados, bytes acima do limite, limpeza de staging, falha ao criar diretório temporário e limite por `Content-Length`. Os testes focais atuais passaram 177/177; a suíte Providers excluindo a integração externa ao vivo passou 817/817. O build Release do `Jellyfin.Server` passou com 0 erros e um aviso CS0419 preexistente.
 - **Limites de homologação:** testes usam encoder simulado e arquivo de fixture; nenhuma CDN/provider, biblioteca, runtime instalado, produção ou mídia real foi exercitada. Formatos SVG e sem suporte a decoder não são decodificados. O workflow do GitHub ainda precisa rodar após a publicação; em 12.1.26 a conta estava bloqueada por cobrança.
 
-## Idioma das imagens TMDb e abertura concorrente do staging — 2026-10-21
+## Revalidação da seleção pt-BR e fallback inglês — 2026-10-22
 
-- **Causa comprovada para capas em idioma inesperado:** `TmdbMovieImageProvider`, `TmdbSeriesImageProvider`, `TmdbSeasonImageProvider`, `TmdbEpisodeImageProvider` e `TmdbBoxSetImageProvider` tinham idioma/região disponíveis, mas consultavam TMDb com parâmetros de idioma/imagens nulos. O filtro posterior do `ProviderManager` não conseguia escolher imagens preferidas que a API nem havia sido instruída a priorizar.
-- **Correção na fonte:** os cinco providers agora passam idioma e país preferidos, mais a lista de imagens preferidas + sem idioma + inglês. O cache de filmes, séries, temporadas, episódios e coleções inclui idioma de texto normalizado, idiomas de imagem e país; a mesma entidade não reutiliza a resposta montada para outra região.
-- **Falha de download confirmada pelo log de execução:** `RemoteImagePayloadValidator.PrepareAsync` falhou ao reabrir o JPG staged com `IOException` de compartilhamento do Windows. O bloqueio por qual processo não ficou identificado; atribuí-lo ao antivírus/indexador é hipótese, não fato. A abertura agora repete somente os códigos de compartilhamento/bloqueio 32/33, em esperas limitadas de 50/100/200 ms; outros erros continuam falhando imediatamente.
-- **Regressões:** imagem TMDb pt-BR com fallbacks; chaves de cache distintas por país/idiomas; abertura após bloqueio exclusivo temporário do Windows; validação e fallback prévios do staging. `TmdbUtilsTests`, `RemoteImagePayloadValidatorTests` e `ProviderManagerRemoteImageValidationTests` passaram 28/28; suíte `Jellyfin.Providers.Tests` sem `LiveIntegrationTests` passou 808/808 em Release.
-- **Twin search:** a busca pelos métodos de obtenção de imagem encontrou cinco providers com idioma de imagem nulo (todos corrigidos). `TmdbPersonImageProvider` usa `GetPersonAsync`, sem parâmetro de idioma de imagem nesta abstração, portanto não reproduz o mesmo defeito de capas/telas de títulos. Não foi encontrado outro re-open de staging remoto com política de retry concorrente.
-- **Limites:** testes não chamam a API real do TMDb, não reprocessam capas já salvas e não verificam mídia renderizada. Títulos com arte antiga precisarão de atualização/refresh após implantação; configuração efetiva de idioma/região por servidor/biblioteca/item permanece a fonte de preferência. A correção ainda não foi instalada nem observada em produção nesta sessão.
+- O fluxo de refresh agrega resultados remotos antes de escolher a imagem, filtra por `ImageType` e prefere a língua configurada. `MatchesLanguage` faz `pt-BR` corresponder a `pt`; inglês permanece candidato apenas quando não há imagem no idioma preferido para aquele tipo.
+- `dotnet test tests/Jellyfin.Providers.Tests/Jellyfin.Providers.Tests.csproj -c Release --no-restore --filter 'FullyQualifiedName~Manager.ProviderManagerTests|FullyQualifiedName~Manager.ItemImageProviderTests|FullyQualifiedName~TmdbUtilsTests'` passou 154/154; `Jellyfin.Model.Tests` com `EnumerableExtensionsTests` passou 7/7.
+- Isso valida ranking/filtro com fixtures, não a resposta real do TMDb nem o pôster persistido de *Invasão Zumbi 2*. Capas existentes podem requerer substituição/FullRefresh após instalar versão corrigida. Decisão do usuário: manter inglês como fallback. Fanart não foi localizada no checkout; homologação formal permanece 1/7, sem crédito por testes unitários.
+
+## Filtro de idiomas de imagens TMDb — 2026-10-22
+
+- **Decisão confirmada pelo usuário:** usar o idioma preferido do servidor e manter inglês como fallback; não incluir arte em todos os idiomas nem forçar o idioma original do filme.
+- **Correção local:** consultas de imagens de filmes, séries, temporadas e episódios enviam `include_image_language` como idioma preferido ISO 639-1, `null` e `en` (por exemplo, `pt-BR` vira `pt,null,en`). Isso evita opções de idiomas não solicitados e remove a chamada extra a `/configuration/languages`, que não era necessária para aplicar a política escolhida.
+- **Regressões:** `TmdbUtilsTests` e `ProviderManagerImageProviderTests` passaram 25/25 em Release, cobrindo a lista `pt,null,en`, exclusão de outros idiomas e a seleção de português com fallback inglês. `dotnet format whitespace` e `git diff --check` passaram.
+- **Limites:** não houve chamada real ao TMDb nem refresh/conferência visual de *Invasão Zumbi 2*; arte já persistida requer substituição/refresh depois da instalação. Fanart não foi localizada no checkout e pode pertencer a plugin externo. Sem instalação, produção ou release.
+
+## Default pt-BR/BR para novas configurações — 2026-10-22
+
+- `ServerConfiguration` agora inicia novas configurações em `pt-BR`/`BR`; consultas TMDb para imagens preservam `null` e inglês como fallback (`pt,null,en`). Preferências já persistidas não são migradas e capas existentes não são substituídas por este default.
+- Testes focais Release: `TmdbUtilsTests`, `ProviderManagerImageProviderTests` e `ItemImageProviderRefreshTests`, 26 aprovados, 0 falhas/ignorados. `git diff --check` passou.
+- Sem chamada TMDb ao vivo, instalação, biblioteca ou produção; o teste valida apenas configuração e seleção local. Homologação formal permanece 1/7 (14,3%); nenhuma release criada.
+
+### Reexecução focal — 2026-10-22
+
+- `dotnet test tests/Jellyfin.Providers.Tests/Jellyfin.Providers.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~Manager.ProviderManagerTests|FullyQualifiedName~Manager.ItemImageProviderTests|FullyQualifiedName~TmdbUtilsTests"`: 154/154 aprovados, 0 ignorados/falhas. A compilação emitiu avisos StyleCop em arquivos já existentes; não foram alterados nesta revalidação.
+- O resultado confirma o filtro/ranking local e inglês como fallback; não confirma se o checkbox “Todos os idiomas” estava ativo na captura, nem a resposta do TMDb, refresh visual ou arquivo persistido do título exemplo. Sem mudança de runtime, instalação ou produção.
+- Escopo inclui o fallback limitado a preferred/original/en/null quando a chamada de catálogo de idiomas falha; nesse caso, a abrangência total depende de nova consulta após o cache de falha. Próximo passo para H06: validar uma consulta real autenticada isolada do item e comparar os candidatos antes/depois de refresh, sem scraping/import externo.
+
+## Deduplicação do fallback inglês — 2026-10-22
+
+`TmdbUtils.GetImageLanguagesParam` compara agora o idioma ISO 639-1 da preferência com `en`, evitando `en,null,en` para preferências regionais como `en-US`. Preferência `pt-BR` continua emitindo `pt,null,en`; nenhum idioma adicional é incluído. Testes focais Release: Providers 72/72 e Server.Implementations 4/4, incluindo contrato de migration que verifica as duas colunas nullable e rollback limitado a elas. O teste confirma operações EF; não executa SQL contra MariaDB. `dotnet ef migrations script` não pôde rodar nesta sessão porque `dotnet-ef` não está restaurado; variável de banco MariaDB descartável ausente. Sem TMDb ao vivo, migration aplicada, instalação, mídia real ou produção. Homologação formal permanece 1/7 (14,3%).
+
+## Reexecução da validação focada — 2026-10-23
+
+- Decisão mantida: português configurado como preferência; inglês aceito somente como fallback quando não existe arte em português para o tipo de imagem. A busca TMDb usa `pt,null,en` para pt-BR; imagens manuais/legadas sem proveniência conhecida não são substituídas automaticamente.
+- Testes Release em Windows/.NET 10: `TmdbUtilsTests|ProviderManagerImageProviderTests|ItemImageProviderRefreshTests|MetadataServiceTests` passaram 72/72, sem ignorados ou falhas.
+- Nenhuma chamada TMDb ao vivo, refresh visual de *Invasão Zumbi 2*, migration aplicada, instalação ou validação em produção nesta sessão. Portanto, o resultado confirma o contrato local, não a correção visual de todos os títulos. Homologação formal permanece 1/7 (14,3%); sem release de servidor.
+
+## Revalidação da regra de idioma visual — 2026-10-22
+
+Em Release, os filtros `ProviderManagerTests|ItemImageProviderTests|TmdbUtilsTests` passaram 160/160 e `EnumerableExtensionsTests` 7/7. Isso confirma seleção agregada de candidatos, preferência pt/pt-BR por tipo de arte, inglês como fallback quando não há português e correspondência pt-BR→pt. A execução não consultou TMDb, não atualizou imagem persistida nem validou visualmente *Invasão Zumbi 2*. Preferências já persistidas e imagens locais/manuais não são alteradas automaticamente; refresh seguro da imagem remota elegível continua necessário após a versão corrigida. O andamento foi publicado no portal: `Mulletaflix-Portal:main` commit `29db87f69a353e351b36d1bfcf7260caea8973a1`; Vercel Production `READY` e endpoint público HTTP 200 confirmou o evento. Homologação formal permanece 1/7 (14,3%); nenhum release ou deploy do servidor foi realizado.
+
+### Reexecução focal após confirmação do fallback — 2026-10-23
+
+O usuário confirmou manter inglês como fallback. `TmdbUtilsTests|ProviderManagerImageProviderTests` passou 27/27 em Windows/.NET 10 Release. Isso valida somente os contratos locais de idiomas/ranking; não consulta TMDb, não inspeciona a arte persistida de *Invasão Zumbi 2* e não prova que haja pôster português para cada item. Arte já persistida não é substituída em massa; refresh controlado do item e comparação da resposta/capa escolhida seguem pendentes. Nenhuma alteração de runtime, instalação, produção ou release; homologação formal continua 1/7 (14,3%).
+
+## Idioma vazio em configuração legada — 2026-10-23
+
+- **Causa reproduzível:** quando `PreferredMetadataLanguage` vinha vazio de configuração legada, `TmdbUtils.GetImageLanguagesParam` produzia `null,en`; a consulta deixava de solicitar arte portuguesa apesar da preferência de produto pt-BR. A consulta pública ao endpoint de imagens TMDb do filme *Peninsula* (ID 581392), com `include_image_language=pt,null,en`, retornou 6 posters, 2 backdrops e 1 logo em português, além de inglês/neutro. A página de posters do TMDb também lista seis imagens Portuguese.
+- **Correção:** `ServerConfiguration.PreferredMetadataLanguage` normaliza apenas valores vazios/espaços para `pt-BR`; idiomas explicitamente definidos são preservados. Inglês continua fallback. Capa já persistida não é migrada/alterada automaticamente.
+- **Testes Release Windows/.NET 10:** `ServerConfiguration_*` passou 6/6, incluindo XML legado vazio/espaços; `TmdbUtilsTests|ProviderManagerImageProviderTests|ItemImageProviderRefreshTests|MetadataServiceTests` passou 77/77. Revisão independente não encontrou problema. `git diff --check` passou.
+- **Limites:** endpoint público confirma disponibilidade TMDb, não a resposta do runtime instalado nem arquivo/capa persistidos. Não houve refresh visual, produção, instalação ou release. Homologação formal não recebe crédito; servidor segue 2/7 (28,6%). Próxima validação: instalar em homologação isolada, consultar a galeria padrão sem “Todos os idiomas”, atualizar um item de teste e conferir idioma/proveniência/renderização.
+
+### Revalidação posterior da preferência pt-BR — 2026-10-23
+
+`TmdbUtilsTests|ProviderManagerImageProviderTests` passou 32/32 em Windows/.NET 10 Release. Mantém pt-BR/pt primeiro e inglês como fallback local. Esta rodada não alterou código de imagens e não consultou TMDb; capa salva, refresh visual de *Invasão Zumbi 2*, instalação e produção não foram verificados. O status formal permanece 2/7 (28,6%); sem release.
+
+## Refresh de backdrops remotos no idioma preferido — 2026-10-23
+
+- **Causa confirmada no código:** `RefreshImages` detectava arte remota desatualizada somente em `_singularImages`; backdrops em inglês não acionavam a consulta localizada nem eram marcados para substituição.
+- **Correção local:** backdrops com provedor e idioma conhecidos entram na detecção. Ao existir candidato no idioma preferido, o refresh adiciona a nova imagem antes de remover apenas backdrops remotos obsoletos; arte manual e backdrops sem proveniência são preservados. Sem candidato localizado, o fallback inglês existente permanece.
+- **Regressão:** `RefreshImages_ReplacesStaleRemoteBackdropAndPreservesManualBackdrop` valida troca en→pt e preservação da imagem manual. `ItemImageProviderTests` passou 60/60 em Windows/.NET 10; `git diff --check` passou.
+- **Limites:** não houve chamada real ao TMDb, refresh/inspeção visual de *Invasão Zumbi 2*, instalação, produção ou release. Homologação formal permanece 2/7 (28,6%), sem crédito; alteração no checkout servidor ainda não foi publicada.
+
+## Fallback inglês após falha do candidato localizado — 2026-10-23
+
+- **Causa:** a consulta padrão do `ProviderManager` remove inglês quando qualquer provedor retorna arte em português. Isso é correto para a galeria manual, mas impedia o `ItemImageProvider` de tentar inglês quando o download pt falhava.
+- **Correção local:** somente o refresh automático pede candidatos de todos os idiomas e depois conserva idioma preferido, inglês e arte sem idioma. Provedores com arte preferida são tentados antes dos que só têm fallback. O filtro da galeria manual permanece inalterado.
+- **Teste de regressão:** `RefreshImages_FailedPreferredLanguageImage_UsesEnglishFromAnotherProvider` prova que falha HTTP no pôster pt permite usar pôster en de outro provedor. `ItemImageProviderTests|ProviderManagerTests` passou 137/137 em Windows/.NET 10 Release; `dotnet format --verify-no-changes` e `git diff --check` passaram.
+- **Limites:** não houve TMDb real, refresh/renderização de *Invasão Zumbi 2*, instalação, produção nem release. Imagens já persistidas não são regravadas automaticamente. Homologação formal permanece 2/7 (28,6%), sem crédito; servidor segue em checkout local sujo e 8 commits atrás.
+
+### Reexecução adicional — 2026-10-23
+
+`dotnet test tests/Jellyfin.Providers.Tests/Jellyfin.Providers.Tests.csproj --no-restore --configuration Release --filter FullyQualifiedName~TmdbUtilsTests` passou 32/32 em Windows/.NET 10. Confirma apenas os contratos unitários de normalização do idioma e fallback; não consultou TMDb nem demonstrou a capa apresentada na interface. Também foi esclarecido o rótulo de cobertura na cópia de homologação do monorepo para distinguir checklist do roadmap de homologação formal; o portal público já apresenta essa distinção. Nenhuma release/runtime/produção foi alterada. O mapa técnico foi conferido e a estrutura permaneceu igual.
+
+## Proveniência do idioma por imagem remota — 2026-10-23
+
+`MetadataResult.ResultLanguage` identifica o idioma do resultado textual do provider, não o idioma de cada imagem retornada. O modelo `RemoteImages` contém URL e tipo, sem idioma individual; por isso `SaveRemoteResultImages` não deve propagar o idioma do texto para todas as artes. A gravação agora deixa `ItemImageInfo.Language` nulo quando a imagem não tem proveniência própria, evitando classificar uma capa possivelmente inglesa como pt-BR e impedir refresh localizado posterior. ProviderName continua registrado. Regressão `SaveRemoteResultImages_DoesNotUseMetadataLanguageAsImageLanguage`; `MetadataServiceTests` passou 45/45 em Windows/.NET 10 Release. Imagens existentes não foram reclassificadas; TMDb ao vivo, refresh visual, runtime instalado e produção não foram verificados. Sem crédito de homologação ou release.
+
+## Revalidação do deadlock MariaDB em imagens — 2026-10-24 14:05 BRT
+
+O anexo repete falhas 1213 em `DELETE BaseItemImageInfos` concorrentes para o mesmo `ItemId`, mas não identifica PID nem assembly carregado. No checkout, `SaveImagesAsync` usa stripe local + `GET_LOCK` MariaDB, enquanto `SaveItems` e `DeleteItem` coordenam as gravações relacionadas; `ItemPersistenceDatabaseLock.cs` continua não rastreado e a implementação não existe em `origin/main`. `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 40/40 Release Windows/.NET 10. O teste MariaDB concorrente foi compilado e ignorado por falta de configuração opt-in; não se tocou na porta ativa 3306. Logo, o log ainda não comprova a correção em runtime.
+
+Na mesma sessão, `FullSystemBackup` teve uma falha transitória em teste de limpeza que usa `FileSystemWatcher` (evento de `.bak` entregue após remoção); repetido sozinho passou 1/1. Não houve alteração no código nem evidência suficiente para marcar a regressão de teste corrigida. Restore segue pathname-based, o helper ACL não está integrado e o P0 continua aberto. Sem release/produção. Portal atualizado localmente; homologação formal 2/7 (28,6%), sem crédito. Ver [[Sessões/2026-10-24-MulletaFlix-image-deadlock-and-restore-test-rerun-1405]].
+
+## Rechecagem de log repetido do deadlock MariaDB — 2026-10-24 14:27 BRT
+
+O novo anexo repete o padrão já investigado: `DELETE BaseItemImageInfos` concorrentes, MariaDB 1213, retries e heartbeat Kestrel longo. O `HTTP 200` antecedente não prova que a transação de persistência foi confirmada. A fonte local coordena `SaveImagesAsync`, `SaveItems` e `DeleteItem` com semaphore por stripe e advisory `GET_LOCK` mantido até a transação; `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` foi recompilado em Release e passou 40/40. Isso não identifica o assembly/PID do log nem garante que o runtime tenha essa fonte; auditoria anterior encontrou ausência do helper em `origin/main`. O teste concorrente MariaDB requer `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` e não foi executado nesta rodada; o banco ativo não foi acessado. Sem mudança de código/runtime. Formal 2/7 (28,6%), sem crédito; sem release ou publicação remota. Restore ACL/TOCTOU P0 permanece aberto. Ver sessão `2026-10-24-MulletaFlix-image-deadlock-recheck-1427`.
+
+## Auditoria dos escritores e divergência remota — 2026-10-24 14:30 BRT
+
+O inventário de `BaseItemImageInfos` no código local encontrou quatro caminhos mutáveis: `SaveImagesAsync`, `SaveItems/UpdateOrInsertItems`, `DeleteItem` e a rotina de migração `FixDates`. Os três caminhos de `ItemPersistenceService` usam `ItemPersistenceDatabaseLock` e as mesmas stripes em processo; `FixDates` toma as 16 stripes MariaDB. A `main` remota foi verificada no SHA `d51f4f38d2b4148ab49394c001567ad273bd57aa` e ainda não contém o helper nem as chamadas; não há processo escutando em 8096 no momento da verificação. Isso sustenta divergência entre o checkout protegido e a base remota, mas não identifica o processo histórico do log.
+
+`ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests`: 40/40. Contrato da CI MariaDB: 2/2. Os três testes reais selecionados de concorrência MariaDB compilaram em Release e foram ignorados por ausência de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`; Docker/Podman não estão instalados e a porta ativa 3306 não foi acessada. A CI Linux já declara MariaDB 11.4 e seleciona os cenários de refresh e lock entre sessões, mas seu resultado remoto não foi consultado. Sem mudança de código/runtime; release continua bloqueada pela divergência, pela falta de execução MariaDB nesta rodada e pelo restore ACL/TOCTOU P0. Homologação formal 2/7, sem crédito. Ver sessão `2026-10-24-MulletaFlix-image-deadlock-remote-gap-audit-1430`.
+## Revalidação do log MariaDB 1213 — 2026-10-24 14:45 BRT
+
+O anexo recebido repete erros `1213 Deadlock found` em `DELETE BaseItemImageInfos` para o mesmo `ItemId`, em chamadas concorrentes, seguidos de retentativas. A resposta HTTP 200 anterior não comprova commit da persistência. A fonte local em `ItemPersistenceService.SaveImagesAsync` serializa as operações por stripe em processo e mantém `ItemPersistenceDatabaseLock` (`GET_LOCK`) durante a transação; `SaveItems` e `DeleteItem` também compartilham as stripes e advisory locks. Isso descreve o checkout, não identifica o código carregado pelo processo do log. `FixDates` é rotina de migração e não indica um writer recorrente em runtime. Sem PID/assembly no log, a causa operacional segue sem correlação conclusiva; processo antigo/misto ou outro writer são hipóteses.
+
+Nesta revalidação: `ItemPersistenceServiceTests` Release passou 31/31; os dois testes MariaDB selecionados (refreshes concorrentes e lock mantido por outra sessão) foram ignorados por ausência de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`. Nenhum banco ativo ou produção foi consultado. A correção não está reconciliada com `origin/main` segundo a auditoria anterior; não marcar produção corrigida nem criar release com o checkout divergente. Próximo gate: MariaDB descartável/CI com resultado observado e identificação do assembly runtime. Homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Verificação atual do runtime do deadlock — 2026-10-24 15:06 BRT
+
+Reconsulta read-only confirma `origin/main` no SHA `d51f4f38d2b4148ab49394c001567ad273bd57aa`; o arquivo remoto `ItemPersistenceService.cs` faz `ExecuteDeleteAsync` em `BaseItemImageInfos` sem stripe/advisory lock. O assembly presente em `C:\Program Files\MulletaFlix\Server` reporta versão `12.1.35.0` e timestamp 21/10/2026; isso identifica o arquivo instalado, não o assembly carregado pelo processo do log. Testes focados locais Release passaram 40/40; MariaDB descartável não estava configurado e não foi acessado. Runtime/produção seguem sem correlação conclusiva; sem release.
+
+## Rechecagem do log anexado — 2026-10-24 15:09 BRT
+
+O novo trecho de log, datado 23/10/2026 20:35 BRT, repete vários `DELETE BaseItemImageInfos` falhos em paralelo para o mesmo item; há várias mensagens de retry da tentativa 2 e heartbeat do Kestrel atrasado. O `HTTP 200` antecedente é de outra operação e não confirma commit dessas transações. O log não traz PID/assembly nem uma conclusão bem-sucedida do retry; portanto, confirma recorrência observada, mas não qual código/runtime executou. A rechecagem read-only de 15:06 permanece: a fonte em `origin/main` não contém o lock local atual. Nenhum banco ativo foi consultado; sem release/instalação e homologação formal continua 2/7 (28,6%), sem crédito.
+
+## Inventário de escritores do estado de imagens — 2026-10-24 15:10 BRT
+
+Busca em todo `MulletaFlix-master` excluindo testes e migrations encontrou mutações da tabela em `ItemPersistenceService`: exclusão de `DeleteItem` (linha 267), delete/insert de `SaveImagesCoreAsync` (390/395) e delete/add de `UpdateOrInsertItemsCore` (860/863). A rotina `FixDates.FixBaseItemImageInfos` (123-155) também persiste datas via `SaveChangesAsync`. No checkout local, os três caminhos de `ItemPersistenceService` usam locks locais por stripe e advisory locks MariaDB; `FixDates` adquire somente as 16 stripes advisory no banco, sem semaphore local. `GET_LOCK` usa o mesmo schema e conexão durante a transação. O wrapper `SaveItems` chama `UpdateOrInsertItems`, que adquire stripes por todos os IDs antes de abrir o contexto e transacionar. Não encontramos outro escritor de runtime na busca. Isso é evidência de fonte local, não prova de runtime. `origin/main` ainda não contém o helper; por isso o log pode ser de binário anterior, mas PID/assembly continuam desconhecidos.
+
+## CI MariaDB remota — 2026-10-24 15:12 BRT
+
+O workflow local define serviço descartável MariaDB 11.4 e inclui os testes de concorrência de imagens em `.github/workflows/ci.yml`. A execução pública do CI para SHA `d51f4f38d2b4148ab49394c001567ad273bd57aa` (run `39608614450`) terminou `failure`; o job `User schema MariaDB Linux (case-sensitive)` também falhou, mas a API retornou `steps: []` e o download dos logs respondeu 404. Portanto, nenhum resultado dos testes MariaDB pode ser inferido dessa execução, nem a causa do erro. CI remoto deve ser repetido/diagnosticado antes de considerar o gate validado; homologação permanece 2/7.
+
+## Execução local segura do gate MariaDB — 2026-10-24 15:14 BRT
+
+`MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` estava ausente; `MariaDbTestEnvironment` e a fixture retornam sem conectar quando ausente. O projeto `IntroSkipper.Integration.Tests` compilou em Release (com warning MSB3277 de conflito `Microsoft.Extensions.DependencyModel` 9.0/10.0; o build escolheu 9.0 como primário). A execução focada `ServerPersistenceMariaDbTests` terminou exit 0, com 12 ignorados, 0 aprovados e 0 falhas; confirma descoberta/skip, não valida persistência nem concorrência. `dotnet list package --include-transitive` mostra DependencyModel 10.0.0 na árvore, mas não identificou quem trouxe a referência 9.0; conflito fica pendente de rastreamento.
+
+## Escopo de EF Design no plugin — 2026-10-24 15:17 BRT
+
+Assets do teste localizaram a referência 9.0 em `Microsoft.EntityFrameworkCore.Design/9.0.0`, que o plugin propagava porque seu `PackageReference` não declarava `PrivateAssets`. `Jellyfin.Server.csproj` e `Jellyfin.Database.Implementations.csproj` já mantêm EF Design privado. Apliquei o mesmo escopo em `MulletaFlix.Plugin.IntroSkipper.csproj`; plugin compila, a suíte de integração Release compila com `-warnaserror:MSB3277` e nenhum warning desse ID aparece. Build total terminou exit 0, ainda com 1.389 outros avisos existentes. O teste focado termina exit 0, 12 ignorados, 0 aprovados, 0 falhas porque MariaDB opt-in não está configurado; não é validação de concorrência.
+
+## Rechecagem de deadlock e identificação de build/runtime — 2026-10-24 15:50 BRT
+
+O log de 23/10 contém 12 falhas de `DELETE BaseItemImageInfos` para o mesmo `ItemId` em aproximadamente 9 ms; 11 exceções são deadlock 1213, 12 logs indicam retry e o Kestrel reporta heartbeat de 2,35 s. O HTTP 200 na primeira linha é de outra operação e não confirma persistência. O log não identifica PID nem assembly.
+
+Leitura local, sem iniciar servidor ou consultar MariaDB: a DLL instalada é `MulletaFlix.Server.Implementations` 12.1.35, SHA-256 `0D9465B7EC1549CB70C063A2B7B199E8A6B645F6E454CDBFD008A8D0B3F9D30D`, e não contém o marcador UTF-16 `mfx:item:` do advisory lock atual. A DLL recém-compilada do checkout é 12.1.32, SHA-256 `7E36006D7E2001FDBD768161A0EF7C24EE405BD8C0A46A51237BC7200FFC9DFD`; o código atual contém `ItemPersistenceDatabaseLock`. Isso prova divergência entre artefatos lidos, mas não vincula o log histórico à DLL instalada. `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 40/40 em Release Windows/.NET 10. O teste real MariaDB opt-in continua sem execução; listener 3306 não foi usado.
+
+Próximo gate: reconciliar a correção com a base/versionamento da release e executar testes cross-session contra MariaDB descartável ou CI confiável. Sem release, instalação, produção ou crédito de homologação; formal 2/7 (28,6%).
+
+## MariaDB descartável para concorrência de imagens — 2026-10-24 16:01 BRT
+
+MariaDB 11.4.4 foi iniciado com datadir separado e bind somente em `127.0.0.1:33099`; a instância operacional em 3306 não foi conectada. Os três testes focados de refresh concorrente, advisory lock entre sessões e delete concorrente com refresh passaram 3/3. A classe `ServerPersistenceMariaDbTests` passou 12/12, 0 ignorados e 0 falhas. A primeira execução encontrou fixture inválida em `DeleteExpiredPlaceholderUserDataAsync_DeletesOnlyExpiredDetachedRows`: o teste criava `UserData` apontando a um `UserId` ausente. A fixture agora insere um usuário isolado antes dos dados; classe completa reexecutada com sucesso.
+
+O `mysqld` descartável foi encerrado e a porta 33099 ficou fechada. O diretório temporário de teste permaneceu porque a política da ferramenta recusou a remoção recursiva; não há processo usando-o. Isso prova comportamento do checkout Windows/.NET 10 contra MariaDB local, não identifica o assembly do log, nem valida instalação, produção ou CI remota. DLL instalada 12.1.35 e build local 12.1.32 continuam divergentes conforme a auditoria 15:50; nenhum crédito formal adicional (2/7, 28,6%) e nenhuma release.
+
+## Reauditoria do fluxo de locks — 2026-10-24 16:38 BRT
+
+O log anexado repete o deadlock MariaDB 1213 durante `DELETE BaseItemImageInfos`; não inclui PID/assembly. Releitura dos quatro writers corrigiu uma imprecisão deste documento: `SaveImagesAsync`, `SaveItems` e `DeleteItem` usam stripes locais e locks advisory MariaDB; a rotina de migração `FixDates` usa somente as 16 stripes advisory no banco, sem semaphore local. Os advisory locks são adquiridos em ordem crescente; não foi encontrado ciclo de aquisição entre esses quatro caminhos. Isso não exclui writers externos nem explica o evento histórico.
+
+`ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests`: 40/40 aprovados em Windows/.NET 10 Release. A validação MariaDB descartável já registrada às 16:01 permanece 3/3 concorrência e 12/12 classe completa, com instância encerrada e porta operacional 3306 intocada. Sem novo teste contra runtime/produção ou CI remota. DLL instalada 12.1.35 e checkout 12.1.32 permanecem não reconciliados; formal 2/7 (28,6%), sem crédito ou release. Mapa técnico conferido; estrutura/fluxo de produção inalterados nesta reauditoria.
+
+## Reexecução focal após novo log — 2026-10-24 17:18 BRT
+
+O anexo repete erros MariaDB 1213 em `DELETE BaseItemImageInfos` concorrentes, retries e heartbeat Kestrel de 2,35 s; o HTTP 200 anterior não comprova commit. Reexecutei `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` em Release Windows/.NET 10: 40 aprovados, 0 ignorados, 0 falhas. A fonte local contém `ItemPersistenceDatabaseLock`, mas não havia processo MulletaFlix ativo e o log não informa PID/assembly nem transação concorrente. Não se correlacionou o log a binário/runtime, nem se acessou banco operacional ou produção. Sem alteração de código; causa-raiz permanece não confirmada, sem release e sem crédito de homologação (2/7, 28,6%).
+
+## Rechecagem do log e gates atuais — 2026-10-24 18:05 BRT
+
+O anexo continua mostrando operações concorrentes de `DELETE BaseItemImageInfos` para o mesmo `ItemId`, deadlocks InnoDB 1213 e retries. O trecho termina sem demonstrar o resultado da última tentativa; o HTTP 200 inicial é de uma operação anterior. `SaveImagesAsync_WaitsForSameItemPersistenceLockBeforeOpeningDatabaseContext` passou 1/1 em Release Windows/.NET 10. O teste MariaDB `SaveImagesAsync_ConcurrentRefreshesForSameItem_PersistOneCompleteImageSet` foi ignorado porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada; nenhum banco foi acessado nesta rodada. Uma execução anterior de MariaDB descartável (11.4.4, 127.0.0.1:33099) passou três cenários de concorrência e a classe 12/12, registrada às 16:01, mas não correlaciona o assembly ao log operacional. A API pública do GitHub ainda lista a execução CI main 39608614450 como falha no SHA `d51f4f38d2b4148ab49394c001567ad273bd57aa`; não apareceu run posterior nessa consulta. O erro pode ser originado por binário sem o lock ou por writer concorrente não cooperante, mas isso permanece hipótese: o anexo não tem PID/assembly nem transação InnoDB. Causa-raiz/produção não confirmadas; formal 2/7 (28,6%), sem crédito e sem release.
+
+## Auditoria dos jobs da CI — 2026-10-24 18:08 BRT
+
+Consulta adicional da execução pública `39608614450`: os 13 jobs terminaram `failure`; todos exibem `runner_id=0`, `runner_name` vazio, `steps=[]` e duração de aproximadamente 3–4 segundos, em matrizes Linux, Windows e macOS. Os logs recuperados para jobs Nebula/Mongo, Server build e MariaDB Linux retornam 404 `BlobNotFound`. O padrão indica falha antes da execução de passos no runner e favorece investigar alocação/orquestração do GitHub Actions; não determina causa específica, não valida nem invalida código/testes do servidor. Nenhum rerun foi iniciado. Gate remoto Linux segue sem evidência executada; homologação formal 2/7 (28,6%), sem crédito.
+
+## Gate de empacotamento da release v12.1.35 — 2026-10-24 18:09 BRT
+
+O workflow público de release `39608677913` para o SHA `d51f4f38d2b4148ab49394c001567ad273bd57aa` também não executou steps. `Validate source tag before packaging` terminou failure após 3 s com `runner_id=0` e nome vazio; log 404 `BlobNotFound`. `Build Linux x64 package` e `Build and publish release` foram skipped. Assim, esse run não gerou/publicou assets; isso não demonstra ausência de release v12.1.35 criada por outro fluxo ou manualmente. A falha de runner/orquestração é compatível com o CI principal, mas causa exata segue não observável. Sem rerun, escrita remota, pacote ou release produzida por esse workflow.
+
+## Revalidação após novo log de deadlock — 2026-10-24 18:13 BRT
+
+O anexo repete deadlocks MariaDB 1213 durante `DELETE BaseItemImageInfos` concorrentes para o mesmo item, seguidos de retries. O HTTP 200 anterior é de outra operação e não comprova commit. A fonte local coordena `SaveImagesAsync`, `SaveItems` e `DeleteItem` por stripes locais e advisory `GET_LOCK`; a suíte `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` foi recompilada e passou 40/40 em Release/.NET 10 nesta execução. Isso valida o checkout, não identifica o PID/assembly que produziu o log e não valida runtime/produção. Nenhuma conexão foi feita ao banco ativo. Integração MariaDB descartável não foi executada nesta rodada; CI remota permanece sem evidência acessível. Homologação formal 2/7 (28,6%), sem crédito; sem release/publicação remota.
+
+## Refresh de idioma/provedor e regressão MariaDB — 2026-10-24 20:54 BRT
+
+O anexo mais recente demonstra concorrência de `DELETE BaseItemImageInfos` para o mesmo `ItemId` e deadlocks MariaDB `1213`; não inclui PID/assembly, portanto não identifica o binário que executou o erro. No checkout principal, a revisão independente confirmou que os escritores conhecidos compartilham stripes/advisory locks e encontrou uma lacuna distinta: `SaveImagesCoreAsync` podia considerar imagens iguais sem comparar `ProviderName`/`Language`, e o pareamento por `FirstOrDefault` não consumia duplicatas. A comparação agora consome cada linha correspondente e inclui os campos persistidos, mantendo a substituição já transacional.
+
+`ItemPersistenceDatabaseLockTests`: 9/9 em Windows/.NET 10 Release. MariaDB 11.4.4 descartável, datadir próprio e loopback `127.0.0.1:33099`: quatro testes passaram (refreshes concorrentes, `GET_LOCK` entre sessões, delete concorrente com refresh e alteração persistida de provedor/idioma). O processo descartável foi encerrado; a pasta foi preservada quando o ambiente recusou a remoção recursiva. A instância operacional em 3306 permaneceu em execução e não foi conectada. Isso valida o checkout/testes, não o runtime do log, produção, CI remota ou release. Homologação formal continua 2/7 (28,6%), sem crédito; checkout segue 8 commits atrás com alterações preexistentes.
+
+## Revalidação do log repetido — 2026-10-24 21:25 BRT
+
+O anexo repetido mantém o padrão de `DELETE BaseItemImageInfos` com deadlock MariaDB 1213, seguido de retry; resposta HTTP 200 anterior não confirma persistência. Reexecutei `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` em Windows/.NET 10 Release: 40 aprovados, 0 ignorados, 0 falhas. `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada, então integração MariaDB não foi executada nesta sessão. O arquivo não informa PID/assembly; não há correlação com runtime nem evidência de produção corrigida. Não houve alteração de código ou release. Homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Gate MariaDB isolado e revisão do CA1416 — 2026-10-24 21:55 BRT
+
+`MariaDbTestEnvironment` exige loopback em porta não padrão e recusa 3306. A variável `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada; não foi encontrado executável MariaDB em PATH/Program Files. Foi observado `mysqld` escutando em `127.0.0.1:3306` com conexões existentes. Não conectei nem alterei essa instância; os testes de integração MariaDB continuam pendentes até haver serviço descartável isolado.
+
+O teste focado `ServerConfigurationManagerFilePermissionsTests` terminou exit 0 em Windows/.NET 10: 1 aprovado, 1 ignorado, 0 falhas. O caso Unix-only chama `File.GetUnixFileMode` após `Assert.SkipWhen(OperatingSystem.IsWindows())`; o `CA1416` é aviso de análise nesta plataforma, sem falha reproduzida. Isso não valida Linux/ACL, MariaDB real, runtime nem produção. Homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Revalidação do anexo de deadlock — 2026-10-24 22:12 BRT
+
+O anexo repete `DELETE BaseItemImageInfos` concorrentes para o mesmo item, deadlock InnoDB 1213 e retries. O HTTP 200 antecedente não comprova commit, e o trecho não inclui PID/assembly nem o resultado final das tentativas. Em Windows/.NET 10 Release, `ItemPersistenceServiceTests` passou 31/31; a combinação `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 40/40, sem skips/falhas. Contratos do portal passaram 162/162. O teste de integração MariaDB não foi executado nesta rodada; nenhum banco ou runtime operacional foi acessado. A evidência confirma o comportamento observado no log e a regressão do checkout, mas não correlaciona o emissor ao código atual nem confirma correção em produção. Homologação formal permanece 2/7 (28,6%), sem crédito; sem release ou publicação remota.
+
+## Reconciliação de runtime local e fonte — 2026-10-24 22:33 BRT
+
+Inspeção somente leitura encontrou o processo do servidor local iniciado em 24/10 às 19:15; executável e módulos `MulletaFlix.Server.Implementations.dll`/`MediaBrowser.Providers.dll` no caminho carregado reportam versão 12.1.35 e timestamps de 21/10. A fonte em `SharedVersion.cs` declara 12.1.32; `ItemPersistenceDatabaseLock.cs` e seus testes estão apenas no working tree, sem integração/commit, enquanto `ItemPersistenceService.cs` está alterado localmente. Regressão focal atual `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 40/40 em Windows/.NET 10 Release. MariaDB descartável não foi executado; não houve acesso ao banco operacional, restart, instalação ou release. Versões dos arquivos em disco e estado do processo são evidência local, não certificação de produção nem prova de correlação com o log sem PID. Homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Integração de persistência no MariaDB descartável — 2026-10-24 22:46 BRT
+
+Inicializei MariaDB 11.4.4 com datadir novo e isolado, sem arquivo de configuração externo, em `127.0.0.1:33099`. A suíte completa `ServerPersistenceMariaDbTests` passou 13/13, sem ignorados ou falhas, em 6 min 11 s; os testes criaram e removeram schemas `mfx_it_*`. A instância foi encerrada normalmente e o processo de teste não permaneceu ativo. A remoção do datadir em TEMP foi bloqueada pelo terminal, então ele foi preservado. A porta operacional 3306 não foi usada. Isso valida a fonte local e os cenários de integração; não resolve a divergência entre runtime local 12.1.35 e fonte 12.1.32, não associa o log a um PID/assembly e não comprova produção/CI/release. Homologação formal segue 2/7 (28,6%), sem crédito.
+
+## Revalidação do anexo na candidata v12.1.35 — 2026-10-24 23:00 BRT
+
+O log anexado registra `DELETE BaseItemImageInfos` concorrentes para o mesmo `ItemId`, deadlock InnoDB 1213 e retries na tentativa 2; o HTTP 200 na primeira linha é de outra operação e não comprova persistência. Também há heartbeat atrasado do Kestrel, compatível com pressão de concorrência, mas insuficiente para atribuir starvation como causa raiz.
+
+Validei a worktree candidata baseada em `origin/main` SHA `d51f4f38d2b4148ab49394c001567ad273bd57aa`, fonte v12.1.35, sem integrar ou alterar as mudanças existentes: `ServerPersistenceMariaDbTests` passou 12/12, 0 ignorados/falhas, em MariaDB 11.4.4 isolado em `127.0.0.1:33099`; `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 43/43 em Release/.NET 10. MariaDB descartável encerrou normalmente e a porta fechou. A instância operacional em 3306 não foi usada. A worktree continua suja/não integrada; os testes não identificam o PID/assembly que produziu o log, não validam runtime/produção nem CI remota. Formal 2/7 (28,6%), sem crédito; sem instalação ou release.
+## Rechecagem de CI e scan de dependências — 2026-10-25 02:42 BRT
+
+A API GitHub consultada nesta sessão ainda lista como runs mais recentes CI `39608614450` e release `39608677913`, de 21/10/2026, ambos com falha. Os 13 jobs da CI retornaram `steps=null`; downloads de logs amostrados retornaram HTTP 404 `BlobNotFound`. Na release, a validação de tag falhou e empacotamento Linux/publicação foram pulados. A causa não foi identificada e nenhum rerun foi acionado. O comando `dotnet list ... package --vulnerable --include-transitive --no-restore` não forneceu saída útil e foi interrompido; não há conclusão de vulnerabilidade. Contratos do portal passaram 169/169. Formal segue 2/7 (28,6%), sem crédito; produção, CI executada em runner e scan conclusivo permanecem pendentes.
+
+## Regressão global e novo recorte do log de deadlock — 2026-10-25 03:11 BRT
+
+Recontagem dos 17 arquivos TRX da regressão `MulletaFlix.sln` Release (`--no-build --no-restore`, execução serial, filtro `FullyQualifiedName!~LiveIntegrationTests`) confirmou 5.287 `Passed`, 255 `NotExecuted`, 0 `Failed`, total 5.542; processo terminou com exit code 0. Os testes Nebula passaram 697/697 em Python 3.10.11 isolado. Uma tentativa de pytest feita com diretório de trabalho na raiz falhou durante a coleta por imports relativos ao projeto; repetida a partir de `Tools/NebulaPython` passou.
+
+O novo anexo registra 12 comandos `DELETE BaseItemImageInfos` falhos e repetidos erros MariaDB 1213 no mesmo item, seguidos de retries; Kestrel também reporta heartbeat atrasado 2,35 s. A fonte local já serializa `SaveImagesAsync` com stripe intra-processo e advisory lock MariaDB, mas o checkout declara 12.1.32 e o log não fornece PID/versão. Assim, não se atribui o log à fonte atual nem se afirma correção em produção. O teste não acessou o banco operacional. Checkout permanece preexistente e sujo; venv descartável de teste ficou em `Tools/NebulaPython/.build/nebula-regression-20261025-0309` após o terminal bloquear sua remoção.
+
+Homologação formal segue 2/7 (28,6%), sem crédito. Não valida runtime instalado, Linux, CI remota, provedores live nem DB operacional; nenhuma release/instalação/publicação ocorreu. O mapa foi conferido contra `ItemPersistenceService.SaveImagesAsync`, `ItemPersistenceDatabaseLock`, os 17 projetos .NET e o runtime de testes Nebula; sem alteração de módulos, APIs, dependências ou arquitetura nesta rodada.
+
+## Reexecução das regressões de persistência em MariaDB descartável — 2026-10-25 07:36 BRT
+
+Para fechar o gate que ficou ignorado na rechecagem anterior, inicializei MariaDB 11.4.4 com datadir exclusivo e porta loopback não padrão `33217`, sem registrar serviço Windows. O filtro Release `FullyQualifiedName~ServerPersistenceMariaDbTests` passou 14/14, sem skips/falhas, em 24 s. A classe cobre refresh de imagens, alterações de provider/idioma, exclusão concorrente e locks entre sessões. A instância descartável encerrou e a porta 33217 fechou; a configuração de teste apontou somente para 33217, não para o listener em 3306. O datadir temporário gerado não foi removido porque a proteção do terminal bloqueou remoção recursiva.
+
+O resultado valida o checkout atual, não o binário que emitiu o log nem CI Linux/produção. O contrato local do portal passou 184/184; JSON, sintaxe e diff checks passaram. `origin/main` foi consultado novamente e segue em `d51f4f38d2b4148ab49394c001567ad273bd57aa`, sem o helper local; correção ainda não integrada à branch remota. PID/assembly do incidente e estado final dos retries continuam desconhecidos. Homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Rechecagem independente do anexo MariaDB — 2026-10-25 07:31 BRT
+
+O anexo atual (`SHA-256 53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, 252 linhas) contém 12 `DELETE BaseItemImageInfos`, 11 erros MariaDB 1213, 12 retries “attempt 2” e um heartbeat Kestrel de 2,35 s. O HTTP 200 inicial precede as falhas e não demonstra commit. O log não contém PID/assembly, estado final dos retries ou relatório InnoDB; não identifica a instância que executou a chamada.
+
+Inventário da fonte atual encontrou somente `ItemPersistenceService` e `FixDates` como escritores de produção dessa tabela. Os caminhos do serviço envolvem `ItemPersistenceDatabaseLock`; a migração também obtém as 16 advisory stripes em MariaDB. O teste CI Linux/MariaDB descartável já seleciona três regressões de concorrência/locks. `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 40/40; as três integrações MariaDB selecionadas foram realmente executadas pelo runner, porém ignoradas por falta de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`. Contrato de seleção da CI passou 2/2.
+
+Estado de distribuição: `origin/main` observado em `d51f4f38d2b4148ab49394c001567ad273bd57aa` não contém `ItemPersistenceDatabaseLock`; o checkout local `main` está em `64a33dcf` e o helper permanece não rastreado com alterações relacionadas não commitadas. Nesta máquina, serviço `MulletaFlixServer` não está registrado e a DLL não foi encontrada no caminho padrão consultado `C:\Program Files\MulletaFlix\Server\Jellyfin.Server.Implementations.dll`. Isso impede atribuir o log ao patch ou afirmar estado global de instalação. Nenhum DB operacional foi acessado; release, CI remota pós-patch e runtime continuam sem validação.
+
+## Rechecagem do anexo repetido — 2026-10-25 07:18 BRT
+
+O anexo recebido novamente contém erros MariaDB 1213 durante `DELETE BaseItemImageInfos` para o mesmo `ItemId`, seguido de novas tentativas do `SaveImagesAsync`; há também heartbeat do Kestrel atrasado em 2,35 s. O `Status Code 200` inicial antecede as falhas e não prova commit das alterações de imagem. O trecho não contém PID, versão/assembly, resultado final das tentativas nem relatório InnoDB, portanto não correlaciona o incidente com a fonte ou runtime local.
+
+`ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 40/40 em Windows/.NET 10 Release. O teste MariaDB `SaveImagesAsync_ConcurrentRefreshesForSameItem` foi selecionado e ignorado por ausência de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`; o banco operacional não foi consultado. O checkout já contém stripe intra-processo e advisory lock MariaDB para a gravação, mas isso não comprova que o processo do log esteja usando essa implementação. Nenhuma fonte runtime foi alterada nesta rechecagem; homologação formal permanece 2/7 (28,6%), sem crédito, sem instalação ou release.
+
+No portal, a primeira execução da suíte detectou redação histórica da evidência IntroSkipper incompatível com as asserções contratuais. A redação foi alinhada aos fatos já registrados sem alterar os critérios; a suíte completa passou 181/181 na repetição.
+
+## Rechecagem do log e DLL instalada — 2026-10-25 06:12 BRT
+
+O anexo contém 12 comandos `DELETE BaseItemImageInfos`, 11 erros MariaDB 1213, 12 avisos de retry e um heartbeat Kestrel atrasado em 2,35 s. O `HTTP 200` inicial não é o resultado da transação que falhou; o trecho não traz PID/assembly/versão, `SHOW ENGINE INNODB STATUS` nem o resultado final das tentativas. Não permite fechar a causa operacional.
+
+Reexecutei `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` em Windows/.NET 10 Release: 40 aprovados, 0 ignorados, 0 falhas. A DLL instalada no host foi lida sem iniciar o servidor: versão 12.1.35, SHA-256 `0D9465B7EC1549CB70C063A2B7B199E8A6B645F6E454CDBFD008A8D0B3F9D30D`, sem o marcador do advisory lock `mfx:item:`. Nenhum processo MulletaFlix/Jellyfin estava ativo. A fonte local declara 12.1.32 e contém a proteção, mas o checkout `main` está sujo e não publicada; essa divergência não prova que a DLL observada produziu o log de 23/10. Nenhum banco foi conectado nesta sessão. Formal 2/7 (28,6%), sem crédito; sem instalação, restart, release ou publicação.
+
+## Regressão cross-session de exclusão em MariaDB isolado — 2026-10-25 03:30 BRT
+
+`DeleteItem_WaitsForDatabaseAdvisoryLockHeldByAnotherSession` passou 1/1 em MariaDB 11.4.4 descartável no Windows, loopback `127.0.0.1:33128`, .NET 10 Release. O listener do teste encerrou; a porta 3306 de produção permaneceu ativa e não foi consultada. O job MariaDB Linux já contém o teste, mas a execução hospedada segue pendente. Homologação formal permanece 2/7, sem crédito; runtime/produção e release não foram validados. Dois diretórios temporários descartáveis ficaram em TEMP porque a limpeza foi bloqueada pelo terminal.
+
+## Regressão global e novo recorte do log de deadlock — 2026-10-25 03:11 BRT
+
+Recontagem dos 17 arquivos TRX da regressão `MulletaFlix.sln` Release (`--no-build --no-restore`, execução serial, filtro `FullyQualifiedName!~LiveIntegrationTests`) confirmou 5.287 `Passed`, 255 `NotExecuted`, 0 `Failed`, total 5.542; processo terminou com exit code 0. Os testes Nebula passaram 697/697 em Python 3.10.11 isolado. Uma tentativa de pytest feita com diretório de trabalho na raiz falhou durante a coleta por imports relativos ao projeto; repetida a partir de `Tools/NebulaPython` passou.
+
+O novo anexo registra 12 comandos `DELETE BaseItemImageInfos` falhos e repetidos erros MariaDB 1213 no mesmo item, seguidos de retries; Kestrel também reporta heartbeat atrasado 2,35 s. A fonte local já serializa `SaveImagesAsync` com stripe intra-processo e advisory lock MariaDB, mas o checkout declara 12.1.32 e o log não fornece PID/versão. Assim, não se atribui o log à fonte atual nem se afirma correção em produção. O teste não acessou o banco operacional. Checkout permanece preexistente e sujo; venv descartável de teste ficou em `Tools/NebulaPython/.build/nebula-regression-20261025-0309` após o terminal bloquear sua remoção.
+
+Homologação formal segue 2/7 (28,6%), sem crédito. Não valida runtime instalado, Linux, CI remota, provedores live nem DB operacional; nenhuma release/instalação/publicação ocorreu. O mapa foi conferido contra `ItemPersistenceService.SaveImagesAsync`, `ItemPersistenceDatabaseLock`, os 17 projetos .NET e o runtime de testes Nebula; sem alteração de módulos, APIs, dependências ou arquitetura nesta rodada.
+
+## Rechecagem do anexo idêntico e distribuição do lock — 2026-10-25 18:19 BRT
+
+O arquivo recebido nesta sessão tem o mesmo SHA-256 já registrado (53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2). Repete 12 comandos DELETE BaseItemImageInfos, 11 deadlocks MariaDB 1213 e tentativas de retry. Não apresenta PID/assembly, desfecho das gravações nem diagnóstico InnoDB; o HTTP 200 antecedente não comprova commit.
+
+A inspeção local confirmou que a fonte do checkout ainda usa stripe estática por item e advisory lock MariaDB. git ls-remote confirmou origin/main no commit d51f4f38d2b4148ab49394c001567ad273bd57aa; nesse commit, ItemPersistenceService não chama o helper e o arquivo ItemPersistenceDatabaseLock.cs não existe. O caminho padrão consultado para a DLL instalada não existe neste host, então não há assembly local para correlacionar. Isso confirma uma lacuna de distribuição entre checkout e branch remota, não prova qual binário produziu o incidente.
+
+Nenhum teste foi reexecutado nesta rechecagem; os resultados anteriores (focais 40/40 e MariaDB descartável 14/14) permanecem evidência do checkout, não de produção. Nenhum banco foi acessado. Sem mudança de código, release, instalação ou publicação. Homologação formal segue 2/7 (28,6%), sem crédito. Próximo passo: reconciliar a árvore local com a base remota, revisar o conjunto de alterações antes de publicar e correlacionar PID/assembly + estado InnoDB durante uma ocorrência.
+
+Contrato do portal atualizado após esta anotação passou 197/197; JSON válido, JavaScript sintaticamente válido e git diff --check sem erros (apenas aviso LF/CRLF).
+
+## Rechecagem do binário instalado e testes focados — 2026-10-25 20:32 BRT
+
+O anexo desta sessão repete o SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`. A fonte local examinada serializa `SaveImagesAsync` com stripe por item e `ItemPersistenceDatabaseLock`/`GET_LOCK` MariaDB antes da transação. `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 40/40 em Windows/.NET 10 Release. Dois testes de integração MariaDB para concorrência foram descobertos e ignorados, pois `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada.
+
+A DLL no caminho padrão de instalação é versão 12.1.35 e não contém os literais `ItemPersistenceDatabaseLock` ou `mfx:item:`; nenhum processo MulletaFlix/Jellyfin estava ativo. Isso mostra apenas que o arquivo local consultado não carrega a proteção examinada na fonte; não identifica o assembly que emitiu o log histórico nem prova causa do incidente. Nenhum banco operacional foi acessado. Homologação formal permanece 2/7 (28,6%), sem crédito; sem alteração de runtime, instalação ou release. Próximo passo: reproduzir em MariaDB descartável e capturar PID/assembly, `SHOW ENGINE INNODB STATUS` e resultado final durante uma nova ocorrência.
+
+O contrato local do portal passou 200/200; o JSON e o JavaScript passaram validação sintática, e `git diff --check` terminou sem erros (com avisos LF/CRLF do Git).
+
+## Concorrência entre SaveItems e SaveImagesAsync — 2026-10-25
+
+A cobertura anterior concorria refreshes de imagem entre si, mas não executava simultaneamente a regravação de metadados (`SaveItems`) e o refresh de imagens para o mesmo item. Foi acrescentado `SaveItemsAndSaveImagesAsync_ConcurrentWritesForSameItem_PersistMetadataAndCompleteImageSet`, que sincroniza o início dos dois fluxos, verifica término dentro de 30 segundos e confirma o nome atualizado e o conjunto íntegro de imagens (tipo, path, provider e idioma). O mesmo método foi incluído no filtro MariaDB do workflow CI.
+
+O teste compilou em Windows/.NET 10 Release, mas foi ignorado por ausência de `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`; não houve execução em MariaDB, acesso ao banco operacional, CI hospedada ou produção. A lacuna de integração continua aberta até execução contra MariaDB descartável e runner hospedado observável. Homologação formal continua 2/7 (28,6%), sem crédito.
+
+## Rechecagem do log repetido — 2026-10-25 21:29 BRT
+
+O anexo recebido novamente tem o SHA-256 já registrado (`53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`): 12 `DELETE`s em `BaseItemImageInfos` para o mesmo item, 11 respostas MariaDB 1213 e retries; a primeira linha HTTP 200 não comprova o commit. A fonte local mantém serialização por stripe e advisory `GET_LOCK`. Testes unitários/reais de provider `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passaram 46/46 em Windows/.NET 10 Release. Sem `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING`, integração cross-session não foi executada. O log não identifica PID/assembly nem o resultado final; não confirma runtime nem produção.
+
+Na reauditoria paralela do restore, `BackupRestoreDirectoryTests` passou 36/44, com 8 casos de outras plataformas ignorados. A política de namespace atual permite criação de subpastas nos pais e valida mais estritamente o alvo; negar `FILE_APPEND_DATA` em todos os ancestrais bloqueou testes em caminhos Windows existentes e foi revertido. Não houve alteração permanente de código, instalação, release ou acesso ao banco operacional. Homologação formal continua 2/7 (28,6%), sem crédito.
+
+## Rechecagem do mesmo log e da DLL instalada — 2026-10-25 22:32 BRT
+
+O anexo recebido tem o mesmo SHA-256 do incidente já registrado (`53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`). A DLL no caminho padrão local é 12.1.35; o checkout declara 12.1.32. A tag 12.1.35 não contém o lock de faixa e o advisory `GET_LOCK` presentes na fonte local. Isso confirma divergência entre a versão instalada consultada e a proteção local, mas não identifica o processo que emitiu o log nem prova igualdade do arquivo com o artefato publicado.
+
+`ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 46/46 em Windows/.NET 10 Release. A integração MariaDB os dois testes foram descobertos e ignorados porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` está ausente (0 aprovados, 2 ignorados); o banco operacional não foi acessado. O log não traz PID/assembly, desfecho das gravações ou relatório InnoDB. A correção permanece apenas no checkout; sem release, instalação ou crédito formal. Formal 2/7 (28,6%).
+
+## Cobertura do orçamento de retry — 2026-10-25 22:37 BRT
+
+Adicionadas regressões unitárias para `SaveImagesAsync`: erros transitórios MariaDB 1205 e 1213 devem propagar a exceção após exatamente três tentativas; erro permanente deve parar após uma. Os três casos focados passaram; `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 49/49 em Windows/.NET 10 Release e `dotnet format style --verify-no-changes` passou. Apenas o arquivo de testes mudou no código; o comportamento de runtime não foi alterado.
+
+A cobertura unitária não substitui a integração: os dois cenários MariaDB continuam sem execução com banco descartável nesta sessão. Não houve acesso ao banco operacional nem validação de DLL/runtime/produção. Homologação formal permanece 2/7 (28,6%), sem crédito ou release. Ver [[Sessões/2026-10-25-MulletaFlix-image-retry-budget-tests-2237]].
+
+## Refresh localizado com proveniência — 2026-10-25 22:44 BRT
+
+Adicionada regressão local em `ItemImageProviderRefreshTests`: candidata de capa em português é baixada por provider simulado e seu `ProviderName`/`Language` permanecem na imagem após `RefreshImages`. `ItemImageProviderTests` passou 64/64 e `ProviderManagerTests` 76/76 em Windows/.NET 10 Release; formatter passou. Nenhuma API externa foi chamada.
+
+O `SaveImage` do teste é mockado. A persistência EF/MariaDB permanece coberta separadamente por teste opt-in; essa integração não foi executada porque não há conexão descartável disponível. Não afirmar que o arquivo foi escrito ou que o banco persistiu a proveniência. Formal 2/7 (28,6%), sem crédito/release. Ver [[Sessões/2026-10-25-MulletaFlix-localized-image-refresh-provenance-2244]].
+
+## Rechecagem focal do anexo duplicado — 2026-10-25 22:53 BRT
+
+O anexo repetiu o SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2` e não acrescenta dados de PID/assembly ou resultado final. `SaveImagesAsync_WaitsForSameItemPersistenceLockBeforeOpeningDatabaseContext` passou 1/1 em Windows/.NET 10 Release. Esse teste confirma a espera pelo lock local, não a identidade do runtime nem a serialização entre processos MariaDB. A integração MariaDB descartável não foi executada. Sem mudança de runtime ou release; homologação formal continua 2/7 (28,6%), sem crédito.
+## Rechecagem repetida do anexo — 2026-10-26 00:05 BRT
+
+O anexo recebido nesta sessão tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, exatamente igual ao incidente já analisado. Repete 12 `DELETE BaseItemImageInfos`, 11 deadlocks MariaDB 1213, retries e heartbeat Kestrel de 2,35 s; não inclui PID/assembly nem desfecho das gravações. A linha HTTP 200 antecedente não prova commit.
+
+`ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 49/49 em Windows/.NET 10 Release no checkout atual. Isso verifica regras unitárias e locks simulados, não concorrência real em MariaDB nem qual binário produziu o log. Nenhuma integração MariaDB, CI hospedada, runtime instalado ou produção foi validada; sem alteração de runtime ou release.
+
+## Persistência localizada integrada em MariaDB descartável — 2026-10-26 01:45 BRT
+
+MariaDB 11.4.13 isolado em `127.0.0.1:33099`: `ServerPersistenceMariaDbTests` passou 17/17 e `IntroSkipper.Integration.Tests` 57/57 em Windows/.NET 10 Release. A regressão exercita TMDb localizado → refresh → `ImageSaver` real → bytes/caminho → metadados EF/MariaDB (`ProviderName`/`Language`). Servidor de teste encerrado e porta fechada. Datadir temporário mantido após a ferramenta bloquear remoção recursiva. Sem execução Linux hospedada, correlação do binário do log, validação runtime/produção ou crédito formal; homologação permanece 2/7 (28,6%). Ver [[Sessões/2026-10-26-MulletaFlix-localized-image-mariadb-flow-wiring-0126]].
+
+## Reenvio idêntico do log de deadlock — 2026-10-26 03:57 BRT
+
+O anexo desta sessão tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, byte-idêntico ao log já auditado. Repetiu MariaDB 1213 em `DELETE BaseItemImageInfos` para o item do recorte; o HTTP 200 anterior não comprova commit. Não há PID, assembly, versão carregada ou desfecho das retentativas. O log não prova que a mitigação local `SemaphoreSlim` + `GET_LOCK` estava instalada. Nenhuma mudança na persistência de imagens nesta sessão; nenhum banco acessado. Produção permanece sem confirmação.
+
+## Correlação do anexo repetido e revalidação focal — 2026-10-26 04:29 BRT
+
+O anexo recebido tem novamente o SHA-256 já registrado (`53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`), sem PID, versão do processo, resultado final ou relatório InnoDB. A DLL instalada em `C:\Program Files\MulletaFlix\Server\MulletaFlix.Server.Implementations.dll` continua 12.1.35, com SHA-256 `0D9465B7EC1549CB70C063A2B7B199E8A6B645F6E454CDBFD008A8D0B3F9D30D`, e não contém os marcadores literais `ItemPersistenceDatabaseLock`/`mfx:item:`. A fonte local coordena `SaveImagesAsync`, `SaveItems`, `DeleteItem` e `FixBaseItemImageInfos` por stripes e advisory locks MariaDB; o teste focal `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` foi reexecutado em Windows/.NET 10 Release: 49 aprovados, 0 ignorados/falhas.
+
+Isso confirma divergência entre a fonte local e o arquivo instalado consultado, mas não identifica o processo do log nem prova que a DLL consultada o emitiu. O anexo é repetido, não evidência de uma nova falha após a correção; a causa operacional continua pendente até correlação PID/assembly e diagnóstico InnoDB. Nenhum banco operacional foi acessado. A árvore de trabalho está amplamente modificada e mistura diversas frentes; não foi criada nem publicada release. Homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Revalidação do anexo repetido — 2026-10-26 04:55 BRT
+
+O arquivo anexado nesta rodada mantém o SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual às ocorrências já registradas. A fonte atual foi relida: `SaveImagesAsync` serializa por stripe intra-processo e `ItemPersistenceDatabaseLock` adquire `GET_LOCK` MariaDB antes da transação; retries para códigos 1205/1213 permanecem limitados a três tentativas. `ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` passou 49/49 em Windows/.NET 10 Release; contrato da homologação passou 250/250.
+
+Esta revalidação não correlaciona o erro ao processo instalado, não demonstra o resultado final das gravações e não substitui concorrência MariaDB. PID/assembly, relatório InnoDB, CI remota, runtime/produção continuam pendentes. Não houve mudança de runtime nem release; homologação formal permanece 2/7 (28,6%), sem crédito.
+
+## Reenvio idêntico do log e regressão focal — 2026-10-26 07:35 BRT
+
+O anexo recebido nesta sessão tem o mesmo SHA-256 do incidente já auditado (`53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`): 12 exclusões concorrentes de `BaseItemImageInfos` para o mesmo item, erros MariaDB 1213 e aviso de heartbeat Kestrel. A linha HTTP 200 antecede os deletes e não prova commit. O checkout atual serializa mutações por item com stripes locais e advisory locks MariaDB; a regressão `ItemPersistenceServiceTests` foi recompilada em Windows/.NET 10 Release e passou 34/34. Esta sessão não tinha MariaDB descartável configurado para repetir a integração. O log não identifica PID/assembly/versão e não prova que a correção esteja instalada; `HEAD` ainda não contém o helper local. Sem validação de produção, sem release e sem crédito de homologação formal (2/7, 28,6%).
+
+## Revalidação concorrente da persistência de imagens — 2026-10-26 15:57 BRT
+
+O log anexado tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual ao incidente já registrado. Ele não fornece PID/assembly nem desfecho dos retries. `ItemPersistenceServiceTests` passou 35/35 em Windows/.NET 10 Release. `ServerPersistenceMariaDbTests` passou 24 aprovados, 1 ignorado e 0 falhas/25 contra MariaDB 11.4.4 descartável, porta 33219. Foram executados os testes concorrentes entre `SaveImagesAsync`/`SaveItems`, múltiplos stripes e `DeleteItem`. O único skip requer marcadores do harness de restart, aprovado separadamente 1/1. A instância foi criada com datadir e processo exclusivos, validada por PID/executável/datadir e encerrada; porta 33219 fechada. MariaDB operacional 3306 não acessado.
+
+Build produziu avisos existentes `xUnit1051` e `SA1402`, sem falhas. Nenhum código de runtime mudou nesta reexecução. O resultado valida o checkout local, não o runtime que gerou o log nem produção. CI hospedada, runtime instalado e produção seguem pendentes; homologação formal 2/7 (28,6%), sem crédito ou release. Mapa técnico conferido: nenhum módulo, API, classe, dependência ou fluxo mudou. Ver [[Sessões/2026-10-26-MulletaFlix-t56-concurrent-image-persistence-rerun-1557]].
+
+## Regressão ampla e identidade do runtime — 2026-10-26 16:10 BRT
+
+A regressão local Windows/.NET 10 Release passou 5.379/5.475, 96 ignorados e zero falhas no rerun sem build/restore; a tentativa fresh retornou exit 1 sem diagnóstico preservado. Filtro excluiu os projetos Integration. Revisão read-only encontrou os escritores de BaseItemImageInfos somente no ItemPersistenceService, e a rotina FixDates adquire as 16 advisory locks. DLL consultada instalada 12.1.35 difere do checkout 12.1.32; nenhum processo do servidor estava ativo sob Program Files/MulletaFlix. Isso não identifica o processo do log histórico nem valida runtime. Formal 2/7, sem release. Ver [[Sessões/2026-10-26-MulletaFlix-server-regression-1610]].
+
+## Regressão compilada do servidor — 2026-10-26 16:23 BRT
+
+A nova execução com build da solution Release terminou exit 0. Server.Implementations.Tests: 1.693 aprovados, 93 ignorados, 0 falhas; Api.Tests: 789 aprovados, 3 ignorados, 0 falhas. O filtro excluiu os testes dos dois projetos Integration. A execução fresh anterior exit 1 segue sem diagnóstico preservado; o rerun com build concluiu. Sem alteração de runtime, MariaDB/Mongo opt-in, CI hospedada ou produção. Ver [[Sessões/2026-10-26-MulletaFlix-server-regression-compiled-1623]].
+
+## Reenvio do log idêntico — 2026-10-26 16:38 BRT
+
+O anexo atual tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual ao incidente já documentado: deleções concorrentes de `BaseItemImageInfos` para o mesmo item, deadlocks 1213 e heartbeat atrasado. A resposta HTTP 200 precedente não comprova commit da persistência. `ItemPersistenceServiceTests` e `ItemPersistenceDatabaseLockTests` recompilaram e passaram 50/50 em Windows/.NET 10 Release. A fonte local já serializa por stripe e advisory lock MariaDB; como o log não contém PID/assembly/versão, não é possível atribuir a causa ao checkout ou afirmar que a correção esteja instalada. MariaDB de produção não foi acessada. Sem alteração de runtime/release; homologação 2/7.
+
+## Regressão MariaDB de persistência — 2026-10-26 16:43 BRT
+
+`ServerPersistenceMariaDbTests` recompilou e passou **24/25**; 1 skip é o caso de restart que exige marcadores específicos. Executou com MariaDB 11.4.4 isolado em loopback/porta 33167, grants habilitados e `max_connections=256`, cobrindo os fluxos concorrentes existentes de `SaveImagesAsync`, `SaveItems`, `DeleteItem`, locks advisory e recuperação de conexão. Duas tentativas iniciais expuseram requisitos do harness (não usar `--skip-grant-tables`; elevar o limite de conexões), não defeitos da aplicação; a repetição configurada passou. O processo MariaDB de teste foi encerrado, porta 33167 fechada; listener 3306/PID 31236 permaneceu intacto e sem conexão. Os diretórios descartáveis ficaram sob `%TEMP%` porque a ferramenta bloqueou a remoção recursiva. Carga prolongada, CI hospedada, runtime instalado e produção continuam pendentes. Homologação formal 2/7, sem release.
+
+## Reenvio idêntico do log — 2026-10-26 18:20 BRT
+
+O novo anexo tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual aos arquivos já auditados. Repete `DELETE BaseItemImageInfos` concorrentes para o mesmo item, deadlocks MariaDB 1213, retries e heartbeat Kestrel atrasado. O trecho termina durante outro retry: não comprova o resultado final nem identifica PID, assembly ou versão carregada. O HTTP 200 anterior não confirma commit. A fonte local mantém lock por faixa no processo e advisory `GET_LOCK` MariaDB; isso não demonstra que o binário do incidente contém a mitigação. Nenhuma alteração de runtime, teste ou banco nesta sessão; a integração MariaDB já registrada cobre o checkout, não este runtime. Sem nova release ou crédito formal; 2/7 continua sendo a última evidência registrada.
+
+## Reenvio do log idêntico — 2026-10-26 19:27 BRT
+
+O anexo tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual aos registros anteriores. Repete deadlocks MariaDB 1213 durante `DELETE BaseItemImageInfos` para o mesmo item, com retries; não inclui PID/assembly nem resultado final. O HTTP 200 antecedente não comprova commit. O checkout já contém stripe por item e advisory `GET_LOCK`, mas esta repetição não comprova qual runtime emitiu o log nem a correção em produção; nenhum banco operacional foi consultado.
+
+Como validação independente, `bash -n` passou nos nove scripts shell do diretório `tools/release` em Git Bash/MSYS. WSL não tem distribuição instalada, então nenhum script Linux ou instalador foi executado. Contrato do portal passou 298/298. Sem mudança de runtime ou release; auditoria permanece 5.465/5.493 e homologação formal 2/7 (28,6%), sem crédito. Mapa conferido; estrutura inalterada.
+## Imagens remotas legadas sem proveniência — 2026-10-26 21:23 BRT
+
+O refresh automático só substitui imagem singular antiga quando a proveniência
+remota (`ProviderName` e `Language`) é conhecida. Imagens sem esses campos são
+preservadas porque podem ser arte manual. Isso protege substituições manuais,
+mas deixa capas remotas antigas em idioma errado sem reparo automático. Não é
+seguro inferir a autoria pelo nome ou caminho do arquivo. A correção exige
+identificar imagens manuais e remotas legadas ou criar uma ação explícita de
+recuperação que preserve a arte manual. TMDb/CDN, item real, runtime instalado
+e produção não foram consultados nesta auditoria. Homologação formal 2/7; sem
+release. Ver sessão
+`2026-10-26-MulletaFlix-nebula-full-mode-startup-audit-2123`.
+
+## Refresh de imagem remota sem idioma registrado — 2026-10-26 21:35 BRT
+
+`ItemImageProvider.RefreshImages` agora trata arte com `ProviderName` conhecido,
+mas `Language` nulo/vazio, como remota cuja língua precisa ser reavaliada. O
+refresh usa a preferência pt-BR configurada e mantém inglês como fallback. A
+resolução do idioma global também passa a ser acionada nesses registros. Arte
+sem `ProviderName` continua preservada, pois pode ser manual. Isto não recupera
+imagens antigas que perderam ambos os campos de proveniência; elas requerem
+substituição administrativa explícita. Testes focais: 4/4; filtro completo do
+refresh de imagens: 47/47 em Windows/.NET 10 Release. Nenhum TMDb/CDN, banco,
+runtime instalado ou produção acessado. Formal permanece 2/7, sem crédito ou
+release.
+
+## Reenvio idêntico do log de deadlock — 2026-10-26 23:47 BRT
+
+O anexo recebido nesta sessão tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual aos anexos anteriores. Repete deadlocks MariaDB 1213 no `DELETE BaseItemImageInfos` para o mesmo item, retries e heartbeat do Kestrel atrasado em 2,35 s. O HTTP 200 inicial não demonstra commit; o recorte termina antes do desfecho e não identifica PID/assembly emissor.
+
+`ItemPersistenceServiceTests|ItemPersistenceDatabaseLockTests` recompilou em Windows/.NET 10 Release: 52 aprovados, 0 ignorados, 0 falhas. A fonte local declara 12.1.32 e serializa gravações por stripe e advisory `GET_LOCK`; `origin/main` está em `d51f4f38`, oito commits à frente do checkout, sem a proteção. A DLL consultada instalada declara 12.1.35, SHA-256 `0D9465B7EC1549CB70C063A2B7B199E8A6B645F6E454CDBFD008A8D0B3F9D30D`; contém o campo de identidade atual do retry, mas não os marcadores do lock. Nenhum processo do servidor estava ativo. Isso confirma divergência de distribuição, mas não atribui o log à DLL consultada nem confirma que o patch tenha chegado à produção. A integração MariaDB não foi executada nesta sessão, pois a configuração de teste está ausente; banco operacional não acessado. Sem mudança de código ou release. Homologação formal continua 2/7 (28,6%), sem crédito.
+
+## Confirmação do log de deadlock idêntico — 2026-10-27 00:14 BRT
+
+O arquivo recebido novamente tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, idêntico às ocorrências anteriores. Reconfirmei na instalação local a DLL `MulletaFlix.Server.Implementations.dll` 12.1.35, SHA-256 `0D9465B7EC1549CB70C063A2B7B199E8A6B645F6E454CDBFD008A8D0B3F9D30D`, sem `ItemPersistenceDatabaseLock` nem `mfx:item:`. Nenhum processo do servidor estava ativo nesta leitura. A fonte deste checkout já possui stripe local e lock advisory MariaDB; o anexo não tem PID/versão nem resultado final dos retries, portanto não identifica o emissor nem prova a falha final. Banco operacional e integração MariaDB não foram acessados nesta sessão. Sem release ou confirmação de correção em produção.
+
+## Revalidação do log repetido — 2026-10-27 02:58 BRT
+
+O anexo desta sessão tem SHA-256 53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2, igual ao incidente já registrado. Ele repete deadlocks MariaDB 1213 no DELETE BaseItemImageInfos para o mesmo item e retentativas; não contém PID, AssemblyVersion nem resultado final. A linha HTTP 200 anterior não comprova commit. O checkout atual contém locks por faixa e advisory GET_LOCK, mas esta revalidação não executou MariaDB nem identificou o binário emissor. Nenhum código de produto, banco operacional, runtime ou instalação foi alterado; sem release.
+## Revalidação do anexo — 2026-10-27 03:07 BRT
+
+O arquivo recebido tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual ao incidente já registrado. O recorte repete deadlocks MariaDB 1213 durante `DELETE BaseItemImageInfos` para o mesmo item e logs de retry na tentativa 2; termina truncado e não informa resultado final, PID ou `AssemblyVersion`. O `HTTP 200` que antecede o erro não prova commit das imagens.
+
+A fonte deste checkout contém lock por stripe de item e lock advisory MariaDB. A DLL instalada localmente continua na versão 12.1.35 e não contém `ItemPersistenceDatabaseLock` nem `mfx:item:`; nenhum processo MulletaFlix/Jellyfin estava ativo na verificação. Isso confirma divergência entre checkout e instalação local, mas não identifica qual binário emitiu o log. Testes focais em Windows/.NET 10 Release passaram 52/52. A integração MariaDB não foi executada porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada. Causa de produção e recuperação final das imagens continuam sem confirmação.
+## Revalidação focal do log repetido — 2026-10-27 05:23 BRT
+
+O anexo tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, idêntico ao incidente já auditado. Repete deadlocks MariaDB 1213 durante `DELETE BaseItemImageInfos` para o mesmo item; não contém PID/AssemblyVersion nem resultado final, e o HTTP 200 antecedente não comprova commit. O checkout serializa gravações de imagens por stripe de item e usa advisory lock para mutações MariaDB.
+
+`dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --no-restore --filter FullyQualifiedName~SaveImagesAsync_WaitsForSameItemPersistenceLockBeforeOpeningDatabaseContext` passou 1/1 em Windows/.NET 10. Integração MariaDB não foi executada: variável opt-in ausente, Docker ausente e WSL não instalado; serviço operacional não foi acessado. A revisão estática paralela do gate de restore Linux não encontrou novo achado, mas não executou os 14 testes privilegiados.
+
+Sem alteração de runtime, banco ou instalação; homologação formal permanece 2/7 (28,6%), auditoria agregada 5.465/5.493, sem crédito ou release. Portal atualizado no checkout local, sem publicação remota. Mapa técnico conferido: nenhuma estrutura mudou. Ver [[Sessões/2026-10-27-MulletaFlix-image-deadlock-log-rerun-0523]].
+
+## Reenvio do deadlock e regressão focal — 2026-10-27 05:41 BRT
+
+O anexo recebido tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual ao log já registrado. Repete deadlocks MariaDB 1213 em `DELETE BaseItemImageInfos` para o mesmo item; não informa PID/AssemblyVersion nem o resultado final das retentativas. O HTTP 200 inicial não comprova commit dessas gravações.
+
+`ItemPersistenceServiceTests` e `ItemPersistenceDatabaseLockTests` passaram 52/52 em Windows/.NET 10 Release (`dotnet test ... --configuration Release --no-restore --filter "FullyQualifiedName~ItemPersistenceServiceTests|FullyQualifiedName~ItemPersistenceDatabaseLockTests"`). Isso cobre a fonte local e simulações de retry/lock; não reproduz o deadlock em MariaDB real nem correlaciona o log ao runtime instalado. A integração foi omitida porque `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` não está configurada e existe um `mysqld` ativo não identificado; ele não foi acessado. Nenhum serviço, banco operacional, instalação ou release foi alterado.
+
+Homologação formal permanece 2/7 (28,6%) e auditoria 5.465/5.493, sem crédito. CI hospedada, runtime emissor, Linux e produção seguem pendentes. Mapa técnico conferido contra a persistência e seus testes; módulos, APIs e dependências não mudaram.
+
+## Log de deadlock reenviado e correção de órfãos — 2026-10-27 10:03 BRT
+
+O anexo desta sessão tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, igual aos anteriores. Ele registra deadlocks MariaDB 1213 repetidos no `DELETE BaseItemImageInfos` e retries sem PID/AssemblyVersion. A mensagem antiga não corresponde ao template atual de retry, que registra PID e versão; isto indica código/runtime diferente ou anterior, sem identificar qual binário produziu o log. O HTTP 200 antecedente não confirma commit, e o alerta de heartbeat Kestrel não prova causalidade.
+
+O código atual mantém stripe por item, advisory `GET_LOCK` e retry limitado; nenhuma mudança foi feita nessa lógica nesta sessão. O runtime instalado/produção não foi consultado. Separadamente, foi corrigido e reproduzido em MariaDB descartável o vazamento de linhas `Peoples` órfãs após `ON DELETE CASCADE`; evidência e validação estão no roadmap técnico e no evento de homologação. Formal 2/7, sem crédito/release.
+
+## Rechecagem do log MariaDB repetido — 2026-10-27 05:59 BRT
+
+O novo anexo tem o mesmo SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2` do incidente anterior. Ele repete o deadlock 1213 no `DELETE BaseItemImageInfos` para o mesmo item e não contém PID, versão do assembly ou resultado final. A mensagem de retry não corresponde à mensagem da fonte atual, que inclui PID e versão. A fonte atual usa stripe local por item e `GET_LOCK` no MariaDB; testes unitários `ItemPersistenceServiceTests` passaram 37/37 em Release. Isso não prova a versão executada na instalação nem reproduz o caso concorrente no MariaDB. Formal 2/7 e auditoria 5.465/5.493 permanecem sem crédito.
+## MariaDB real descartável — regressão de persistência — 2026-10-27 06:07 BRT
+
+`ServerPersistenceMariaDbTests` passou 25/26 em Windows/.NET 10 Release: 25 aprovados, 1 ignorado (restart exige marcadores do harness), 0 falhas. Executado com MariaDB 11.4.4, PID 35200, porta dinâmica 49393 e datadir exclusivo; shutdown gracioso confirmou porta fechada. A instância operacional 3306/PID 31236 não foi acessada. O restart isolado já tem evidência anterior 1/1, mas esta suíte não reproduziu esse cenário. Auditoria agregada e homologação formal permanecem inalteradas.
+## Regressão concorrente em MariaDB descartável — 2026-10-27 08:19 BRT
+
+O anexo reenviado tem SHA-256 `53030F76669CB3FF502062EFD09E4B536C64C3229339B3D23F59628F8F8577E2`, idêntico às cópias anteriores. Repete o deadlock MariaDB 1213 no `DELETE BaseItemImageInfos` para o mesmo item; o recorte não informa PID/AssemblyVersion ou resultado final, e o HTTP 200 antecedente não confirma commit.
+
+`SaveImagesAsync_ConcurrentRefreshesForSameItem_PersistOneCompleteImageSet` passou 1/1 em Windows/.NET 10 Release com MariaDB 11.4.4 isolado em loopback/porta 51588. A instância temporária foi encerrada. A fonte do checkout coordena a gravação com stripe local e advisory `GET_LOCK` por schema/stripe. A saída de retry do anexo não corresponde à mensagem atual que registra PID/versão, portanto não identifica a DLL que o emitiu. MariaDB operacional 3306/PID 31236 não foi acessado; nenhuma instalação ou runtime foi alterado.
+
+Este resultado valida o teste e a fonte local sob concorrência, não identifica nem certifica o runtime emissor, CI hospedada ou produção. Homologação formal permanece 2/7 (28,6%), auditoria 5.465/5.493 sem crédito; sem release. Mapa técnico conferido: sem alteração de módulos, APIs, classes públicas ou dependências.

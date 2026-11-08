@@ -12,7 +12,6 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.SystemBackupService;
 using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,7 +30,7 @@ using MulletaFlix.Database.Implementations.Enums;
 using MulletaFlix.Server.Implementations.Billing;
 using MulletaFlix.Server.Implementations.Extensions;
 using MulletaFlix.Server.Implementations.FullSystemBackup;
-using MulletaFlix.Server.Implementations.StorageHelpers;
+using MulletaFlix.Testing;
 using MySqlConnector;
 using Xunit;
 
@@ -574,24 +573,10 @@ public sealed class BackupRestoreMariaDbTests
                 backupPath);
             var appHost = new Mock<IServerApplicationHost>();
             appHost.SetupGet(host => host.ApplicationVersion).Returns(new Version(12, 1, 0));
-            var storageSpaceProvider = new Mock<IStorageSpaceProvider>();
-            storageSpaceProvider.Setup(provider => provider.GetFreeSpaceOf(backupPath)).Returns(new FolderStorageInfo
-            {
-                Path = backupPath,
-                ResolvedPath = backupPath,
-                FreeSpace = 10_737_418_240,
-                UsedSpace = 1_073_741_824,
-                StorageType = "Fixed",
-                DeviceId = "integration-test"
-            });
-            var backupService = new BackupService(
-                services.GetRequiredService<ILogger<BackupService>>(),
-                contextFactory,
-                appHost.Object,
-                paths,
-                services.GetRequiredService<IMulletaFlixDatabaseProvider>(),
-                Mock.Of<IHostApplicationLifetime>(),
-                storageSpaceProvider.Object);
+            using var backupService = CreateMariaDbBackupService(services, paths, backupDatabaseParticipants: [introSkipperParticipant, independentParticipant]);
+
+            var configFile = Path.Combine(configurationPath, "server.json");
+            await File.WriteAllTextAsync(configFile, "before-backup", cancellationToken);
 
             var createdBackup = await backupService.CreateBackupAsync(new BackupOptionsDto
             {

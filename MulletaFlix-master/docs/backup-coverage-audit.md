@@ -354,6 +354,12 @@ Duas auditorias independentes confirmaram que `BackupRestoreDirectory` continua 
 Data: 2026-10-21
 Estado: cobertura integral ainda parcial; restore rejeita ZIP corrompido e conteúdo JSON relacional inválido/incompatível antes de sobrescrever arquivos.
 
+## Revalidação focal — 2026-10-23
+
+`dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --configuration Release --no-restore --filter FullyQualifiedName~FullSystemBackup --logger 'console;verbosity=minimal'` terminou com exit code 0 no Windows/.NET 10: 80 aprovados, 3 ignorados (todos Linux-only), 0 falhas, 83 no total. A recompilação emitiu avisos de analisadores/documentação em arquivos do servidor e testes; não impediram a execução.
+
+Este resultado confirma a suíte unitária atual e as primitivas Windows executáveis localmente, não o teste de troca concorrente de ancestral nem as primitivas Linux ignoradas. `BackupService.FileSystemRestoreTransaction` ainda aplica, reverte e limpa arquivos por pathname após validações separadas. O journal usa `BackupRestoreDirectory` para leitura, gravação, lease e remoção do próprio journal após abrir sua raiz; o bootstrap de `_programDataPath` e a abertura da origem ZIP continuam por pathname. O helper relativo não está integrado à transação e mantém races condicionais nas primitives Linux quando um ator pode alterar o diretório-pai. A mitigação completa de TOCTOU, ACL efetiva das raízes em instalação e prova determinística Windows/Linux continuam pendentes; não há evidência de exploração remota. Nenhum arquivo de runtime foi alterado nesta revalidação.
+
 ## Escopo verificado
 
 `Jellyfin.Server.Implementations.FullSystemBackup.BackupService` injeta somente
@@ -419,9 +425,9 @@ criação do ZIP.
 - O manifesto valida `BackupEngineVersion` por igualdade exata (`0.2.0`). Uma
   evolução de formato precisa manter leitura explícita dos arquivos legados;
   apenas adicionar tabelas à versão atual pode resultar em incompatibilidade. A
-  validação exige que `DatabaseTables` corresponda exatamente aos DbSets
-  exportados pelo `MulletaFlixDbContext` mais `HistoryRow`, e que cada entrada
-  JSON correspondente exista no ZIP.
+  validação exige que `DatabaseTables` corresponda exatamente aos nomes físicos
+  mapeados pelo modelo EF para os DbSets exportados pelo `MulletaFlixDbContext`
+  mais `HistoryRow`, e que cada entrada JSON correspondente exista no ZIP.
 - A restauração valida CRC e comprimento de todas as entradas do ZIP antes de
   verificar espaço e antes de gravar qualquer arquivo ou banco. Também
   desserializa em streaming as entidades JSON de cada tabela do contexto
@@ -453,8 +459,8 @@ Em 2026-10-21, `FullSystemBackup` passou 39/39 testes Release. Três novos casos
 provam que JSON sintaticamente inválido, item nulo e entidade incompatível são
 rejeitados sem sobrescrever configuração nem abrir o contexto de banco. Os
 casos prévios também cobrem declaração ausente, entrada ausente e tabela
-desconhecida. A suíte completa `Jellyfin.Server.Implementations.Tests` passou
-1.515, ignorou 65 casos opt-in/plataforma e teve zero falhas.
+desconhecida. A suíte completa `Jellyfin.Server.Implementations.Tests` e seu
+resultado desta rodada estão registrados em `docs/releases/12.1.32.md`.
 O build de `Jellyfin.Server.Implementations` passou em Release sem erros; a
 última execução reportou quatro avisos XML em projetos referenciados. Os
 builders Windows e Linux também geraram os pacotes da release
@@ -466,17 +472,26 @@ em `127.0.0.1:27099`. Scripts Node de release/packaging passaram 23/23. Estes
 gates não comprovam cobertura de todos os contextos/coleções nem um restore
 integral de ponta a ponta.
 
-Em 2026-10-21, a regressão ampla em Windows revelou três testes de criação de
-backup dependentes do espaço livre real do disco do agente: o host tinha menos
-de 5 GiB, então casos que não deveriam exercitar capacidade falharam antes de
-validar seu comportamento. `BackupService` agora consulta `IStorageSpaceProvider`,
-registrado no container e implementado por `StorageSpaceProvider` via
-`StorageHelper`; os testes usam um provedor controlado e um caso verifica a
-recusa real abaixo do limite sem depender do disco. `FullSystemBackup` passou
-40/40. A suíte Release com filtro `FullyQualifiedName!~Integration` passou
-5.091 casos, ignorou 68 opt-in/plataforma e teve zero falhas. A validação não
-altera o diagnóstico anterior de cobertura parcial dos demais contextos e
-coleções nem equivale a restore integral.
+## Rejeição de reparse points durante a extração do restore — 2026-10-22
+
+INTENT: nenhum caminho de arquivo vindo do ZIP pode redirecionar a extração
+para fora da pasta de destino configurada através de symlink ou junction.
+
+`BackupService.RestoreBackupCoreAsync` continua usando a cópia local do fluxo
+`CopyDirectory`. Antes e depois de criar o diretório pai, o restore verifica
+cada componente existente abaixo da raiz de destino e rejeita
+`FileAttributes.ReparsePoint`; a raiz configurada continua confiável e pode ser
+um link intencional. O teste com symlink real reproduziu a escrita fora da raiz
+antes da correção e passou após a mudança. `FullSystemBackup` passou 40/40 em
+Release. Busca de equivalentes: há um único uso de `ZipArchiveEntry.ExtractToFile`
+no código C# do servidor, o ponto protegido nesta alteração.
+
+Limites: a checagem de caminho ainda tem uma janela TOCTOU para alteração
+concorrente por processo que possa modificar os diretórios; não foi feita
+extração por handles de diretório nem restore transacional. A rotina de banco
+ainda engole erro individual de `Add` depois da purga e pode concluir parcial;
+isso permanece um gate separado de T4.3. Sem banco, instalação, Linux, produção
+ou CI remota acessados.
 
 Antes de chamar o recurso de backup integral novamente, executar nesta ordem:
 

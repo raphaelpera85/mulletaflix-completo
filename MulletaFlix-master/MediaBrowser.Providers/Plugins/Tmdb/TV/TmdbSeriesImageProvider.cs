@@ -67,17 +67,13 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
 
             var language = item.GetPreferredMetadataLanguage();
             var countryCode = item.GetPreferredMetadataCountryCode();
+            var series = await _tmdbClientManager.GetSeriesImagesAsync(
+                tmdbId,
+                language,
+                countryCode,
+                cancellationToken).ConfigureAwait(false);
 
-            var series = await _tmdbClientManager
-                .GetSeriesAsync(
-                    Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture),
-                    language,
-                    TmdbUtils.GetImageLanguagesParam(language, countryCode),
-                    countryCode,
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            if (series?.Images is null)
+            if (series is null)
             {
                 return Enumerable.Empty<RemoteImageInfo>();
             }

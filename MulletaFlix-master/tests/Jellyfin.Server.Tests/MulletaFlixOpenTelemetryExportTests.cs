@@ -210,7 +210,6 @@ public sealed class MulletaFlixOpenTelemetryExportTests
                     && paths.InternalMetadataPath == Path.Combine(restoreRootsPath, "metadata")
                     && paths.DefaultInternalMetadataPath == Path.Combine(restoreRootsPath, "default-metadata")),
                 null!,
-                null!,
                 null!);
 
             await Assert.ThrowsAsync<FileNotFoundException>(() => backupService.RestoreBackupAsync(privatePath));

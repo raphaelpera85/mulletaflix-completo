@@ -198,7 +198,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb movie or null if not found.</returns>
         public async Task<Movie?> GetMovieAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = CreateImageAwareCacheKey("movie", tmdbId, language, imageLanguages, countryCode);
+            var key = BuildCacheKey("movie", tmdbId.ToString(CultureInfo.InvariantCulture), language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out Movie? movie))
             {
                 return movie;
@@ -239,7 +239,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb collection or null if not found.</returns>
         public async Task<Collection?> GetCollectionAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = CreateImageAwareCacheKey("collection", tmdbId, language, imageLanguages, countryCode);
+            var key = BuildCacheKey("collection", tmdbId.ToString(CultureInfo.InvariantCulture), language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out Collection? collection))
             {
                 return collection;
@@ -274,7 +274,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv show information or null if not found.</returns>
         public async Task<TvShow?> GetSeriesAsync(int tmdbId, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = CreateImageAwareCacheKey("series", tmdbId, language, imageLanguages, countryCode);
+            var key = BuildCacheKey("series", tmdbId.ToString(CultureInfo.InvariantCulture), language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvShow? series))
             {
                 return series;
@@ -378,12 +378,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv season information or null if not found.</returns>
         public async Task<TvSeason?> GetSeasonAsync(int tvShowId, int seasonNumber, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = CreateImageAwareCacheKey(
-                $"season-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}",
-                tvShowId,
-                language,
-                imageLanguages,
-                countryCode);
+            var key = BuildCacheKey("season", tvShowId.ToString(CultureInfo.InvariantCulture), seasonNumber.ToString(CultureInfo.InvariantCulture), language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvSeason? season))
             {
                 return season;
@@ -422,12 +417,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The TMDb tv episode information or null if not found.</returns>
         public async Task<TvEpisode?> GetEpisodeAsync(int tvShowId, int seasonNumber, long episodeNumber, string? displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
-            var key = CreateImageAwareCacheKey(
-                $"episode-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}e{episodeNumber.ToString(CultureInfo.InvariantCulture)}-{displayOrder}",
-                tvShowId,
-                language,
-                imageLanguages,
-                countryCode);
+            var key = BuildCacheKey("episode", tvShowId.ToString(CultureInfo.InvariantCulture), seasonNumber.ToString(CultureInfo.InvariantCulture), episodeNumber.ToString(CultureInfo.InvariantCulture), displayOrder ?? string.Empty, language, imageLanguages, countryCode);
             if (_memoryCache.TryGetValue(key, out TvEpisode? episode))
             {
                 return episode;
@@ -933,13 +923,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
 
         internal static string CreateImageAwareCacheKey(string entityType, int tmdbId, string? language, string? imageLanguages, string? countryCode)
         {
-            return string.Join(
-                '-',
+            return BuildCacheKey(
                 entityType,
                 tmdbId.ToString(CultureInfo.InvariantCulture),
-                TmdbUtils.NormalizeLanguage(language, countryCode) ?? string.Empty,
-                imageLanguages ?? string.Empty,
-                countryCode ?? string.Empty);
+                TmdbUtils.NormalizeLanguage(language, countryCode),
+                imageLanguages,
+                countryCode);
         }
 
         /// <summary>

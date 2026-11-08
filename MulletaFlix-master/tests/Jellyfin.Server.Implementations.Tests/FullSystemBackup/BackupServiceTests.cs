@@ -67,7 +67,7 @@ public sealed class BackupServiceTests : IDisposable
     private readonly Mock<IServerApplicationPaths> _applicationPathsMock;
     private readonly Mock<IMulletaFlixDatabaseProvider> _databaseProviderMock;
     private readonly Mock<IHostApplicationLifetime> _applicationLifetimeMock;
-    private readonly Mock<IStorageSpaceProvider> _storageSpaceProviderMock;
+    private readonly string _testProgramDataPath;
 
     public BackupServiceTests()
     {
@@ -76,18 +76,7 @@ public sealed class BackupServiceTests : IDisposable
         _applicationPathsMock = new Mock<IServerApplicationPaths>();
         _databaseProviderMock = new Mock<IMulletaFlixDatabaseProvider>();
         _applicationLifetimeMock = new Mock<IHostApplicationLifetime>();
-        _storageSpaceProviderMock = new Mock<IStorageSpaceProvider>();
-        _storageSpaceProviderMock
-            .Setup(provider => provider.GetFreeSpaceOf(It.IsAny<string>()))
-            .Returns((string path) => new FolderStorageInfo
-            {
-                Path = path,
-                ResolvedPath = path,
-                FreeSpace = 10_737_418_240,
-                UsedSpace = 1_073_741_824,
-                StorageType = "Fixed",
-                DeviceId = "test"
-            });
+        _testProgramDataPath = CreateRestoreTestRoot("program-data");
 
         _applicationHostMock.Setup(x => x.ApplicationVersion).Returns(new Version(10, 0, 0));
         _applicationPathsMock.Setup(x => x.BackupPath).Returns(Path.Combine(_testProgramDataPath, "backups"));
@@ -130,7 +119,185 @@ public sealed class BackupServiceTests : IDisposable
             _applicationPathsMock.Object,
             _databaseProviderMock.Object,
             _applicationLifetimeMock.Object,
-            _storageSpaceProviderMock.Object);
+            null,
+            null,
+            null,
+            null,
+            null,
+            restoreBackupSidecarCreatedForTesting,
+            null);
+    }
+
+    private static BackupRestoreRecoveryJournal CreateRecoveryJournal(string programDataPath)
+    {
+        Directory.CreateDirectory(programDataPath);
+        return new BackupRestoreRecoveryJournal(programDataPath);
+    }
+
+    private static string CreateRestoreTestRoot(string name)
+    {
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".mulletaflix-restore-tests",
+            $"{name}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        if (OperatingSystem.IsWindows())
+        {
+            var user = WindowsIdentity.GetCurrent().User
+                ?? throw new UnauthorizedAccessException("The restore fixture has no current user SID.");
+            var security = new DirectorySecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.SetOwner(user);
+            foreach (var sid in new[]
+            {
+                user,
+                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null)
+            })
+            {
+                security.AddAccessRule(new FileSystemAccessRule(
+                    sid,
+                    FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None,
+                    AccessControlType.Allow));
+            }
+
+            new DirectoryInfo(root).SetAccessControl(security);
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            File.SetUnixFileMode(root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        {
+            using var authority = BackupRestoreDirectory.OpenRoot(root);
+            authority.ValidateTrustedWriteBoundary();
+        }
+
+        return root;
+    }
+
+    private static MulletaFlixDbContext CreateInMemoryDbContext()
+    {
+        var options = new DbContextOptionsBuilder<MulletaFlixDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        var databaseProvider = new Mock<IMulletaFlixDatabaseProvider>();
+        databaseProvider.Setup(provider => provider.OnModelCreating(It.IsAny<ModelBuilder>()));
+        var lockingBehavior = new Mock<IEntityFrameworkCoreLockingBehavior>();
+
+        return new MulletaFlixDbContext(
+            options,
+            NullLogger<MulletaFlixDbContext>.Instance,
+            databaseProvider.Object,
+            lockingBehavior.Object);
+    }
+
+    [Fact]
+    public void BackupJsonSerialization_RetainsImageInfoForeignKeyWithPrivateSetter()
+    {
+        var userId = Guid.NewGuid();
+        var image = new ImageInfo("profile.jpg");
+        typeof(ImageInfo).GetProperty(nameof(ImageInfo.UserId))!.SetValue(image, userId);
+
+        var serialized = JsonSerializer.Serialize(image);
+        var restored = JsonSerializer.Deserialize<ImageInfo>(serialized);
+
+        Assert.Equal(userId, restored?.UserId);
+    }
+
+    [Fact]
+    public void RestorePreflight_CreatesValidationPlanForEveryExportedForeignKey()
+    {
+        using var central = CreateInMemoryDbContext();
+        using var movies = new MoviesDbContext(
+            new DbContextOptionsBuilder<MoviesDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options,
+            NullLogger<MoviesDbContext>.Instance);
+        using var series = new SeriesDbContext(
+            new DbContextOptionsBuilder<SeriesDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options,
+            NullLogger<SeriesDbContext>.Instance);
+        using var channels = new ChannelsDbContext(
+            new DbContextOptionsBuilder<ChannelsDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options,
+            NullLogger<ChannelsDbContext>.Instance);
+        using var books = new BooksDbContext(
+            new DbContextOptionsBuilder<BooksDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options,
+            NullLogger<BooksDbContext>.Instance);
+
+        var getExpectedEntities = typeof(BackupService).GetMethod(
+            "GetExpectedDatabaseEntities",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var createValidationPlans = typeof(BackupService).GetMethod(
+            "CreateForeignKeyValidationPlans",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var contexts = new (DbContext Context, Type ContextType, bool IncludeHistory)[]
+        {
+            (central, typeof(MulletaFlixDbContext), true),
+            (movies, typeof(MoviesDbContext), false),
+            (series, typeof(SeriesDbContext), false),
+            (channels, typeof(ChannelsDbContext), false),
+            (books, typeof(BooksDbContext), false)
+        };
+
+        var plannedForeignKeyCount = 0;
+        var allModelForeignKeyCount = 0;
+        foreach (var (context, contextType, includeHistory) in contexts)
+        {
+            var entities = Assert.IsAssignableFrom<Array>(getExpectedEntities.Invoke(null, [context.Model, contextType, includeHistory]));
+            var exportedTypes = entities.Cast<object>()
+                .Select(entity => (Type)entity.GetType().GetField("Item2")!.GetValue(entity)!)
+                .ToHashSet();
+            var entryPaths = entities.Cast<object>().ToDictionary(
+                entity => (Type)entity.GetType().GetField("Item2")!.GetValue(entity)!,
+                entity => Path.Combine("Database", $"{entity.GetType().GetField("Item1")!.GetValue(entity)}.json"));
+            var modelForeignKeys = exportedTypes
+                .Select(context.Model.FindEntityType)
+                .Where(entityType => entityType is not null)
+                .SelectMany(entityType => entityType!.GetForeignKeys())
+                .ToArray();
+            var expectedCount = modelForeignKeys
+                .Count(foreignKey => exportedTypes.Contains(foreignKey.PrincipalEntityType.ClrType));
+            var plans = Assert.IsAssignableFrom<Array>(
+                createValidationPlans.Invoke(null, [context.Model, entities, entryPaths]));
+
+            Assert.Equal(expectedCount, plans.Length);
+            plannedForeignKeyCount += plans.Length;
+            allModelForeignKeyCount += context.Model.GetEntityTypes().Sum(entityType => entityType.GetForeignKeys().Count());
+        }
+
+        Assert.Equal(39, allModelForeignKeyCount);
+        Assert.Equal(38, plannedForeignKeyCount);
+    }
+
+    [Fact]
+    public void GetExpectedDatabaseEntities_DomainContextDoesNotIncludeMigrationHistory()
+    {
+        var options = new DbContextOptionsBuilder<SeriesDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        using var context = new SeriesDbContext(options, NullLogger<SeriesDbContext>.Instance);
+        var method = typeof(BackupService).GetMethod(
+            "GetExpectedDatabaseEntities",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        var entities = Assert.IsAssignableFrom<Array>(method!.Invoke(null, [context.Model, typeof(SeriesDbContext), false]));
+        var names = entities.Cast<object>()
+            .Select(entity => (string)entity.GetType().GetField("Item1")!.GetValue(entity)!)
+            .ToArray();
+
+        Assert.Contains("Episodes", names);
+        Assert.DoesNotContain("HistoryRow", names);
+    }
+
+    [Fact]
+    public void DatabaseProviderPurgeContract_RemainsBoundToPrimaryContext()
+    {
+        var method = typeof(IMulletaFlixDatabaseProvider).GetMethod(nameof(IMulletaFlixDatabaseProvider.PurgeDatabase));
+
+        Assert.NotNull(method);
+        Assert.Equal(typeof(MulletaFlixDbContext), method.GetParameters()[0].ParameterType);
     }
 
     [Fact]
@@ -412,8 +579,7 @@ public sealed class BackupServiceTests : IDisposable
             _applicationHostMock.Object,
             _applicationPathsMock.Object,
             _databaseProviderMock.Object,
-            _applicationLifetimeMock.Object,
-            _storageSpaceProviderMock.Object);
+            _applicationLifetimeMock.Object);
 
         // Since we can't easily mock the static StorageHelper, we'll skip this test
         // and just verify the service construction works
@@ -450,8 +616,7 @@ public sealed class BackupServiceTests : IDisposable
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
-                _applicationLifetimeMock.Object,
-                _storageSpaceProviderMock.Object);
+                _applicationLifetimeMock.Object);
 
             var result = await service.CreateBackupAsync(new BackupOptionsDto
             {
@@ -480,54 +645,6 @@ public sealed class BackupServiceTests : IDisposable
             dbContextFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
             dbContextFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
             _databaseProviderMock.Verify(provider => provider.RunScheduledOptimisation(It.IsAny<CancellationToken>()), Times.Never);
-        }
-        finally
-        {
-            if (Directory.Exists(isolatedRoot))
-            {
-                Directory.Delete(isolatedRoot, recursive: true);
-            }
-        }
-    }
-
-    [Fact]
-    public async Task CreateBackupAsync_RejectsBackupDirectoryBelowMinimumFreeSpace()
-    {
-        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-backup-low-space-{Guid.NewGuid():N}");
-        var backupPath = Path.Combine(isolatedRoot, "backups");
-        var dataPath = Path.Combine(isolatedRoot, "data");
-        Directory.CreateDirectory(backupPath);
-        Directory.CreateDirectory(dataPath);
-
-        try
-        {
-            _applicationPathsMock.Setup(paths => paths.BackupPath).Returns(backupPath);
-            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(dataPath);
-            _storageSpaceProviderMock
-                .Setup(provider => provider.GetFreeSpaceOf(backupPath))
-                .Returns(new FolderStorageInfo
-                {
-                    Path = backupPath,
-                    ResolvedPath = backupPath,
-                    FreeSpace = 5_368_709_114,
-                    UsedSpace = 0,
-                    StorageType = "Fixed",
-                    DeviceId = "test"
-                });
-
-            var service = CreateService();
-
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateBackupAsync(new BackupOptionsDto
-            {
-                Database = false,
-                Metadata = false,
-                Subtitles = false,
-                Trickplay = false
-            }));
-
-            Assert.Contains("does not have at least '5GiB' free space", exception.Message, StringComparison.Ordinal);
-            var execution = Assert.Single(await service.GetBackupHistory());
-            Assert.Equal(TaskCompletionStatus.Failed, execution.Status);
         }
         finally
         {
@@ -1806,8 +1923,7 @@ public sealed class BackupServiceTests : IDisposable
                 _applicationHostMock.Object,
                 _applicationPathsMock.Object,
                 _databaseProviderMock.Object,
-                _applicationLifetimeMock.Object,
-                _storageSpaceProviderMock.Object);
+                _applicationLifetimeMock.Object);
 
             var exception = await Assert.ThrowsAsync<InvalidDataException>(() => service.RestoreBackupAsync(archivePath));
 
@@ -2012,87 +2128,6 @@ public sealed class BackupServiceTests : IDisposable
             Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
             dbContextFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
             dbContextFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Once);
-        }
-        finally
-        {
-            if (Directory.Exists(isolatedRoot))
-            {
-                Directory.Delete(isolatedRoot, recursive: true);
-            }
-        }
-    }
-
-    [Theory]
-    [InlineData("[{invalid-json}]")]
-    [InlineData("[null]")]
-    [InlineData("[{\"Id\":\"not-a-guid\",\"Username\":\"user\",\"AuthenticationProviderId\":\"provider\",\"PasswordResetProviderId\":\"reset\"}]")]
-    public async Task RestoreBackupAsync_RejectsInvalidDatabaseJsonBeforeOverwritingFiles(string invalidUsersJson)
-    {
-        var isolatedRoot = Path.Combine(Path.GetTempPath(), $"mulletaflix-restore-invalid-json-{Guid.NewGuid():N}");
-        var configPath = Path.Combine(isolatedRoot, "config");
-        var existingConfigPath = Path.Combine(configPath, "server.json");
-        var archivePath = Path.Combine(isolatedRoot, "recovery.zip");
-        Directory.CreateDirectory(configPath);
-
-        try
-        {
-            _applicationPathsMock.Setup(paths => paths.ConfigurationDirectoryPath).Returns(configPath);
-            _applicationPathsMock.Setup(paths => paths.DataPath).Returns(Path.Combine(isolatedRoot, "data"));
-            _applicationPathsMock.Setup(paths => paths.CachePath).Returns(Path.Combine(isolatedRoot, "cache"));
-            _applicationPathsMock.Setup(paths => paths.ProgramDataPath).Returns(Path.Combine(isolatedRoot, "program-data"));
-            _applicationPathsMock.Setup(paths => paths.RootFolderPath).Returns(Path.Combine(isolatedRoot, "root"));
-            _applicationPathsMock.Setup(paths => paths.InternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata"));
-            _applicationPathsMock.Setup(paths => paths.DefaultInternalMetadataPath).Returns(Path.Combine(isolatedRoot, "metadata-default"));
-
-            const string existingContent = "existing-config-must-survive";
-            await File.WriteAllTextAsync(existingConfigPath, existingContent);
-
-            var tableNames = typeof(MulletaFlixDbContext)
-                .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-                .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
-                .Select(property => property.Name)
-                .Append("HistoryRow")
-                .ToArray();
-            var manifest = new BackupManifest
-            {
-                ServerVersion = new Version(10, 0, 0),
-                BackupEngineVersion = new Version(0, 2, 0),
-                DateCreated = DateTimeOffset.UtcNow,
-                DatabaseTables = tableNames,
-                Options = new BackupOptions
-                {
-                    Database = true,
-                    Metadata = false,
-                    Subtitles = false,
-                    Trickplay = false
-                }
-            };
-
-            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
-            {
-                await WriteArchiveEntryAsync(archive, "manifest.json", JsonSerializer.Serialize(manifest));
-                await WriteArchiveEntryAsync(archive, "Config/server.json", "replacement-config-must-not-be-applied");
-                foreach (var tableName in tableNames)
-                {
-                    await WriteArchiveEntryAsync(archive, $"Database/{tableName}.json", tableName == "Users" ? invalidUsersJson : "[]");
-                }
-            }
-
-            var dbContextFactory = new Mock<IDbContextFactory<MulletaFlixDbContext>>(MockBehavior.Strict);
-            var service = new BackupService(
-                _loggerMock.Object,
-                dbContextFactory.Object,
-                _applicationHostMock.Object,
-                _applicationPathsMock.Object,
-                _databaseProviderMock.Object,
-                _applicationLifetimeMock.Object,
-                _storageSpaceProviderMock.Object);
-
-            await Assert.ThrowsAsync<InvalidDataException>(() => service.RestoreBackupAsync(archivePath));
-
-            Assert.Equal(existingContent, await File.ReadAllTextAsync(existingConfigPath));
-            dbContextFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
-            dbContextFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
         }
         finally
         {

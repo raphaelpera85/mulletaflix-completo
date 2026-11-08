@@ -126,6 +126,8 @@ public class BackupService : IBackupService, IDisposable
     private readonly IMulletaFlixDatabaseProvider _MulletaFlixDatabaseProvider;
     private readonly IHostApplicationLifetime _hostApplicationLifetime;
     private readonly IStorageSpaceProvider _storageSpaceProvider;
+    private readonly Func<Func<Task>, Task>? _relationalCommitForTesting;
+    private readonly Action<string>? _restoreBackupSidecarCreatedForTesting;
     private readonly SemaphoreSlim _backupHistoryLock = new(1, 1);
     private int _backupOperationInProgress;
     private static readonly JsonSerializerOptions _serializerSettings = new JsonSerializerOptions(JsonSerializerDefaults.General)
@@ -151,8 +153,114 @@ public class BackupService : IBackupService, IDisposable
         IServerApplicationHost applicationHost,
         IServerApplicationPaths applicationPaths,
         IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
+        IHostApplicationLifetime applicationLifetime)
+        : this(logger, dbProvider, applicationHost, applicationPaths, MulletaFlixDatabaseProvider, applicationLifetime, null, null, null, null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes the backup service with an injectable storage provider.
+    /// </summary>
+    public BackupService(
+        ILogger<BackupService> logger,
+        IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IServerApplicationHost applicationHost,
+        IServerApplicationPaths applicationPaths,
+        IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
         IHostApplicationLifetime applicationLifetime,
         IStorageSpaceProvider storageSpaceProvider)
+        : this(
+            logger,
+            dbProvider,
+            applicationHost,
+            applicationPaths,
+            MulletaFlixDatabaseProvider,
+            applicationLifetime,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            storageSpaceProvider)
+    {
+    }
+
+    /// <summary>
+    /// Initializes the backup service with all relational contexts used by the server.
+    /// </summary>
+    public BackupService(
+        ILogger<BackupService> logger,
+        IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IServerApplicationHost applicationHost,
+        IServerApplicationPaths applicationPaths,
+        IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
+        IHostApplicationLifetime applicationLifetime,
+        IDbContextFactory<MoviesDbContext>? moviesDbProvider,
+        IDbContextFactory<SeriesDbContext>? seriesDbProvider,
+        IDbContextFactory<ChannelsDbContext>? channelsDbProvider,
+        IDbContextFactory<BooksDbContext>? booksDbProvider)
+        : this(
+            logger,
+            dbProvider,
+            applicationHost,
+            applicationPaths,
+            MulletaFlixDatabaseProvider,
+            applicationLifetime,
+            moviesDbProvider,
+            seriesDbProvider,
+            channelsDbProvider,
+            booksDbProvider,
+            null)
+    {
+    }
+
+    /// <summary>Initializes the backup service with registered plugin database participants.</summary>
+    public BackupService(
+        ILogger<BackupService> logger,
+        IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IServerApplicationHost applicationHost,
+        IServerApplicationPaths applicationPaths,
+        IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
+        IHostApplicationLifetime applicationLifetime,
+        IDbContextFactory<MoviesDbContext>? moviesDbProvider,
+        IDbContextFactory<SeriesDbContext>? seriesDbProvider,
+        IDbContextFactory<ChannelsDbContext>? channelsDbProvider,
+        IDbContextFactory<BooksDbContext>? booksDbProvider,
+        IEnumerable<IBackupDatabaseParticipant> backupDatabaseParticipants)
+        : this(
+            logger,
+            dbProvider,
+            applicationHost,
+            applicationPaths,
+            MulletaFlixDatabaseProvider,
+            applicationLifetime,
+            moviesDbProvider,
+            seriesDbProvider,
+            channelsDbProvider,
+            booksDbProvider,
+            null,
+            null,
+            backupDatabaseParticipants)
+    {
+    }
+
+    internal BackupService(
+        ILogger<BackupService> logger,
+        IDbContextFactory<MulletaFlixDbContext> dbProvider,
+        IServerApplicationHost applicationHost,
+        IServerApplicationPaths applicationPaths,
+        IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider,
+        IHostApplicationLifetime applicationLifetime,
+        IDbContextFactory<MoviesDbContext>? moviesDbProvider,
+        IDbContextFactory<SeriesDbContext>? seriesDbProvider,
+        IDbContextFactory<ChannelsDbContext>? channelsDbProvider,
+        IDbContextFactory<BooksDbContext>? booksDbProvider,
+        Func<Func<Task>, Task>? relationalCommitForTesting,
+        Action<string>? restoreBackupSidecarCreatedForTesting = null,
+        IEnumerable<IBackupDatabaseParticipant>? backupDatabaseParticipants = null,
+        IStorageSpaceProvider? storageSpaceProvider = null)
     {
         _logger = logger;
         _dbProvider = dbProvider;
@@ -169,7 +277,9 @@ public class BackupService : IBackupService, IDisposable
         _applicationPaths = applicationPaths;
         _MulletaFlixDatabaseProvider = MulletaFlixDatabaseProvider;
         _hostApplicationLifetime = applicationLifetime;
-        _storageSpaceProvider = storageSpaceProvider;
+        _storageSpaceProvider = storageSpaceProvider ?? new StorageSpaceProvider();
+        _relationalCommitForTesting = relationalCommitForTesting;
+        _restoreBackupSidecarCreatedForTesting = restoreBackupSidecarCreatedForTesting;
     }
 
     /// <inheritdoc/>
@@ -395,8 +505,7 @@ public class BackupService : IBackupService, IDisposable
 
             if (!manifest.Options.Database && manifest.DatabaseParticipants is { Length: > 0 })
             {
-                ValidateDatabaseBackupEntries(manifest, zipArchive);
-                await ValidateDatabaseBackupContentAsync(zipArchive).ConfigureAwait(false);
+                throw new InvalidDataException("The backup declares database participants while database backup is disabled.");
             }
 
             if (manifest.Options.Database)
@@ -1396,30 +1505,40 @@ public class BackupService : IBackupService, IDisposable
         }
     }
 
-    private static async Task ValidateDatabaseBackupContentAsync(ZipArchive zipArchive)
+    private static async Task ValidateDatabaseBackupContentAsync(ZipArchive zipArchive, Microsoft.EntityFrameworkCore.Metadata.IModel model)
     {
-        var entityTypes = typeof(MulletaFlixDbContext)
-            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-            .Where(property => property.PropertyType.IsAssignableTo(typeof(IQueryable)))
-            .Select(property => (Name: property.Name, Type: property.PropertyType.GetGenericArguments()[0]))
-            .Append((Name: nameof(HistoryRow), Type: typeof(HistoryRow)));
+        var entityTypes = GetExpectedDatabaseEntities(model, typeof(MulletaFlixDbContext));
+        var entryPaths = entityTypes.ToDictionary(
+            entityType => entityType.Type,
+            entityType => NormalizePathSeparator(Path.Combine("Database", $"{entityType.Name}.json")));
+        var foreignKeyPlans = CreateForeignKeyValidationPlans(model, entityTypes, entryPaths);
+        var principalKeys = CreatePrincipalKeySets(foreignKeyPlans);
+        var principalPlansByType = foreignKeyPlans
+            .GroupBy(plan => plan.PrincipalType)
+            .ToDictionary(group => group.Key, group => group.ToArray());
 
         foreach (var entityType in entityTypes)
         {
-            var entryPath = NormalizePathSeparator(Path.Combine("Database", $"{entityType.Name}.json"));
+            var entryPath = entryPaths[entityType.Type];
             var zipEntry = zipArchive.GetEntry(entryPath)!;
             var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
             await using (zipEntryStream.ConfigureAwait(false))
             {
+                var constraints = CreateUniqueConstraintTrackers(model.FindEntityType(entityType.Type));
                 try
                 {
                     await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
                     {
-                        if (item is null || item.Deserialize(entityType.Type, _serializerSettings) is null)
+                        var entity = item?.Deserialize(entityType.Type, _serializerSettings);
+                        if (entity is null)
                         {
                             throw new JsonException($"The backup entry '{entryPath}' contains a null or invalid entity.");
                         }
+
+                        ValidateUniqueConstraints(entryPath, entity, constraints);
+                        AddPrincipalKeys(entityType.Type, entity, principalPlansByType, principalKeys);
                     }
+
                 }
                 catch (Exception exception) when (exception is JsonException or ArgumentException)
                 {
@@ -1427,6 +1546,373 @@ public class BackupService : IBackupService, IDisposable
                 }
             }
         }
+
+        await ValidateForeignKeyReferencesAsync(zipArchive, foreignKeyPlans, principalKeys).ConfigureAwait(false);
+    }
+
+    private static string GetDomainDatabaseEntryPath(string contextName, string tableName)
+        => NormalizePathSeparator(Path.Combine("Database", "Domain", contextName, $"{tableName}.json"));
+
+    private static string GetParticipantEntryPrefix(string participantName)
+    {
+        if (string.IsNullOrWhiteSpace(participantName)
+            || participantName is "." or ".."
+            || participantName.IndexOfAny(['/', '\\', ':']) >= 0)
+        {
+            throw new InvalidDataException($"Invalid backup database participant name '{participantName}'.");
+        }
+
+        return NormalizePathSeparator(Path.Combine("Database", "Participants", participantName));
+    }
+
+    private static void ValidateDomainDatabaseBackupEntries(
+        BackupManifest manifest,
+        ZipArchive zipArchive,
+        IReadOnlyCollection<DomainDatabaseContext> contexts)
+    {
+        var declaredContexts = manifest.DomainDatabaseContexts?.ToHashSet(StringComparer.Ordinal) ?? [];
+        var expectedContexts = SupportedDomainDatabaseContexts.ToHashSet(StringComparer.Ordinal);
+        var missingContexts = expectedContexts.Except(declaredContexts, StringComparer.Ordinal).ToArray();
+        var unavailableContexts = expectedContexts.Except(contexts.Select(context => context.Name), StringComparer.Ordinal).ToArray();
+        var unexpectedContexts = declaredContexts.Except(expectedContexts, StringComparer.Ordinal).ToArray();
+        var missingEntries = contexts
+            .SelectMany(context => GetExpectedDatabaseEntities(context.Context.Model, context.Context.GetType(), includeHistory: false)
+                .Select(entity => GetDomainDatabaseEntryPath(context.Name, entity.Name)))
+            .Where(entryPath => zipArchive.GetEntry(entryPath) is null)
+            .ToArray();
+
+        if (missingContexts.Length > 0 || unavailableContexts.Length > 0 || unexpectedContexts.Length > 0 || missingEntries.Length > 0)
+        {
+            var details = new List<string>();
+            if (missingContexts.Length > 0)
+            {
+                details.Add($"undeclared domain contexts: {string.Join(", ", missingContexts)}");
+            }
+
+            if (unavailableContexts.Length > 0)
+            {
+                details.Add($"unavailable domain contexts: {string.Join(", ", unavailableContexts)}");
+            }
+
+            if (unexpectedContexts.Length > 0)
+            {
+                details.Add($"unsupported domain contexts: {string.Join(", ", unexpectedContexts)}");
+            }
+
+            if (missingEntries.Length > 0)
+            {
+                details.Add($"missing domain entries: {string.Join(", ", missingEntries)}");
+            }
+
+            throw new InvalidDataException($"Cannot restore an incomplete media-domain backup ({string.Join("; ", details)}).");
+        }
+    }
+
+    private static async Task ValidateDomainDatabaseBackupContentAsync(
+        ZipArchive zipArchive,
+        IReadOnlyCollection<DomainDatabaseContext> contexts)
+    {
+        foreach (var context in contexts)
+        {
+            var entityTypes = GetExpectedDatabaseEntities(context.Context.Model, context.Context.GetType(), includeHistory: false);
+            var entryPaths = entityTypes.ToDictionary(
+                entityType => entityType.Type,
+                entityType => GetDomainDatabaseEntryPath(context.Name, entityType.Name));
+            var foreignKeyPlans = CreateForeignKeyValidationPlans(context.Context.Model, entityTypes, entryPaths);
+            var principalKeys = CreatePrincipalKeySets(foreignKeyPlans);
+            var principalPlansByType = foreignKeyPlans
+                .GroupBy(plan => plan.PrincipalType)
+                .ToDictionary(group => group.Key, group => group.ToArray());
+
+            foreach (var entityType in entityTypes)
+            {
+                var entryPath = entryPaths[entityType.Type];
+                var zipEntry = zipArchive.GetEntry(entryPath)!;
+                await using var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
+                var constraints = CreateUniqueConstraintTrackers(context.Context.Model.FindEntityType(entityType.Type));
+                try
+                {
+                    await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
+                    {
+                        var entity = item?.Deserialize(entityType.Type, _serializerSettings);
+                        if (entity is null)
+                        {
+                            throw new JsonException($"The backup entry '{entryPath}' contains a null or invalid entity.");
+                        }
+
+                        ValidateUniqueConstraints(entryPath, entity, constraints);
+                        AddPrincipalKeys(entityType.Type, entity, principalPlansByType, principalKeys);
+                    }
+                }
+                catch (Exception exception) when (exception is JsonException or ArgumentException)
+                {
+                    throw new InvalidDataException($"Cannot restore domain table '{context.Name}/{entityType.Name}' because its JSON content is invalid or incompatible.", exception);
+                }
+            }
+
+            await ValidateForeignKeyReferencesAsync(zipArchive, foreignKeyPlans, principalKeys).ConfigureAwait(false);
+        }
+    }
+
+    private static ForeignKeyValidationPlan[] CreateForeignKeyValidationPlans(
+        Microsoft.EntityFrameworkCore.Metadata.IModel model,
+        IReadOnlyCollection<(string Name, Type Type)> entityTypes,
+        IReadOnlyDictionary<Type, string> entryPaths)
+    {
+        var exportedTypes = entityTypes.Select(entityType => entityType.Type).ToHashSet();
+        var plans = new List<ForeignKeyValidationPlan>();
+        foreach (var entityType in entityTypes)
+        {
+            // HistoryRow is exported through a provider-specific DbSet but is not part of the EF model.
+            var dependentEntity = model.FindEntityType(entityType.Type);
+            if (dependentEntity is null)
+            {
+                continue;
+            }
+
+            foreach (var foreignKey in dependentEntity.GetForeignKeys())
+            {
+                var principalType = foreignKey.PrincipalEntityType.ClrType;
+                if (!exportedTypes.Contains(principalType))
+                {
+                    continue;
+                }
+
+                if (foreignKey.Properties.Any(property => property.IsShadowProperty())
+                    || foreignKey.PrincipalKey.Properties.Any(property => property.IsShadowProperty()))
+                {
+                    throw new InvalidDataException(
+                        $"Cannot validate database table '{entityType.Name}' because relationship '{foreignKey.GetConstraintName() ?? foreignKey.PrincipalEntityType.Name}' uses a shadow key that is not represented by a CLR property.");
+                }
+
+                var principalKeySetKey = BuildPrincipalKeySetKey(principalType, foreignKey.PrincipalKey.Properties);
+                var relationshipName = foreignKey.GetConstraintName()
+                    ?? $"{dependentEntity.Name}({string.Join(", ", foreignKey.Properties.Select(property => property.Name))})";
+                plans.Add(new ForeignKeyValidationPlan(
+                    entityType.Type,
+                    entityType.Name,
+                    entryPaths[entityType.Type],
+                    principalType,
+                    foreignKey.Properties,
+                    foreignKey.PrincipalKey.Properties,
+                    relationshipName,
+                    principalKeySetKey));
+            }
+        }
+
+        return plans.ToArray();
+    }
+
+    private static Dictionary<string, HashSet<string>> CreatePrincipalKeySets(IEnumerable<ForeignKeyValidationPlan> plans)
+        => plans.Select(plan => plan.PrincipalSetKey)
+            .Distinct(StringComparer.Ordinal)
+            .ToDictionary(key => key, _ => new HashSet<string>(StringComparer.Ordinal), StringComparer.Ordinal);
+
+    private static void AddPrincipalKeys(
+        Type entityType,
+        object entity,
+        IReadOnlyDictionary<Type, ForeignKeyValidationPlan[]> plansByPrincipalType,
+        IDictionary<string, HashSet<string>> principalKeys)
+    {
+        if (!plansByPrincipalType.TryGetValue(entityType, out var plans))
+        {
+            return;
+        }
+
+        foreach (var plan in plans)
+        {
+            principalKeys[plan.PrincipalSetKey].Add(CreateCanonicalKey(entity, plan.PrincipalProperties));
+        }
+    }
+
+    private static async Task ValidateForeignKeyReferencesAsync(
+        ZipArchive zipArchive,
+        IReadOnlyCollection<ForeignKeyValidationPlan> plans,
+        IReadOnlyDictionary<string, HashSet<string>> principalKeys)
+    {
+        foreach (var dependentGroup in plans.GroupBy(plan => (plan.DependentType, plan.DependentPath)))
+        {
+            var entry = zipArchive.GetEntry(dependentGroup.Key.DependentPath)!;
+            await using var stream = await entry.OpenAsync().ConfigureAwait(false);
+            await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(stream, _serializerSettings).ConfigureAwait(false))
+            {
+                var entity = item?.Deserialize(dependentGroup.Key.DependentType, _serializerSettings);
+                if (entity is null)
+                {
+                    throw new InvalidDataException($"Cannot restore database table '{dependentGroup.First().DependentName}' because its JSON content contains a null or invalid entity.");
+                }
+
+                foreach (var plan in dependentGroup)
+                {
+                    var values = GetPropertyValues(entity, plan.DependentProperties);
+                    if (values.Where((value, index) => value is null && !plan.DependentProperties[index].IsNullable).Any())
+                    {
+                        throw CreateInvalidForeignKeyException(plan);
+                    }
+
+                    if (values.Any(value => value is null))
+                    {
+                        // Optional composite foreign keys use MATCH SIMPLE: a null component does not reference a principal row.
+                        continue;
+                    }
+
+                    var key = CreateCanonicalKey(values, plan.DependentProperties);
+                    if (!principalKeys[plan.PrincipalSetKey].Contains(key))
+                    {
+                        throw CreateInvalidForeignKeyException(plan);
+                    }
+                }
+            }
+        }
+    }
+
+    private static InvalidDataException CreateInvalidForeignKeyException(ForeignKeyValidationPlan plan)
+        => new($"Cannot restore database table '{plan.DependentName}' because a record contains an invalid reference for relationship '{plan.RelationshipName}'.");
+
+    private static string BuildPrincipalKeySetKey(
+        Type principalType,
+        IReadOnlyList<Microsoft.EntityFrameworkCore.Metadata.IProperty> properties)
+        => $"{principalType.FullName}:{string.Join(",", properties.Select(property => property.Name))}";
+
+    private static string CreateCanonicalKey(
+        object entity,
+        IReadOnlyList<Microsoft.EntityFrameworkCore.Metadata.IProperty> properties)
+        => CreateCanonicalKey(GetPropertyValues(entity, properties), properties);
+
+    private static string CreateCanonicalKey(
+        IReadOnlyList<object?> values,
+        IReadOnlyList<Microsoft.EntityFrameworkCore.Metadata.IProperty> properties)
+    {
+        var canonicalValues = values.Select((value, index) => JsonSerializer.Serialize(
+            value,
+            properties[index].ClrType,
+            _serializerSettings));
+        return JsonSerializer.Serialize(canonicalValues, _serializerSettings);
+    }
+
+    private static object?[] GetPropertyValues(
+        object entity,
+        IReadOnlyList<Microsoft.EntityFrameworkCore.Metadata.IProperty> properties)
+        => properties.Select(property =>
+            property.PropertyInfo?.GetValue(entity) ?? property.FieldInfo?.GetValue(entity)).ToArray();
+
+    private static Dictionary<string, (IReadOnlyList<Microsoft.EntityFrameworkCore.Metadata.IProperty> Properties, HashSet<string> Keys)>
+        CreateUniqueConstraintTrackers(Microsoft.EntityFrameworkCore.Metadata.IEntityType? entityType)
+    {
+        var constraints = new Dictionary<string, (IReadOnlyList<Microsoft.EntityFrameworkCore.Metadata.IProperty>, HashSet<string>)>(StringComparer.Ordinal);
+        if (entityType is null)
+        {
+            return constraints;
+        }
+
+        if (entityType.FindPrimaryKey() is { } primaryKey)
+        {
+            constraints.Add("primary key", (primaryKey.Properties, new HashSet<string>(StringComparer.Ordinal)));
+        }
+
+        foreach (var index in entityType.GetIndexes().Where(index => index.IsUnique && string.IsNullOrWhiteSpace(index.GetFilter())))
+        {
+            var constraintName = index.Name ?? $"unique index ({string.Join(", ", index.Properties.Select(property => property.Name))})";
+            constraints.Add(constraintName, (index.Properties, new HashSet<string>(StringComparer.Ordinal)));
+        }
+
+        return constraints;
+    }
+
+    private static void ValidateUniqueConstraints(
+        string entryPath,
+        object entity,
+        Dictionary<string, (IReadOnlyList<Microsoft.EntityFrameworkCore.Metadata.IProperty> Properties, HashSet<string> Keys)> constraints)
+    {
+        foreach (var (constraintName, constraint) in constraints)
+        {
+            var values = constraint.Properties.Select(property =>
+                property.PropertyInfo?.GetValue(entity) ?? property.FieldInfo?.GetValue(entity)).ToArray();
+            if (constraintName != "primary key" && values.Any(value => value is null))
+            {
+                continue;
+            }
+
+            var canonicalValues = values.Select((value, index) => JsonSerializer.Serialize(
+                value,
+                constraint.Properties[index].ClrType,
+                _serializerSettings)).ToArray();
+            var key = JsonSerializer.Serialize(canonicalValues, _serializerSettings);
+            if (!constraint.Keys.Add(key))
+            {
+                throw new InvalidDataException($"The backup entry '{entryPath}' contains duplicate values for {constraintName}.");
+            }
+        }
+    }
+
+    private async Task RestoreDomainDatabaseContextAsync(ZipArchive zipArchive, DomainDatabaseContext domainContext, DbTransaction transaction)
+    {
+        var context = domainContext.Context;
+        context.Database.UseTransaction(transaction);
+        var entityTypes = GetExpectedDatabaseEntities(context.Model, context.GetType(), includeHistory: false);
+        var tableNames = entityTypes.Select(entity => entity.Name).Distinct(StringComparer.Ordinal).ToArray();
+        var databaseProvider = (IMulletaFlixDomainDatabaseProvider)_MulletaFlixDatabaseProvider;
+        await databaseProvider.PurgeDomainDatabase(context, tableNames).ConfigureAwait(false);
+
+        foreach (var entityType in entityTypes)
+        {
+            var entryPath = GetDomainDatabaseEntryPath(domainContext.Name, entityType.Name);
+            var zipEntry = zipArchive.GetEntry(entryPath)!;
+            await using var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
+            var records = 0;
+            await foreach (var item in JsonSerializer.DeserializeAsyncEnumerable<JsonObject>(zipEntryStream, _serializerSettings).ConfigureAwait(false))
+            {
+                var entity = item?.Deserialize(entityType.Type, _serializerSettings)
+                    ?? throw new InvalidDataException($"Cannot deserialize an entity for domain table '{domainContext.Name}/{entityType.Name}'.");
+                context.Add(entity);
+                records++;
+            }
+
+            _logger.LogInformation("Prepared to restore {Number} entries for domain table {Context}/{Table}", records, domainContext.Name, entityType.Name);
+        }
+
+        await context.SaveChangesAsync().ConfigureAwait(false);
+        _logger.LogInformation("Restored media-domain database context {Context}", domainContext.Name);
+    }
+
+    private static async Task WriteDomainDatabaseBackupAsync(
+        ZipArchive zipArchive,
+        DomainDatabaseContext domainContext)
+    {
+        static IAsyncEnumerable<object> GetValues(IQueryable dbSet)
+        {
+            var method = dbSet.GetType().GetMethod(nameof(DbSet<object>.AsAsyncEnumerable))!;
+            return (IAsyncEnumerable<object>)method.Invoke(dbSet, null)!;
+        }
+
+        var context = domainContext.Context;
+        context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        var entityTypes = GetExpectedDatabaseEntities(context.Model, context.GetType(), includeHistory: false);
+        await using var transaction = await context.Database.BeginTransactionAsync().ConfigureAwait(false);
+        foreach (var entityType in entityTypes)
+        {
+            var entryPath = GetDomainDatabaseEntryPath(domainContext.Name, entityType.Name);
+            var zipEntry = zipArchive.CreateEntry(entryPath);
+            await using (var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false))
+            await using (var jsonWriter = new Utf8JsonWriter(zipEntryStream))
+            {
+                jsonWriter.WriteStartArray();
+                var setMethod = typeof(DbContext).GetMethods()
+                    .Single(method => method.Name == nameof(DbContext.Set) && method.IsGenericMethod && method.GetParameters().Length == 0)
+                    .MakeGenericMethod(entityType.Type);
+                var set = (IQueryable)setMethod.Invoke(context, null)!;
+                await foreach (var item in GetValues(set).ConfigureAwait(false))
+                {
+                    using var document = JsonSerializer.SerializeToDocument(item, _serializerSettings);
+                    document.WriteTo(jsonWriter);
+                }
+
+                jsonWriter.WriteEndArray();
+            }
+
+        }
+
+        await transaction.CommitAsync().ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
