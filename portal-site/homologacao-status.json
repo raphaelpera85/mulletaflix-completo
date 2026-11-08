@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T01:53:33-03:00",
+  "generatedAt": "2026-11-08T02:12:29-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15603,6 +15603,23 @@
       "evidence": "8096 está ouvindo no PID 19932, MulletaFlix.exe instalado em C:\\Program Files\\MulletaFlix\\Server\\MulletaFlix.exe, versão 12.1.51, com --datadir C:/ProgramData/MulletaFlix/Server; /health HTTP 200. 3306 está ouvindo no mysqld.exe PID 10980 e deve ser tratado como MariaDB de produção; 27017 está ouvindo no mongod.exe PID 4412 e deve ser tratado como MongoDB de produção. ADB existe em C:/Android/Sdk/platform-tools/adb.exe, mas não listou dispositivos. WSL respondeu sem distribuições instaladas; Docker, Podman e coletores OTLP não estão disponíveis no PATH.",
       "release": "Recheck atualiza os bloqueios observados, mas não promove homologação global: runtime é o release instalado, Android instrumentado e Linux/POSIX continuam sem ambiente, CI hospedada permanece sem check run verificável no PR #2, e login/catálogo autenticados não foram executados.",
       "links": ["https://github.com/raphaelpera85/mulletaflix-completo/pull/2"]
+    },
+    {
+      "id": "web-vitest-flake-reprobe-2026-11-08-0212",
+      "title": "Reexecução da suíte web após falha intermitente",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; Vitest 5.0.3 com jsdom",
+      "location": "MulletaFlix-web-master; src/apps/dashboard/routes/action-log.test.tsx",
+      "scope": "Separar falha de produto de instabilidade do harness após uma execução ampla terminar com exit 1.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T02:03:32-03:00",
+      "updatedAt": "2026-11-08T02:12:29-03:00",
+      "evidence": "Uma execução ampla da suíte web terminou exit 1 sem saída detalhada preservada. O teste focal ActionLog passou 4/4; três reexecuções amplas consecutivas passaram 78 arquivos e 425/425 testes. As reexecuções registraram warnings jsdom/webcomponents (`getComputedStyle` com pseudo-elementos e callback após `window` indisponível), mas terminaram exit 0; nenhuma falha de produto foi reproduzida.",
+      "release": "Não promover GREEN incondicional: a suíte passou nas três reexecuções, porém a flakiness do harness e os warnings de teardown permanecem melhoria aberta para CI e exigem reprodução com logs completos antes de correção.",
+      "links": []
     }
   ]
 }

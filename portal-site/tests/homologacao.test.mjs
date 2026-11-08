@@ -35,6 +35,19 @@ test('registra o recheck atual dos bloqueios de ambiente sem promover homologaç
     assert.match(event.release, /não promove homologação global/is);
 });
 
+test('registra a reexecução da suíte web sem esconder a flakiness do harness', () => {
+    const eventId = 'web-vitest-flake-reprobe-2026-11-08-0212';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /ActionLog passou 4\/4/);
+    assert.match(event.evidence, /três reexecuções amplas consecutivas passaram 78 arquivos e 425\/425 testes/);
+    assert.match(event.evidence, /getComputedStyle.*window.*indisponível/is);
+    assert.match(event.release, /flakiness do harness.*melhoria aberta/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 

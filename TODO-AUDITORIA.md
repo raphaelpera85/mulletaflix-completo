@@ -15,6 +15,14 @@
 - [~] Homologação global continua `PARTIAL`: Android instrumentado, Linux/POSIX, CI hospedada, login/catálogo autenticados, runtime com o bundle GetAvatar corrigido e aceite formal de produção seguem pendentes.
 - [x] Evento `environment-blockers-reprobe-2026-11-08-0153` adicionado ao portal; contrato passou **369/369**.
 
+## Reexecução da suíte web após falha intermitente — 2026-11-08 02:12 BRT
+
+- [~] Uma execução ampla de `npm test -- --run` terminou com exit 1, mas a saída detalhada dessa primeira tentativa não foi preservada.
+- [x] Investigação focal: `src/apps/dashboard/routes/action-log.test.tsx` passou **4/4** isoladamente.
+- [x] Regressão ampla posterior: três execuções consecutivas passaram **78 arquivos / 425 testes** cada; `npm run build:check` deve continuar sendo executado no gate final.
+- [~] Warnings persistentes de `jsdom`/`webcomponents.js` foram observados (`getComputedStyle` com pseudo-elementos e callback após `window` indisponível). Nenhuma falha de produto foi reproduzida; a estabilidade do harness/teardown continua melhoria aberta e não deve ser mascarada por retries.
+- [x] Evento `web-vitest-flake-reprobe-2026-11-08-0212` adicionado ao portal; status permanece `partial`.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.
