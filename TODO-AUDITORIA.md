@@ -54,6 +54,14 @@
 - [x] Nenhum Playwright foi executado e nenhuma mídia real foi usada.
 - [x] Evento `web-playwright-stage-name-tdd-2026-11-08-0247` adicionado ao portal.
 
+## TDD do ambiente temporário isolado do Playwright — 2026-11-08 02:54 BRT
+
+- [x] RED: o teste falhou porque `buildStageEnvironment` não era exportado.
+- [x] GREEN: `buildStageEnvironment` passou **2/2** e deixou o ambiente do launcher imutável.
+- [x] ESLint focal passou sem findings; `verify:build`, `build:check` e Vitest passaram **425/425**.
+- [~] Warnings `jsdom/webcomponents` continuam conhecidos; ACL efetiva do diretório e execução Playwright permanecem não exercitadas.
+- [x] Evento `web-playwright-stage-env-tdd-2026-11-08-0254` adicionado ao portal.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.

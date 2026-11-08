@@ -2,13 +2,12 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createStageDirName } from './run-isolated-stage-helpers.mjs';
+import { buildStageEnvironment, createStageDirName } from './run-isolated-stage-helpers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tempBase = path.join(process.env.USERPROFILE || 'C:\\Users\\Raphael', '.mulletaflix-tmp');
 
-process.env.TEMP = tempBase;
-process.env.TMP = tempBase;
+const stageEnvironment = buildStageEnvironment(process.env, tempBase);
 
 const stageDirName = createStageDirName();
 const stageDir = path.join(tempBase, stageDirName);
@@ -19,7 +18,7 @@ const args = process.argv.slice(2);
 
 const child = spawn(process.execPath, [runSuiteScript, ...args], {
     stdio: 'inherit',
-    env: process.env,
+    env: stageEnvironment,
     cwd: path.resolve(__dirname, '..', '..')
 });
 

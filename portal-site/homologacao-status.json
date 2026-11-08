@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T02:47:31-03:00",
+  "generatedAt": "2026-11-08T02:54:13-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15687,6 +15687,23 @@
       "updatedAt": "2026-11-08T02:47:31-03:00",
       "evidence": "RED: o TDD falhou porque o helper ainda não existia. GREEN: `run-isolated-stage-helpers.test.mjs` passou 1/1; `npm run verify:build`, `npm run build:check` e Vitest passaram 425/425. O ESLint focal ainda acusa 2 findings existentes de diretórios temporários publicamente graváveis nas atribuições TEMP/TMP; nenhuma execução de Playwright ou mídia foi iniciada.",
       "release": "Mudança limitada à geração do nome do stage; não valida ACL do diretório, CI hospedada, runtime Kestrel ou produção. O risco de diretório temporário permanece aberto para tratamento separado.",
+      "links": []
+    },
+    {
+      "id": "web-playwright-stage-env-tdd-2026-11-08-0254",
+      "title": "TDD do ambiente temporário isolado do Playwright",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; Node test runner e ESLint local",
+      "location": "MulletaFlix-web-master/scripts/playwright/run-isolated-stage.mjs",
+      "scope": "Passar TEMP/TMP somente ao processo filho, sem mutar o ambiente do launcher e sem ampliar o escopo do stage.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T02:54:13-03:00",
+      "updatedAt": "2026-11-08T02:54:13-03:00",
+      "evidence": "RED: o TDD falhou porque `buildStageEnvironment` não era exportado. GREEN: helper passou 2/2; ESLint focal passou sem findings; `npm run verify:build`, `npm run build:check` e Vitest passaram 425/425. A suíte ainda emite warnings conhecidos de jsdom/webcomponents.",
+      "release": "Corrige o isolamento do ambiente do launcher, mas não certifica ACL efetiva do diretório temporário, execução Playwright, CI hospedada, runtime Kestrel ou produção.",
       "links": []
     }
   ]

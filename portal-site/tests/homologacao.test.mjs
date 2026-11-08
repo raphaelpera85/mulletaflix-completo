@@ -100,6 +100,18 @@ test('registra o TDD do nome de stage isolado sem promover o harness', () => {
     assert.match(event.release, /não valida ACL.*runtime Kestrel.*produção/is);
 });
 
+test('registra o TDD do ambiente temporário sem certificar ACL ou execução Playwright', () => {
+    const eventId = 'web-playwright-stage-env-tdd-2026-11-08-0254';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /RED:.*não era exportado.*GREEN:.*passou 2\/2/is);
+    assert.match(event.evidence, /ESLint focal passou.*verify:build.*build:check.*425\/425/is);
+    assert.match(event.release, /não certifica ACL.*execução Playwright.*produção/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 
