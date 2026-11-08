@@ -23,6 +23,13 @@
 - [~] Warnings persistentes de `jsdom`/`webcomponents.js` foram observados (`getComputedStyle` com pseudo-elementos e callback após `window` indisponível). Nenhuma falha de produto foi reproduzida; a estabilidade do harness/teardown continua melhoria aberta e não deve ser mascarada por retries.
 - [x] Evento `web-vitest-flake-reprobe-2026-11-08-0212` adicionado ao portal; status permanece `partial`.
 
+## Gate ESLint web — 2026-11-08 02:26 BRT
+
+- [~] `npm run lint` terminou exit 1 com **1.415 problemas**: **1.305 erros** e **110 warnings**.
+- [~] Lint focal dos arquivos web alterados reportou **240 problemas**: **226 erros** e **14 warnings**. A maior parte é baseline legado (`any`, complexidade, `@ts-nocheck`, scripts de harness e regras Sonar), não uma regressão causalmente atribuída nesta sessão.
+- [x] `npm run build:check` e as três reexecuções Vitest continuam verdes; lint não foi mascarado nem corrigido em massa.
+- [x] Evento `web-eslint-baseline-2026-11-08-0226` adicionado ao portal; gate web permanece `partial`.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.

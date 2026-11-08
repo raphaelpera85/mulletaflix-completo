@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T02:12:29-03:00",
+  "generatedAt": "2026-11-08T02:26:36-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15619,6 +15619,23 @@
       "updatedAt": "2026-11-08T02:12:29-03:00",
       "evidence": "Uma execução ampla da suíte web terminou exit 1 sem saída detalhada preservada. O teste focal ActionLog passou 4/4; três reexecuções amplas consecutivas passaram 78 arquivos e 425/425 testes. As reexecuções registraram warnings jsdom/webcomponents (`getComputedStyle` com pseudo-elementos e callback após `window` indisponível), mas terminaram exit 0; nenhuma falha de produto foi reproduzida.",
       "release": "Não promover GREEN incondicional: a suíte passou nas três reexecuções, porém a flakiness do harness e os warnings de teardown permanecem melhoria aberta para CI e exigem reprodução com logs completos antes de correção.",
+      "links": []
+    },
+    {
+      "id": "web-eslint-baseline-2026-11-08-0226",
+      "title": "Gate ESLint web e separação entre baseline e arquivos alterados",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; ESLint do pacote web",
+      "location": "MulletaFlix-web-master",
+      "scope": "Executar o lint completo e uma leitura focal dos arquivos web alterados sem transformar baseline legado em regressão nova.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T02:26:36-03:00",
+      "updatedAt": "2026-11-08T02:26:36-03:00",
+      "evidence": "`npm run lint` terminou exit 1 com 1.415 problemas: 1.305 erros e 110 warnings. O lint focal dos arquivos web alterados reportou 240 problemas: 226 erros e 14 warnings, concentrados em `any`/complexidade legada, scripts Playwright, `@ts-nocheck` e regras de segurança/estilo; `build:check` e Vitest continuam verdes.",
+      "release": "Não promover o lint como GREEN nem corrigir em massa sem classificação por baseline/causalidade. Abrir fatias TDD isoladas para erros introduzidos ou arquivos que receberem mudança; manter o gate web parcial.",
       "links": []
     }
   ]

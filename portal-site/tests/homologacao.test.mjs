@@ -48,6 +48,19 @@ test('registra a reexecução da suíte web sem esconder a flakiness do harness'
     assert.match(event.release, /flakiness do harness.*melhoria aberta/is);
 });
 
+test('registra o baseline ESLint web sem converter legado em GREEN', () => {
+    const eventId = 'web-eslint-baseline-2026-11-08-0226';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /1\.415 problemas.*1\.305 erros e 110 warnings/is);
+    assert.match(event.evidence, /lint focal.*240 problemas.*226 erros e 14 warnings/is);
+    assert.match(event.evidence, /build:check.*Vitest continuam verdes/is);
+    assert.match(event.release, /Não promover o lint como GREEN/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 
