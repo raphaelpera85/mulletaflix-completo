@@ -112,6 +112,19 @@ test('registra o TDD do ambiente temporário sem certificar ACL ou execução Pl
     assert.match(event.release, /não certifica ACL.*execução Playwright.*produção/is);
 });
 
+test('registra o reprobe read-only da ACL do stage e preserva resíduos para decisão posterior', () => {
+    const eventId = 'web-playwright-temp-acl-reprobe-2026-11-08-0257';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /icacls.*somente SYSTEM.*Administradores.*Raphael/is);
+    assert.match(event.evidence, /tasklist.*somente MulletaFlix\.exe instalado PID 19932/is);
+    assert.match(event.evidence, /171 diretórios stage antigos.*nenhum foi removido/is);
+    assert.match(event.release, /não prova execução completa.*retenção\/limpeza explícita/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 

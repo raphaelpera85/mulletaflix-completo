@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T02:54:13-03:00",
+  "generatedAt": "2026-11-08T02:57:16-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15704,6 +15704,23 @@
       "updatedAt": "2026-11-08T02:54:13-03:00",
       "evidence": "RED: o TDD falhou porque `buildStageEnvironment` não era exportado. GREEN: helper passou 2/2; ESLint focal passou sem findings; `npm run verify:build`, `npm run build:check` e Vitest passaram 425/425. A suíte ainda emite warnings conhecidos de jsdom/webcomponents.",
       "release": "Corrige o isolamento do ambiente do launcher, mas não certifica ACL efetiva do diretório temporário, execução Playwright, CI hospedada, runtime Kestrel ou produção.",
+      "links": []
+    },
+    {
+      "id": "web-playwright-temp-acl-reprobe-2026-11-08-0257",
+      "title": "Reprobe read-only da ACL do stage temporário",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; icacls e tasklist read-only",
+      "location": "C:/Users/Raphael/.mulletaflix-tmp",
+      "scope": "Verificar a pré-condição de segurança do wrapper sem criar, remover ou executar stage.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T02:57:16-03:00",
+      "updatedAt": "2026-11-08T02:57:16-03:00",
+      "evidence": "`icacls` read-only mostrou na raiz e em um stage filho somente SYSTEM, Administradores e DESKTOP-QOJQI4L\\Raphael, todos com Full Control herdável. `tasklist` não mostrou Node/Playwright/Vite/dotnet ativos; somente MulletaFlix.exe instalado PID 19932. Foram encontrados 171 diretórios stage antigos; nenhum foi removido.",
+      "release": "A ACL observada é compatível com a política local, mas esta sonda não prova execução completa nem limpa resíduos. O acúmulo de 171 diretórios exige uma rotina de retenção/limpeza explícita antes de promover o harness.",
       "links": []
     }
   ]

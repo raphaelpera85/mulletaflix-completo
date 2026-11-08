@@ -62,6 +62,14 @@
 - [~] Warnings `jsdom/webcomponents` continuam conhecidos; ACL efetiva do diretório e execução Playwright permanecem não exercitadas.
 - [x] Evento `web-playwright-stage-env-tdd-2026-11-08-0254` adicionado ao portal.
 
+## Reprobe read-only da ACL do stage temporário — 2026-11-08 02:57 BRT
+
+- [x] `icacls` confirmou na raiz e em um stage filho somente SYSTEM, Administradores e o usuário `Raphael`, com Full Control herdável.
+- [x] `tasklist` não mostrou Node/Playwright/Vite/dotnet ativos; somente o runtime instalado `MulletaFlix.exe` PID 19932 estava ativo.
+- [~] Foram encontrados **171 diretórios stage antigos**; nenhum foi removido por falta de decisão explícita de retenção/limpeza.
+- [~] A ACL local é compatível com a política observada, mas isso não substitui execução completa do Playwright nem aceite de runtime.
+- [x] Evento `web-playwright-temp-acl-reprobe-2026-11-08-0257` adicionado ao portal.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.
