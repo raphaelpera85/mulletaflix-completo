@@ -13,6 +13,10 @@ export function buildStageRemovalTargets({ workspaceRoot, stageDataDir, legacySt
     ];
 }
 
+export function buildOwnedStageCleanupTargets({ configuredStageDataDir, stageDataDir }) {
+    return configuredStageDataDir ? [ stageDataDir ] : [];
+}
+
 export function assertSafeRemovalTargets(targets, allowedRoots) {
     for (const target of targets) {
         if (!allowedRoots.some(root => isInsideOrEqual(target, root))) {

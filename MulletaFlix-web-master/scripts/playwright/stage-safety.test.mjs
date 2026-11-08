@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import {
     assertSafeRemovalTargets,
     assertStagePidFileAbsent,
+    buildOwnedStageCleanupTargets,
     buildStageKillArgs,
     buildStageRemovalTargets,
     parseStagePid,
@@ -25,6 +26,19 @@ test('buildStageRemovalTargets only returns workspace stage paths', () => {
         legacyStageDataDir
     ]);
     assert.equal(targets.some(target => target.includes('AppData')), false);
+});
+
+test('buildOwnedStageCleanupTargets only removes wrapper-owned temporary stages', () => {
+    const stageDataDir = 'C:/Users/Raphael/.mulletaflix-tmp/mflx-playwright-stage-test';
+
+    assert.deepEqual(
+        buildOwnedStageCleanupTargets({ configuredStageDataDir: stageDataDir, stageDataDir }),
+        [ stageDataDir ]
+    );
+    assert.deepEqual(
+        buildOwnedStageCleanupTargets({ configuredStageDataDir: undefined, stageDataDir }),
+        []
+    );
 });
 
 test('assertSafeRemovalTargets rejects paths outside stage roots', () => {

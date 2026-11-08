@@ -19,6 +19,7 @@ import {
 import {
     assertSafeRemovalTargets,
     assertStagePidFileAbsent,
+    buildOwnedStageCleanupTargets,
     buildStageKillArgs,
     buildStageRemovalTargets,
     parseStagePid,
@@ -56,6 +57,7 @@ const stageRemovalTargets = configuredStageDataDir ? [ stageDataDir ] : buildSta
     stageDataDir,
     legacyStageDataDir
 });
+const ownedStageCleanupTargets = buildOwnedStageCleanupTargets({ configuredStageDataDir, stageDataDir });
 let ownsStageProcess = false;
 
 function parseBaseUrl(baseUrl) {
@@ -243,6 +245,14 @@ async function removeTargets(targets) {
     }
 }
 
+async function cleanupOwnedStage() {
+    if (ownsStageProcess) {
+        await stopTrackedStageProcess();
+    }
+
+    await removeTargets(ownedStageCleanupTargets);
+}
+
 async function resetStageWorkspace() {
     console.error('[playwright] resetting isolated stage workspace');
     assertStagePidFileAbsent(existsSync(stagePidFile));
@@ -408,6 +418,7 @@ async function main() {
 
     if (!specs.length) {
         await writeNoSpecsSummary(args, specs.length, initialStageProbe);
+        await cleanupOwnedStage();
         return;
     }
 
@@ -482,18 +493,14 @@ async function main() {
     const { jsonPath, markdownPath } = await writePlaywrightReportArtifacts(summary, args.reportDir);
     console.log(`Relatório Playwright salvo em:\n- ${jsonPath}\n- ${markdownPath}`);
 
-    if (ownsStageProcess) {
-        await stopTrackedStageProcess();
-    }
+    await cleanupOwnedStage();
     process.exitCode = gate.exitCode;
 }
 
 main().catch(async error => {
-    if (ownsStageProcess) {
-        await stopTrackedStageProcess().catch(cleanupError => {
-            console.error('[playwright] failed to stop owned stage process', cleanupError);
-        });
-    }
+    await cleanupOwnedStage().catch(cleanupError => {
+        console.error('[playwright] failed to clean up owned stage', cleanupError);
+    });
 
     const summary = {
         title: 'MulletaFlix Playwright Summary',

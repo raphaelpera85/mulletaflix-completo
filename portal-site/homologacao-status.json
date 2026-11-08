@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T02:57:16-03:00",
+  "generatedAt": "2026-11-08T03:05:53-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15721,6 +15721,23 @@
       "updatedAt": "2026-11-08T02:57:16-03:00",
       "evidence": "`icacls` read-only mostrou na raiz e em um stage filho somente SYSTEM, Administradores e DESKTOP-QOJQI4L\\Raphael, todos com Full Control herdável. `tasklist` não mostrou Node/Playwright/Vite/dotnet ativos; somente MulletaFlix.exe instalado PID 19932. Foram encontrados 171 diretórios stage antigos; nenhum foi removido.",
       "release": "A ACL observada é compatível com a política local, mas esta sonda não prova execução completa nem limpa resíduos. O acúmulo de 171 diretórios exige uma rotina de retenção/limpeza explícita antes de promover o harness.",
+      "links": []
+    },
+    {
+      "id": "web-playwright-stage-cleanup-tdd-2026-11-08-0305",
+      "title": "TDD de limpeza do stage Playwright pertencente ao wrapper",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; Node test runner e ESLint local",
+      "location": "MulletaFlix-web-master/scripts/playwright/run-suite.mjs; stage-safety.mjs",
+      "scope": "Remover o diretório temporário somente quando o wrapper o forneceu e após parar o processo do stage.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T03:05:53-03:00",
+      "updatedAt": "2026-11-08T03:05:53-03:00",
+      "evidence": "RED: `stage-safety.test.mjs` falhou porque `buildOwnedStageCleanupTargets` não existia. GREEN: suíte focal passou 9/9; `node --check`, ESLint focal, `verify:build`, `build:check` e Vitest 425/425 passaram. O cleanup agora cobre sucesso, erro e execução sem specs, mas não foi exercitado por Playwright completo.",
+      "release": "Corrige a retenção de novos stages pertencentes ao wrapper sem tocar no stage-data padrão nem nos 171 resíduos antigos. Não valida Playwright completo, ACL adversarial, CI hospedada, runtime Kestrel ou produção.",
       "links": []
     }
   ]

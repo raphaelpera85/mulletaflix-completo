@@ -125,6 +125,18 @@ test('registra o reprobe read-only da ACL do stage e preserva resíduos para dec
     assert.match(event.release, /não prova execução completa.*retenção\/limpeza explícita/is);
 });
 
+test('registra o TDD de cleanup do stage sem apagar o stage padrão', () => {
+    const eventId = 'web-playwright-stage-cleanup-tdd-2026-11-08-0305';
+    const event = statusData.events.find(item => item.id === eventId);
+
+    assert.ok(event);
+    assert.equal(event.front, 'web');
+    assert.equal(event.status, 'partial');
+    assert.match(event.evidence, /RED:.*não existia.*GREEN:.*suíte focal passou 9\/9/is);
+    assert.match(event.evidence, /verify:build.*build:check.*425\/425/is);
+    assert.match(event.release, /sem tocar no stage-data padrão.*171 resíduos/is);
+});
+
 test('roadmap counters match the current checklist totals', () => {
     const { completed, inProgress, pending, total } = statusData.coverage;
 

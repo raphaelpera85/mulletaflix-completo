@@ -70,6 +70,15 @@
 - [~] A ACL local é compatível com a política observada, mas isso não substitui execução completa do Playwright nem aceite de runtime.
 - [x] Evento `web-playwright-temp-acl-reprobe-2026-11-08-0257` adicionado ao portal.
 
+## TDD de limpeza do stage Playwright — 2026-11-08 03:05 BRT
+
+- [x] RED: `stage-safety.test.mjs` falhou porque `buildOwnedStageCleanupTargets` não existia.
+- [x] GREEN: cleanup restrito ao diretório fornecido pelo wrapper; suíte focal passou **9/9**.
+- [x] `node --check`, ESLint focal, `verify:build`, `build:check` e Vitest **425/425** passaram.
+- [~] A limpeza cobre os caminhos de sucesso, erro e ausência de specs, mas ainda não foi exercitada por Playwright completo.
+- [~] Os **171 resíduos antigos** não foram apagados por esta alteração; requerem retenção/limpeza operacional separada.
+- [x] Evento `web-playwright-stage-cleanup-tdd-2026-11-08-0305` adicionado ao portal.
+
 ## Auditoria do checklist AG Kit e scanner de segurança — 2026-11-07 05:31 BRT
 
 - [x] RED reproduzido: `security_scan.py` varria `.agents`/artefatos gerados, demorava além do limite e o checklist tratava exit code `0` como GREEN mesmo com findings.
