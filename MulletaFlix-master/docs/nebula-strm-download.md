@@ -2,61 +2,11 @@
 
 ## Rechecagem de falha TLS do provedor — 2026-10-27 18:19 BRT
 
-- O log anexado registra 95 falhas de download, todas com `TLSV1_UNRECOGNIZED_NAME`; o scan conseguiu iniciar e encontrar títulos, mas não concluiu downloads.
-- Dois arquivos `.strm` correspondentes a itens do log usam o host `cn53.org`. Handshakes TLS sem caminho/credenciais para esse host passaram nesta máquina em .NET TLS 1.3 e Python 3.13/OpenSSL 3.0.16. Isso não valida as URLs completas, redirects, nem o runtime instalado que produziu o log.
+- O log anexado registra 95 falhas de download, todas com `TLSV1_UNRECOGNIZED_NAME`; o scan iniciou e encontrou títulos, mas não concluiu esses downloads.
+- Dois arquivos `.strm` correspondentes a itens do log usam o host `cn53.org`. Handshakes TLS sem caminho ou credenciais para esse host passaram nesta máquina em .NET TLS 1.3 e Python 3.13/OpenSSL 3.0.16. Isso não valida as URLs completas, redirects, nem o runtime instalado que produziu o log.
 - Regressão local do downloader Python 3.10: `test_strm_downloader.py` + `test_strm_downloader_helpers.py`, 99 aprovados, 0 falhas.
 - Não foi identificada causa no código do downloader: a falha pode ocorrer num redirect do provedor ou no runtime/rede de produção. Não desabilitar validação TLS nem fixar SNI sem conhecer o host final e confirmar o contrato do provedor.
 - Pendente: obter do runtime afetado apenas o host final após redirects, sem caminho, query ou credenciais; então reproduzir handshake e selecionar correção compatível. Sem alteração de código, instalação ou release nesta rechecagem.
-
-## Shutdown aguarda uploads em andamento — 2026-10-27
-
-O encerramento agora aguarda `UPLOAD_QUEUE.join()` até 30 segundos mesmo quando as filas de lanes estão vazias. `empty()` só observa itens ainda enfileirados e não detecta tarefas já retiradas pelo worker; sem o join, o shutdown podia cancelar workers e fechar sessões durante um upload ativo. Regressão de ciclo de vida: 3/3; suíte NebulaPython isolada: 725 aprovados, 2 ignorados, 0 falhas. Mudança local; não validada em runtime instalado, Linux, Telegram/MongoDB ou produção. Sem crédito formal de homologação.
-
-## Estado de retry durável — 2026-10-26
-
-Falhas transitórias com janela de retentativa são registradas como `retry_wait`; falhas terminais permanecem `failed`. O claim C# só libera itens quando `retry_after` e o campo legado Python `next_retry_at` estão vencidos. Os relatórios contam retries separadamente, a varredura Python respeita ambos os prazos e dados antigos `failed` continuam sendo aceitos. Suíte NebulaPython completa: 720 aprovados, 2 ignorados. `Category=RequiresMongo` em MongoDB 8.3.7 descartável, isolado em `127.0.0.1:27099`: 31 aprovados, 0 ignorados/falhas, incluindo a cobertura da fila Nebula. Implementação ainda local, sem validação de runtime instalado/produção ou crédito formal de homologação.
-
-## Regressão MongoDB descartável do backend — 2026-10-26 07:02 BRT
-
-Na branch local baseada em `d51f4f38`, os 25 testes Mongo opt-in selecionados
-do projeto `Jellyfin.Server.Implementations.Tests` passaram 25/25 em Release:
-`MongoTopologyCapabilityTests`, `NebulaPlaybackRecoveryMongoTests`,
-`NebulaQueueConcurrencyMongoTests`, `NebulaSupabaseBackupBotTokensMongoTests` e
-`NebulaSupabaseRestoreMongoTests`. Foi usado MongoDB 8.3.7 com datadir exclusivo,
-bind `127.0.0.1` e porta `27099`; shutdown pelo comando administrativo foi
-confirmado com a porta fechada. O MongoDB existente em `27017` não foi acessado.
-Isso valida testes contra instância local descartável, não Telegram real,
-instalação, produção nem Linux/CI hospedada.
-
-## Listagem FTP em lote — 2026-10-25 22:03 BRT
-
-`MongoDBPathIO.list()` primeiro lê os filhos diretos e depois verifica, em uma única varredura por nível, quais diretórios candidatos contêm mídia com payload Telegram publicado. A quantidade de consultas de descendentes deixa de crescer com cada subpasta irmã. A varredura mantém os formatos de pai por ObjectId e caminho legado, aliases da raiz de usuário, filtro de arquivos `.partial`, diretórios vazios ocultos e precedência de representações de pai usada pela resolução de caminho. `_id` repetido na mesma rota interrompe ciclos de dados inválidos. A listagem não adiciona ordenação; a ordem que vier do cursor Mongo continua sem garantia.
-
-Regressão em Windows/Python 3.10 isolado: NebulaPython 710 aprovados, 2 ignorados/712; testes verificam contagem de consultas por nível, aliases, ciclo malformado e pasta duplicada. Em nomes duplicados, a seleção respeita a prioridade de representações de pai usada pela resolução de caminho, e mantém o primeiro documento para a mesma representação. O double Mongo não valida latência, índice ou carga de um catálogo real; Mongo operacional, Linux, runtime instalado e produção permanecem pendentes.
-
-## Smoke do runtime empacotado — 2026-10-25
-
-O job Linux de release instala `requirements.lock` em venv descartável e agora recebe o tarball Linux recém-criado, extrai o runtime Nebula do pacote, confere que seu lock é idêntico ao da fonte e executa `import main` e `tools/strm_downloader.py --help` sob timeout. `NEBULA_STREAM_SERVICE=1` desativa a consulta HTTP de horário ao Telegram; `NEBULA_ENV_FILE` aponta para um arquivo inexistente, sem carregar configuração local. O import não chama `main()` nem deve iniciar worker, MongoDB, FTP ou transferência.
-
-Limite desta sessão: foram alterados o gate e seu contrato estático, mas não há ambiente Linux local nem artefato Linux existente neste host para executar o smoke; a primeira evidência de runtime empacotado depende de CI hospedada observável. Isso não valida serviços reais, upload/download ou produção.
-
-## Regressão Nebula Python — 2026-10-25 09:06 BRT
-
-Reexecução completa local: Python 3.10, venv temporária, dependências de runtime de `requirements.lock` instaladas com verificação de hashes, dependências de teste de `requirements-test.txt`; `pip check` sem conflitos e `py -3.10 -m pytest -q` passou 701/701. A tentativa anterior com Python global foi recusada pelo guard de isolamento antes da coleta. Testes usam doubles/fixtures; nenhum serviço MongoDB ou MariaDB foi consultado. Esta evidência não cobre integração com serviços reais, Linux, runtime instalado, upload Telegram nem produção.
-
-## Retomada vinculada à origem — 2026-10-25
-
-Os dois caminhos que materializam `.strm` (`tools/strm_downloader.py` e `tools/feed_ftp.py`) só retomam `.part`, `.part*.tmp` ou arquivo `.download` unido quando o sidecar corresponde ao fingerprint SHA-256 da URL atual e ao tamanho/particionamento esperado. Mudança de URL invalida os temporários e baixa novamente, mesmo que o total de bytes seja igual. O sidecar não grava a URL em texto, mas o fingerprint é determinístico e deriva da URL completa; proteja esses arquivos como metadado local sensível. A mídia final anterior só é substituída após download completo e validação do tamanho.
-
-Limite conhecido: o fingerprint não detecta bytes alterados no mesmo URL com o mesmo tamanho; exigir ETag/Last-Modified e `If-Range` antes de tratar URLs mutáveis como identidade estável. A retomada em partes requer o sidecar: arquivos `.part` legados sem metadado confiável são descartados com segurança.
-
-## Falha transitória no refresh do VFS rclone — 2026-10-23
-
-`NebulaFtpManager.RefreshRcloneDirectoryAsync` não deve consumir falhas: a `NebulaDirectoryRefreshQueue` só agenda retentativa quando o callback lança. O catch genérico foi removido; falhas HTTP/JSON e recusas do rclone agora sobem ao worker da fila, que aplica backoff exponencial. Upload Mongo já confirmado não é revertido, pois o refresh continua sendo operação em segundo plano. O único caller é a fila criada no construtor do manager. Ver teste focal e sessão `2026-10-23-MulletaFlix-nebula-directory-refresh-retry`.
-
-## Retry de refresh do cache rclone — 2026-10-23
-
-`NebulaDirectoryRefreshQueue` reagenda automaticamente o diretório quando `RefreshRcloneDirectoryAsync` falha. O atraso cresce exponencialmente a partir de 5 s e fica limitado a 5 min; novos eventos para a mesma pasta continuam coalescidos e reiniciam a espera, enquanto a fila segue atendendo outras pastas. O retry termina no shutdown do servidor. Testes focais Release Windows/.NET 10: 6/6. Não valida rclone/disco N instalado, Linux ou produção.
 
 ## Worker órfão mantém portas FTP/stream — 2026-10-18 13:28 (-03)
 

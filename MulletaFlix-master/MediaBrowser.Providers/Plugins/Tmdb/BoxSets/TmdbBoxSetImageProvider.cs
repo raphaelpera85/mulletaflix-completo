@@ -67,9 +67,18 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
             }
 
             var language = item.GetPreferredMetadataLanguage();
-            var collection = await _tmdbClientManager.GetCollectionImagesAsync(tmdbId, cancellationToken).ConfigureAwait(false);
+            var countryCode = item.GetPreferredMetadataCountryCode();
 
-            if (collection is null)
+            var collection = await _tmdbClientManager
+                .GetCollectionAsync(
+                    tmdbId,
+                    language,
+                    TmdbUtils.GetImageLanguagesParam(language, countryCode),
+                    countryCode,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (collection?.Images is null)
             {
                 return Enumerable.Empty<RemoteImageInfo>();
             }

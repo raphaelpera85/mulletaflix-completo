@@ -75,9 +75,17 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
 
             var language = item.GetPreferredMetadataLanguage();
             var countryCode = item.GetPreferredMetadataCountryCode();
-            // Keep the metadata lookup's display-order mapping while requesting localized art and English fallback.
+
             var episodeResult = await _tmdbClientManager
-                .GetEpisodeImagesAsync(seriesTmdbId, seasonNumber, episodeNumber.Value, series?.DisplayOrder, language, countryCode, cancellationToken)
+                .GetEpisodeAsync(
+                    seriesTmdbId,
+                    seasonNumber,
+                    episodeNumber.Value,
+                    series.DisplayOrder,
+                    language,
+                    TmdbUtils.GetImageLanguagesParam(language, countryCode),
+                    countryCode,
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             var stills = episodeResult?.Images?.Stills;

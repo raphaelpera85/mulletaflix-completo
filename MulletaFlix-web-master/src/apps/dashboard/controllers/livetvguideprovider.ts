@@ -46,7 +46,7 @@ function init(page: HTMLElement, type: string, providerId: string | null): void 
 function loadTemplate(page: HTMLElement, type: string, providerId: string | null): void {
     const templatePath = `../../../components/tvproviders/${type}.template.html`;
     const html = providerTemplates[templatePath];
-    if (!Object.prototype.hasOwnProperty.call(providerTemplates, templatePath)) {
+    if (html === undefined) {
         console.error(`Unsupported Live TV provider template: ${type}`);
         Dashboard.alert({ message: globalize.translate('ErrorDefault') });
         return;

@@ -140,7 +140,14 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 return [];
             }
 
-            var movie = await _tmdbClientManager.GetMovieImagesAsync(movieTmdbId, language, countryCode, cancellationToken).ConfigureAwait(false);
+            var movie = await _tmdbClientManager
+                .GetMovieAsync(
+                    movieTmdbId,
+                    language,
+                    TmdbUtils.GetImageLanguagesParam(language, countryCode),
+                    countryCode,
+                    cancellationToken)
+                .ConfigureAwait(false);
 
             if (movie is null)
             {

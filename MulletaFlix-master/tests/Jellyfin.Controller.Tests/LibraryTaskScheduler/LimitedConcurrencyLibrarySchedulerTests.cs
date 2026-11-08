@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
@@ -18,6 +19,28 @@ namespace MulletaFlix.Controller.Tests.LibraryTaskScheduler;
 public sealed class LimitedConcurrencyLibrarySchedulerTests
 {
     [Fact]
+    public async Task CleanupWaitsForWorkerTaskAfterCancellationCallbacksComplete()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var cancellationObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = cancellationTokenSource.Token.Register(() => cancellationObserved.TrySetResult());
+        var workerCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<Task> worker = Task.Factory.StartNew(
+            () => workerCompletion.Task,
+            CancellationToken.None,
+            TaskCreationOptions.None,
+            TaskScheduler.Default);
+        var runners = new[] { new KeyValuePair<CancellationTokenSource, Task>(cancellationTokenSource, worker) };
+
+        var cleanup = LimitedConcurrencyLibraryScheduler.CancelAndWaitForRunnersAsync(runners);
+
+        await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.False(cleanup.IsCompleted);
+        workerCompletion.TrySetResult();
+        await cleanup.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Enqueue_AppliesBackpressureWhenBoundedChannelIsFull()
     {
         var configuration = new Mock<IServerConfigurationManager>();
@@ -33,7 +56,7 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
         var startedWorkers = 0;
         var enqueue = scheduler.Enqueue(
             Enumerable.Range(0, 7).ToArray(),
-            async (_, _, _) =>
+            async (_, _) =>
             {
                 if (Interlocked.Increment(ref startedWorkers) == 2)
                 {
@@ -80,7 +103,7 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
             NullLogger<LimitedConcurrencyLibraryScheduler>.Instance,
             configuration.Object);
 
-        await scheduler.Enqueue([1], (_, _, _) => Task.CompletedTask, new Progress<double>(), CancellationToken.None);
+        await scheduler.Enqueue([1], (_, _) => Task.CompletedTask, new Progress<double>(), CancellationToken.None);
         var runners = GetTaskRunners(scheduler);
         Assert.NotEmpty(runners);
 
@@ -94,36 +117,6 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
         }
 
         Assert.Empty(GetTaskRunners(scheduler));
-    }
-
-    [Fact]
-    public async Task ApplicationStopping_CancelsIdleWorkers()
-    {
-        using var applicationStopping = new CancellationTokenSource();
-        var configuration = new Mock<IServerConfigurationManager>();
-        configuration.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration { LibraryScanFanoutConcurrency = 2 });
-        var applicationLifetime = new Mock<IHostApplicationLifetime>();
-        applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(applicationStopping.Token);
-        var scheduler = new LimitedConcurrencyLibraryScheduler(
-            applicationLifetime.Object,
-            NullLogger<LimitedConcurrencyLibraryScheduler>.Instance,
-            configuration.Object);
-
-        try
-        {
-            await scheduler.Enqueue([1], (_, _, _) => Task.CompletedTask, new Progress<double>(), CancellationToken.None);
-            var runners = GetTaskRunners(scheduler);
-            Assert.NotEmpty(runners);
-
-            applicationStopping.Cancel();
-
-            await Task.WhenAll(runners).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            Assert.Empty(GetTaskRunners(scheduler));
-        }
-        finally
-        {
-            await scheduler.DisposeAsync();
-        }
     }
 
     [Fact]
@@ -142,7 +135,7 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
         var startedWorkers = 0;
         var enqueue = scheduler.Enqueue(
             Enumerable.Range(0, 7).ToArray(),
-            async (_, _, _) =>
+            async (_, _) =>
             {
                 if (Interlocked.Increment(ref startedWorkers) == 2)
                 {
@@ -162,7 +155,7 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
             Assert.False(dispose.IsCompleted);
             Assert.False(concurrentDispose.IsCompleted);
             releaseWorkers.TrySetResult();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => enqueue);
+            await enqueue.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await concurrentDispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         }
@@ -174,7 +167,92 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
     }
 
     [Fact]
-    public async Task DisposeAsync_CancelsInFlightWorkerAndDrainsEnqueue()
+    public async Task ApplicationStopping_UnblocksEnqueueWaitingOnFullChannel()
+    {
+        var configuration = new Mock<IServerConfigurationManager>();
+        configuration.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration { LibraryScanFanoutConcurrency = 2 });
+        using var applicationStopping = new CancellationTokenSource();
+        var applicationLifetime = new Mock<IHostApplicationLifetime>();
+        applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(applicationStopping.Token);
+        var scheduler = new LimitedConcurrencyLibraryScheduler(
+            applicationLifetime.Object,
+            NullLogger<LimitedConcurrencyLibraryScheduler>.Instance,
+            configuration.Object);
+        var bothWorkersStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseWorkers = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var startedWorkers = 0;
+        var enqueue = scheduler.Enqueue(
+            Enumerable.Range(0, 7).ToArray(),
+            async (_, _) =>
+            {
+                if (Interlocked.Increment(ref startedWorkers) == 2)
+                {
+                    bothWorkersStarted.TrySetResult();
+                }
+
+                await releaseWorkers.Task;
+            },
+            new Progress<double>(),
+            CancellationToken.None);
+
+        try
+        {
+            await bothWorkersStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var queueWait = Stopwatch.StartNew();
+            while (GetQueuedItemCount(scheduler) < 2 && queueWait.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+
+            Assert.Equal(2, GetQueuedItemCount(scheduler));
+            Assert.False(enqueue.IsCompleted);
+
+            applicationStopping.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => enqueue);
+
+            releaseWorkers.TrySetResult();
+            await scheduler.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            releaseWorkers.TrySetResult();
+            await scheduler.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ApplicationStopping_UnblocksEnqueueWaitingForCleanup()
+    {
+        var configuration = new Mock<IServerConfigurationManager>();
+        configuration.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration { LibraryScanFanoutConcurrency = 2 });
+        using var applicationStopping = new CancellationTokenSource();
+        var applicationLifetime = new Mock<IHostApplicationLifetime>();
+        applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(applicationStopping.Token);
+        var scheduler = new LimitedConcurrencyLibraryScheduler(
+            applicationLifetime.Object,
+            NullLogger<LimitedConcurrencyLibraryScheduler>.Instance,
+            configuration.Object);
+        var cleanupInProgress = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        typeof(LimitedConcurrencyLibraryScheduler)
+            .GetField("_cleanupInProgress", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(scheduler, cleanupInProgress);
+
+        var enqueue = scheduler.Enqueue([1], (_, _) => Task.CompletedTask, new Progress<double>(), CancellationToken.None);
+        try
+        {
+            Assert.False(enqueue.IsCompleted);
+            applicationStopping.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => enqueue);
+        }
+        finally
+        {
+            cleanupInProgress.TrySetResult();
+            await scheduler.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task DisposeAsync_UnblocksEnqueueWaitingForCleanup()
     {
         var configuration = new Mock<IServerConfigurationManager>();
         configuration.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration { LibraryScanFanoutConcurrency = 2 });
@@ -184,21 +262,53 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
             applicationLifetime.Object,
             NullLogger<LimitedConcurrencyLibraryScheduler>.Instance,
             configuration.Object);
-        var workerStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var workerCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupInProgress = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        typeof(LimitedConcurrencyLibraryScheduler)
+            .GetField("_cleanupInProgress", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(scheduler, cleanupInProgress);
+
+        var enqueue = scheduler.Enqueue([1], (_, _) => Task.CompletedTask, new Progress<double>(), CancellationToken.None);
+        try
+        {
+            Assert.False(enqueue.IsCompleted);
+            var dispose = scheduler.DisposeAsync().AsTask();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => enqueue);
+            await dispose.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            cleanupInProgress.TrySetResult();
+            await scheduler.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ApplicationStopping_StopsSequentialEnqueueBeforeStartingNextItem()
+    {
+        var configuration = new Mock<IServerConfigurationManager>();
+        configuration.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration { LibraryScanFanoutConcurrency = 1 });
+        using var applicationStopping = new CancellationTokenSource();
+        var applicationLifetime = new Mock<IHostApplicationLifetime>();
+        applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(applicationStopping.Token);
+        var scheduler = new LimitedConcurrencyLibraryScheduler(
+            applicationLifetime.Object,
+            NullLogger<LimitedConcurrencyLibraryScheduler>.Instance,
+            configuration.Object);
+        var firstItemStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstItem = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondItemStarted = 0;
         var enqueue = scheduler.Enqueue(
-            [1],
-            async (_, _, cancellationToken) =>
+            [1, 2],
+            async (item, _) =>
             {
-                workerStarted.TrySetResult();
-                try
+                if (item == 1)
                 {
-                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    firstItemStarted.TrySetResult();
+                    await releaseFirstItem.Task;
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                else
                 {
-                    workerCancelled.TrySetResult();
-                    throw;
+                    Interlocked.Increment(ref secondItemStarted);
                 }
             },
             new Progress<double>(),
@@ -206,48 +316,54 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
 
         try
         {
-            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            await scheduler.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            await enqueue.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            Assert.True(workerCancelled.Task.IsCompleted);
+            await firstItemStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            applicationStopping.Cancel();
+            releaseFirstItem.TrySetResult();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => enqueue);
+            Assert.Equal(0, secondItemStarted);
         }
         finally
         {
+            releaseFirstItem.TrySetResult();
             await scheduler.DisposeAsync();
         }
     }
 
     [Fact]
-    public async Task DisposeAsync_CompletesWhenCancellationCallbackThrows()
+    public async Task DisposeAsync_FromWorkerCallbackFailsFastInsteadOfDeadlocking()
     {
         var configuration = new Mock<IServerConfigurationManager>();
-        configuration.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration { LibraryScanFanoutConcurrency = 1 });
+        configuration.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration { LibraryScanFanoutConcurrency = 2 });
         var applicationLifetime = new Mock<IHostApplicationLifetime>();
         applicationLifetime.SetupGet(lifetime => lifetime.ApplicationStopping).Returns(CancellationToken.None);
         var scheduler = new LimitedConcurrencyLibraryScheduler(
             applicationLifetime.Object,
             NullLogger<LimitedConcurrencyLibraryScheduler>.Instance,
             configuration.Object);
-        var workerStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var nestedDispose = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseWorker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
         var enqueue = scheduler.Enqueue(
             [1],
-            async (_, _, cancellationToken) =>
+            async (_, _) =>
             {
-                using var registration = cancellationToken.Register(() => throw new InvalidOperationException("cancel callback"));
-                workerStarted.TrySetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                nestedDispose.TrySetResult(scheduler.DisposeAsync().AsTask());
+                await releaseWorker.Task;
             },
             new Progress<double>(),
             CancellationToken.None);
 
         try
         {
-            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            await scheduler.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var disposeTask = await nestedDispose.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.True(disposeTask.IsCompleted);
+            releaseWorker.TrySetResult();
             await enqueue.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => disposeTask);
         }
         finally
         {
+            releaseWorker.TrySetResult();
             await scheduler.DisposeAsync();
         }
     }
@@ -268,7 +384,7 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
         var allowCleanupToContinue = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            await scheduler.Enqueue([1], (_, _, _) => Task.CompletedTask, new Progress<double>(), CancellationToken.None);
+            await scheduler.Enqueue([1], (_, _) => Task.CompletedTask, new Progress<double>(), CancellationToken.None);
             using var cancellationCallback = GetTaskRunnerTokenSources(scheduler)[0].Token.Register(() =>
             {
                 cleanupCallbackStarted.TrySetResult();
@@ -280,7 +396,7 @@ public sealed class LimitedConcurrencyLibrarySchedulerTests
             var processedAfterCleanup = 0;
             var enqueue = scheduler.Enqueue(
                 [2],
-                (_, _, _) =>
+                (_, _) =>
                 {
                     Interlocked.Increment(ref processedAfterCleanup);
                     return Task.CompletedTask;

@@ -23,9 +23,10 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly Dictionary<CancellationTokenSource, Task> _taskRunners = new();
     private readonly CancellationTokenSource _cleanupCancellationTokenSource = new();
-    private readonly CancellationTokenSource _disposeCancellationTokenSource = new();
+    private readonly CancellationTokenSource _cleanupWaitCancellationTokenSource;
 
     private static readonly AsyncLocal<CancellationTokenSource> _deadlockDetector = new();
+    private static readonly AsyncLocal<LimitedConcurrencyLibraryScheduler?> _currentWorkerScheduler = new();
 
     /// <summary>
     /// Gets used to lock all operations on the Tasks queue and creating workers.
@@ -41,7 +42,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
     private Task? _cleanupTask;
     private TaskCompletionSource? _cleanupInProgress;
     private bool _cleanupRequested;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LimitedConcurrencyLibraryScheduler"/> class.
@@ -57,6 +58,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
         _hostApplicationLifetime = hostApplicationLifetime;
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
+        _cleanupWaitCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(_hostApplicationLifetime.ApplicationStopping);
         _tasks = Channel.CreateBounded<TaskQueueItem>(new BoundedChannelOptions(Math.Max(1, CalculateScanConcurrencyLimit()))
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -119,20 +121,10 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
                     cleanupCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     _cleanupInProgress = cleanupCompletion;
                     taskRunners = _taskRunners.ToArray();
-                    foreach (var item in taskRunners)
-                    {
-                        _taskRunners.Remove(item.Key);
-                    }
-                }
-
-                var cancellations = new Task[taskRunners.Length];
-                for (var i = 0; i < taskRunners.Length; i++)
-                {
-                    cancellations[i] = CancelIfRunningAsync(taskRunners[i].Key);
                 }
 
                 _logger.LogDebug("Cleanup runners.");
-                await Task.WhenAll(cancellations).ConfigureAwait(false);
+                await CancelAndWaitForRunnersAsync(taskRunners).ConfigureAwait(false);
                 lock (_taskLock)
                 {
                     if (ReferenceEquals(_cleanupInProgress, cleanupCompletion))
@@ -168,7 +160,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
         }
     }
 
-    private Task CancelIfRunningAsync(CancellationTokenSource cancellationTokenSource)
+    private static Task CancelIfRunningAsync(CancellationTokenSource cancellationTokenSource)
     {
         return Task.Run(async () =>
         {
@@ -180,11 +172,14 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
             {
                 // The worker completed and disposed its token source before cleanup reached it.
             }
-            catch (Exception exception)
-            {
-                _logger.LogWarning(exception, "A cancellation callback failed while stopping a library scan worker.");
-            }
         });
+    }
+
+    internal static Task CancelAndWaitForRunnersAsync(KeyValuePair<CancellationTokenSource, Task>[] taskRunners)
+    {
+        var runnerTasks = taskRunners
+            .Select(item => item.Value is Task<Task> worker ? worker.Unwrap() : item.Value);
+        return Task.WhenAll(taskRunners.Select(item => CancelIfRunningAsync(item.Key)).Concat(runnerTasks));
     }
 
     private bool ShouldForceSequentialOperation()
@@ -232,6 +227,8 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
     private async Task ItemWorker(object? obj)
     {
         var worker = ((CancellationTokenSource Token, CancellationTokenSource Lifetime))obj!;
+        var previousWorkerScheduler = _currentWorkerScheduler.Value;
+        _currentWorkerScheduler.Value = this;
         _deadlockDetector.Value = worker.Token;
         try
         {
@@ -263,6 +260,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
         finally
         {
             _logger.LogDebug("Cleanup Runner'.");
+            _currentWorkerScheduler.Value = previousWorkerScheduler;
             _deadlockDetector.Value = default!;
             lock (_taskLock)
             {
@@ -331,7 +329,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
             {
                 Data = item!,
                 Progress = new ActionProgress(innerPercent => workset.Report(index, innerPercent)),
-                Worker = (val, workerCancellationToken) => worker((T)val, queueItem.Progress, workerCancellationToken),
+                Worker = val => worker((T)val, queueItem.Progress),
                 CancellationToken = cancellationToken,
                 Workset = workset
             };
@@ -353,10 +351,6 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
 
         try
         {
-            using var enqueueCancellation = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                _disposeCancellationTokenSource.Token);
-
             if (sequential)
             {
                 _logger.LogDebug("Process sequentially.");
@@ -364,7 +358,8 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
                 {
                     for (var i = 0; i < data.Length; i++)
                     {
-                        await ProcessItem(CreateTaskQueueItem(data[i], i), CancellationToken.None).ConfigureAwait(false);
+                        _hostApplicationLifetime.ApplicationStopping.ThrowIfCancellationRequested();
+                        await ProcessItem(CreateTaskQueueItem(data[i], i)).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -378,17 +373,17 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
 
             if (cleanupInProgress is not null)
             {
-                await cleanupInProgress.ConfigureAwait(false);
+                await cleanupInProgress.WaitAsync(_cleanupWaitCancellationTokenSource.Token).ConfigureAwait(false);
             }
 
             Worker();
             for (var i = 0; i < data.Length; i++)
             {
-                await _tasks.Writer.WriteAsync(CreateTaskQueueItem(data[i], i), enqueueCancellation.Token).ConfigureAwait(false);
+                await _tasks.Writer.WriteAsync(CreateTaskQueueItem(data[i], i), _hostApplicationLifetime.ApplicationStopping).ConfigureAwait(false);
             }
 
             _logger.LogDebug("Wait for {NoWorkers} to complete.", data.Length);
-            await workset.Completion.ConfigureAwait(false);
+            await workset.Completion.WaitAsync(_hostApplicationLifetime.ApplicationStopping).ConfigureAwait(false);
         }
         finally
         {
@@ -410,6 +405,11 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
+        if (ReferenceEquals(_currentWorkerScheduler.Value, this))
+        {
+            throw new InvalidOperationException("A library worker cannot dispose its scheduler while its enqueue is active.");
+        }
+
         KeyValuePair<CancellationTokenSource, Task>[] taskRunners;
         Task? enqueuesDrained;
         Task? existingDispose;
@@ -427,6 +427,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
                 _disposeCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 existingDispose = null;
                 _cleanupCancellationTokenSource.Cancel();
+                _cleanupWaitCancellationTokenSource.Cancel();
                 enqueuesDrained = _enqueueDrained?.Task;
             }
         }
@@ -439,33 +440,27 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
 
         try
         {
-            await CancelIfRunningAsync(_disposeCancellationTokenSource).ConfigureAwait(false);
-
             if (enqueuesDrained is not null)
             {
                 await enqueuesDrained.ConfigureAwait(false);
             }
 
+            _tasks.Writer.TryComplete();
             lock (_taskLock)
             {
-                _tasks.Writer.Complete();
+                _tasks.Writer.TryComplete();
                 taskRunners = _taskRunners.ToArray();
             }
 
-            foreach (var item in taskRunners)
-            {
-                await CancelIfRunningAsync(item.Key).ConfigureAwait(false);
-            }
-
-            await Task.WhenAll(taskRunners.Select(item => item.Value is Task<Task> worker ? worker.Unwrap() : item.Value)).ConfigureAwait(false);
+            await CancelAndWaitForRunnersAsync(taskRunners).ConfigureAwait(false);
 
             if (_cleanupTask is not null)
             {
                 await _cleanupTask.ConfigureAwait(false);
                 _cleanupTask?.Dispose();
             }
-
-            _disposeCancellationTokenSource.Dispose();
+            _cleanupCancellationTokenSource.Dispose();
+            _cleanupWaitCancellationTokenSource.Dispose();
             _disposeCompletion!.TrySetResult();
         }
         catch (Exception exception)
@@ -479,7 +474,7 @@ public sealed class LimitedConcurrencyLibraryScheduler : ILimitedConcurrencyLibr
     {
         public required object Data { get; init; }
 
-        public required Func<object, CancellationToken, Task> Worker { get; init; }
+        public required Func<object, Task> Worker { get; init; }
 
         public required IProgress<double> Progress { get; init; }
 

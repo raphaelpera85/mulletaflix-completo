@@ -561,6 +561,27 @@ public sealed class AvatarControllerUserAvatarAuthorizationTests
     }
 
     [Fact]
+    public async Task RemoveUserAvatarAsync_DoesNotDeleteNestedProfilePathOutsideManagedFileLayout()
+    {
+        using var context = new AvatarTestContext();
+        var previousProfilePath = context.CreateExistingProfile(context.TargetUser);
+        var userDirectory = Path.GetDirectoryName(previousProfilePath)!;
+        File.Delete(previousProfilePath);
+        var nestedDirectory = Path.Combine(userDirectory, "unexpected");
+        Directory.CreateDirectory(nestedDirectory);
+        var nestedProfilePath = Path.Combine(nestedDirectory, "profile.png");
+        await File.WriteAllBytesAsync(nestedProfilePath, [9, 8, 7], TestContext.Current.CancellationToken);
+        context.TargetUser.ProfileImage = new ImageInfo(nestedProfilePath);
+        var service = context.CreateAvatarService(context.TargetUser);
+
+        var removed = await service.RemoveUserAvatarAsync(context.TargetUser.Id);
+
+        Assert.True(removed);
+        Assert.Null(context.TargetUser.ProfileImage);
+        Assert.True(File.Exists(nestedProfilePath));
+    }
+
+    [Fact]
     public void CleanOrphanedProfileImages_DoesNotFollowSymlinkedUserDirectory()
     {
         using var context = new AvatarTestContext();

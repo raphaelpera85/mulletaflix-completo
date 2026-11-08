@@ -155,6 +155,7 @@ export default defineConfig(async (config) => {
             }
         },
         build: {
+            target: 'chrome79',
             outDir: '../dist',
             emptyOutDir: true,
             rollupOptions: {

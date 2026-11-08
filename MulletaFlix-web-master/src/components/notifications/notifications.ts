@@ -8,7 +8,7 @@ import type { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/bas
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client';
 import type { ApiClient as JellyfinApiClient } from 'jellyfin-apiclient';
 
-import AppNotificationIcon from '../../assets/branding/icon.png';
+import { applyNotificationBranding, MULLETAFLIX_NOTIFICATION_ICON } from './notificationBranding';
 
 interface NotificationServerInfo {
     Id: string;
@@ -19,7 +19,6 @@ interface NotificationsApiClient {
     getCurrentUserId(): string;
     getCurrentUser(): Promise<UserDto>;
     serverInfo(): NotificationServerInfo;
-    getScaledImageUrl(itemId: string, options?: { width?: number; tag?: string; type?: string }): string;
     subscribe<TData = unknown>(
         messageTypes: OutboundWebSocketMessageType[],
         onMessage: (event: { Data: TData }) => void
@@ -73,9 +72,6 @@ interface NotificationItem {
     Name: string;
     Type?: BaseItemKind;
     SeriesName?: string;
-    ImageTags?: {
-        Primary?: string;
-    };
 }
 
 function onOneDocumentClick(): void {
@@ -167,8 +163,7 @@ function showNotification(options: AppNotificationOptions, timeoutMs: number, ap
 
     options.data = options.data || {};
     options.data.serverId = apiClient.serverInfo().Id;
-    options.icon = options.icon || AppNotificationIcon;
-    options.badge = options.badge || AppNotificationIcon;
+    applyNotificationBranding(options);
 
     resetRegistration();
 
@@ -198,16 +193,6 @@ function showNewItemNotification(item: NotificationItem, apiClient: Notification
         tag: 'newItem' + item.Id,
         data: {}
     };
-
-    const imageTags = item.ImageTags || {};
-
-    if (imageTags.Primary) {
-        notification.icon = apiClient.getScaledImageUrl(item.Id, {
-            width: 80,
-            tag: imageTags.Primary,
-            type: 'Primary'
-        });
-    }
 
     showNotification(notification, 15000, apiClient);
 }
@@ -273,7 +258,7 @@ function showPackageInstallNotification(apiClient: NotificationsApiClient, insta
                     {
                         action: 'cancel-install',
                         title: globalize.translate('ButtonCancel'),
-                        icon: AppNotificationIcon
+                        icon: MULLETAFLIX_NOTIFICATION_ICON
                     }
                 ];
 
@@ -348,7 +333,7 @@ function subscribeToApiClient(apiClient: NotificationsApiClient): void {
                 {
                     action: 'restart',
                     title: globalize.translate('Restart'),
-                    icon: AppNotificationIcon
+                    icon: MULLETAFLIX_NOTIFICATION_ICON
                 }
             ];
 

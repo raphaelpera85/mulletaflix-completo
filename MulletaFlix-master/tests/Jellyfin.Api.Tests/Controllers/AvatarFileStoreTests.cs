@@ -123,6 +123,31 @@ public sealed class AvatarFileStoreTests
     }
 
     [Fact]
+    public void TryDelete_WhenNameChangesDuringPersistenceOnWindows_DeletesOnlyOpenedFile()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Windows handle-relative delete behavior is only available on Windows.");
+        }
+
+        using var context = new AvatarFileStoreTestContext();
+        var avatarPath = Path.Combine(context.AvatarDirectory, "avatar.png");
+        var movedOriginalPath = Path.Combine(context.Root, "original-avatar.png");
+        File.WriteAllBytes(avatarPath, [1, 2, 3]);
+        using var store = new AvatarFileStore(context.AvatarDirectory);
+
+        var result = store.TryDelete("avatar.png", () =>
+        {
+            File.Move(avatarPath, movedOriginalPath);
+            File.WriteAllBytes(avatarPath, [9, 8, 7]);
+        });
+
+        Assert.Equal(AvatarFileDeleteResult.Deleted, result);
+        Assert.Equal([9, 8, 7], File.ReadAllBytes(avatarPath));
+        Assert.False(File.Exists(movedOriginalPath));
+    }
+
+    [Fact]
     public void Constructor_RejectsLinuxCatalogDirectoryWritableByOtherUsers()
     {
         if (OperatingSystem.IsLinux())
