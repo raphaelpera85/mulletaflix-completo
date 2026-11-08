@@ -50,6 +50,9 @@
 - [x] Regressão ampla posterior: três execuções consecutivas passaram **78 arquivos / 425 testes** cada; `npm run build:check` deve continuar sendo executado no gate final.
 - [~] Warnings persistentes de `jsdom`/`webcomponents.js` foram observados (`getComputedStyle` com pseudo-elementos e callback após `window` indisponível). Nenhuma falha de produto foi reproduzida; a estabilidade do harness/teardown continua melhoria aberta e não deve ser mascarada por retries.
 - [x] Evento `web-vitest-flake-reprobe-2026-11-08-0212` adicionado ao portal; status permanece `partial`.
+- [x] Rechecagem no checkout publicado: o teste focal passou **8/8** e quatro execuções paralelas completas passaram **80 arquivos / 430 testes** cada, sem timeout do `ActionLogPage`.
+- [~] A flakiness histórica não foi reproduzida; os warnings de teardown permanecem melhoria de harness. Não alterar produto nem promover o gate web integral enquanto Playwright autenticado, ESLint baseline e ambientes externos continuarem pendentes.
+- [x] Evento `web-vitest-parallel-recheck-2026-11-08-1230` adicionado ao portal.
 
 ## Gate ESLint web — 2026-11-08 02:26 BRT
 
