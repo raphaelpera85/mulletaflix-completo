@@ -15943,6 +15943,23 @@
       "evidence": "Ruff corrigiu 3 ocorrências I001 em `main.py`; o arquivo ficou com I001=0. O baseline global caiu de 376 para 373 findings. A suíte NebulaPython passou 726 testes, ignorou 2 e falhou em 0.",
       "release": "Alteração limitada à ordenação de imports. BLE001, B023 e demais findings semânticos permanecem sem autofix global; não houve integração real, runtime ou produção.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-supabase-sync-2026-11-09-0145",
+      "title": "NebulaPython: imports do supabase_sync.py reordenados com segurança",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/supabase_sync.py",
+      "scope": "Corrigir somente três ocorrências I001 de ordenação de imports no sincronizador Supabase.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T01:35:00-03:00",
+      "updatedAt": "2026-11-09T01:45:00-03:00",
+      "evidence": "Ruff corrigiu 3 ocorrências I001 em `tools/supabase_sync.py`; o baseline global caiu de 373 para 370 findings e `I001` caiu para 18. A suíte NebulaPython passou 726 testes, ignorou 2 e falhou em 0.",
+      "release": "Alteração limitada à ordenação de imports. A integração Supabase/Mongo real, runtime e produção continuam sem aceite.",
+      "links": []
     }
   ]
 }

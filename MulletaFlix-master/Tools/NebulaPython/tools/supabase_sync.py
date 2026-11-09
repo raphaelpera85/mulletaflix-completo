@@ -4,32 +4,33 @@ Handles automated backup of MongoDB collections and configuration to Supabase.
 """
 from __future__ import annotations
 
+import argparse
+import asyncio
+import json
+import logging
 import os
 import sys
 import time
-import json
-import asyncio
-import logging
-import argparse
-import urllib.request
 import urllib.error
-from os import environ
+import urllib.request
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List, Union
+from os import environ
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 try:
-    from supabase import create_client, Client as SupabaseClient
+    from supabase import Client as SupabaseClient
+    from supabase import create_client
     SUPABASE_AVAILABLE = True
 except ImportError:  # pragma: no cover
     SUPABASE_AVAILABLE = False
     SupabaseClient = None  # type: ignore
     create_client = None  # type: ignore
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import MongoClient
 from bson import ObjectId
 from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import MongoClient
 
 load_dotenv()
 

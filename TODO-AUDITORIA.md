@@ -54,6 +54,8 @@
 - [x] TDD/regressão do checkpoint: focal **17 aprovados, 2 ignorados**; suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**. A decisão preserva o contrato público e reduz somente o falso positivo de lint.
 - [x] Correção segura adicional em `main.py`: Ruff reorganizou somente três blocos `I001` de imports, sem alteração comportamental; o baseline global caiu para **373 findings** (`I001`: 21).
 - [x] Regressão após a reordenação: suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**; warning `pytest_asyncio` permanece classificado.
+- [x] Correção segura adicional em `tools/supabase_sync.py`: Ruff reorganizou somente três blocos `I001` de imports, sem alteração comportamental; o baseline global caiu para **370 findings** (`I001`: 18).
+- [x] Regressão após a reordenação: suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**; não houve integração Supabase/Mongo real.
 
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
