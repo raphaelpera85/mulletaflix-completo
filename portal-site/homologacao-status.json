@@ -16266,6 +16266,23 @@
       "evidence": "Os imports de `sys` e `io.BytesIO` foram reorganizados. O teste focal passou 26 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 317 para 316 findings e I001 de 2 para 1.",
       "release": "Alteração limitada à organização de imports de teste. Download STRM real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-test-supabase-sync-2026-11-09-0242",
+      "title": "NebulaPython: normalização dos imports do teste Supabase sync",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests/test_supabase_sync.py",
+      "scope": "Eliminar I001 somente no bloco de imports, sem mudança de comportamento.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T02:40:00-03:00",
+      "updatedAt": "2026-11-09T02:42:00-03:00",
+      "evidence": "`motor.motor_asyncio` foi movido para o grupo de imports de terceiros. O teste focal passou 39 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 316 para 315 findings e I001 ficou em 0.",
+      "release": "Alteração limitada à organização de imports de teste. Backup Supabase real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }

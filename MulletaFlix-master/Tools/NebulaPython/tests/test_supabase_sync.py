@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import importlib
-import motor.motor_asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import motor.motor_asyncio
 import pytest
 from bson import ObjectId
 
