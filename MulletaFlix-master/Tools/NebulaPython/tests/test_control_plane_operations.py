@@ -6,8 +6,8 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from bson import ObjectId
 from aiohttp.test_utils import TestClient, TestServer
+from bson import ObjectId
 
 from control_plane import ConflictError, ControlPlane, FeederSupervisor
 from ftp.pathio import MongoDBPathIO

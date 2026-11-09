@@ -16096,6 +16096,23 @@
       "evidence": "Ruff reorganizou o bloco de imports de `tools/feed_ftp.py`; o focal feed/STRM/ingestion/helpers/cleanup passou 169 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 326 para 325 findings e I001 caiu de 11 para 10.",
       "release": "Alteração limitada à organização de imports. Feed FTP/STRM/Mongo real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-test-control-plane-operations-2026-11-09-0110",
+      "title": "NebulaPython: imports do teste de operações do control-plane reordenados",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests/test_control_plane_operations.py",
+      "scope": "Corrigir somente a ocorrência I001 no teste de operações HTTP do control-plane.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T01:08:00-03:00",
+      "updatedAt": "2026-11-09T01:10:23-03:00",
+      "evidence": "Ruff reordenou o import de `aiohttp.test_utils`; o teste focal passou 23 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 325 para 324 findings e I001 caiu de 10 para 9.",
+      "release": "Alteração limitada à organização de imports de teste. Control-plane real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
