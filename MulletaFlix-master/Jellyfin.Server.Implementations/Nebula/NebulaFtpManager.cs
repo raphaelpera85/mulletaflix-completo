@@ -4070,11 +4070,15 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         var config = Config;
         if (string.IsNullOrWhiteSpace(config.SupabaseUrl) || string.IsNullOrWhiteSpace(config.SupabaseKey))
         {
-            return new NebulaSupabaseBackupResultDto
+            var unavailableResult = new NebulaSupabaseBackupResultDto
             {
                 Success = false,
                 Message = "Configure a URL e a API Key do Supabase antes de iniciar o backup."
             };
+            AddServerLog($"[SUPABASE-ERRO] {unavailableResult.Message}");
+            RecordMongoBackupResult(unavailableResult);
+            await CacheOperationReplayAsync("supabase-backup", idempotencyKey, unavailableResult, CancellationToken.None).ConfigureAwait(false);
+            return unavailableResult;
         }
 
         AddServerLog("[SUPABASE-BACKUP] Iniciando sincronização do MongoDB para o Supabase (Nativo C#)...");

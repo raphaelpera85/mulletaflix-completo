@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T21:11:55-03:00",
+  "generatedAt": "2026-11-08T21:42:45-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -15874,6 +15874,23 @@
       "updatedAt": "2026-11-08T21:11:55-03:00",
       "evidence": "A correção removeu uma linha em branco extra no bloco de imports. `ruff check upload_checkpoint.py` agora reporta somente dois `TRY004` sem autofix. O teste focal passou 17 casos, ignorou 2 e falhou em 0; a suíte completa passou 726 casos, ignorou 2 e falhou em 0 em 35,23 s.",
       "release": "Correção de estilo local validada. O baseline Ruff global caiu de 379 para 378 findings, mas continua parcial; os TRY004 não foram alterados porque a troca ValueError→TypeError é mudança semântica e requer TDD próprio.",
+      "links": []
+    },
+    {
+      "id": "nebulapython-supabase-backup-missing-config-2026-11-08-2142",
+      "title": "Backup Nebula → Supabase: falha de configuração agora é observável",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; runtime instalado 12.1.51 mantido intacto",
+      "location": "MulletaFlix-master/Jellyfin.Server.Implementations/Nebula/NebulaFtpManager.cs",
+      "scope": "Registrar falhas de URL/chave ausentes no backup MongoDB → Supabase em vez de retornar silenciosamente em segundo plano.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-08T21:30:00-03:00",
+      "updatedAt": "2026-11-08T21:42:45-03:00",
+      "evidence": "RED reproduziu `SupabaseLastBackupFailed == null` após `BackupMongoToSupabaseAsync()` sem configuração. GREEN passou 1/1; o filtro `NebulaFtpController` passou 36/36; a regressão Nebula passou 739 testes, ignorou 38 e falhou em 0 de 777; o build Release passou com 0 erros e 32 avisos.",
+      "release": "O ramo ausente agora escreve log `[SUPABASE-ERRO]`, persiste status/timestamp de falha e grava replay idempotente. O runtime instalado 12.1.51 não foi atualizado; a correção ainda não está homologada em produção.",
       "links": []
     }
   ]

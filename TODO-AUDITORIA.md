@@ -52,6 +52,15 @@
 - [x] Regressão focada de `tests/test_upload_checkpoint.py`: **17 aprovados, 2 ignorados, 0 falhas**; regressão NebulaPython completa: **726 aprovados, 2 ignorados, 0 falhas** em **35,23 s**.
 - [~] Baseline pós-correção: **378 findings**; `upload_checkpoint.py` permanece com apenas dois `TRY004` sem autofix, porque trocar `ValueError` por `TypeError` altera o contrato de erro e exige decisão/TDD semântico.
 
+## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
+
+- [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".
+- [x] TDD RED: `BackupMongoToSupabaseAsync_RecordsMissingConfigurationFailure` falhou porque `SupabaseLastBackupFailed` permanecia `null`.
+- [x] GREEN: o ramo de configuração ausente agora registra `[SUPABASE-ERRO]`, persiste o resultado de falha e grava o replay idempotente antes de retornar.
+- [x] Teste focal GREEN: **1/1**; `NebulaFtpController` focal: **36/36**; regressão Nebula filtrada: **739 aprovados, 38 ignorados, 0 falhas / 777**.
+- [x] Build Release da solução: **0 erros, 32 avisos**.
+- [~] O runtime instalado `12.1.51` em `C:/Program Files/MulletaFlix/Server` não foi alterado; a correção está no source e não deve ser considerada ativa em produção sem pacote controlado, rollback e autorização operacional.
+
 - [x] Restauração oficial do backup de 04/11 concluída; o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às 04:34:56 BRT e `Startup complete` às 04:35:44 BRT.
 - [x] Runtime `12.1.51` em `C:/Program Files/MulletaFlix/Server` com datadir oficial `C:/ProgramData/MulletaFlix/Server`; `/health` 200 `Healthy`; `/System/Info/Public` confirma `Version=12.1.51`, `TargetAbi=12.1.51` e wizard concluído.
 - [x] Banco restaurado confirmado por leitura: `users=16`, `baseitems=194203`, `peoplebaseitemmap=850927`, `activitylogs=2671`; `Username='Raphael'` ocorre uma vez.

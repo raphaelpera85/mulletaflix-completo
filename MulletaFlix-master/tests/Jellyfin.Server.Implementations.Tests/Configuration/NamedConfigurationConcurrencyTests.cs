@@ -986,6 +986,21 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         Assert.Equal(NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours, currentConfig.SupabaseAutoBackupIntervalHours);
     }
 
+    [Fact]
+    public async Task BackupMongoToSupabaseAsync_RecordsMissingConfigurationFailure()
+    {
+        var configuration = CreateManager(_serializer);
+        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+
+        var result = await manager.BackupMongoToSupabaseAsync();
+
+        Assert.False(result.Success);
+        var saved = configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+        Assert.True(saved.SupabaseLastBackupFailed);
+        Assert.NotNull(saved.SupabaseLastBackupAttemptTime);
+        Assert.Contains("Configure a URL", saved.SupabaseLastBackupStatus, StringComparison.Ordinal);
+    }
+
     private static IServerConfigurationManager ObserveUpdateEntry(IServerConfigurationManager configuration, Action entered)
     {
         var observed = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
