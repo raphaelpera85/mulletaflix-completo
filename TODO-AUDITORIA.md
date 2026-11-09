@@ -42,6 +42,13 @@
 - [~] `pytest_asyncio` emitiu depreciação porque `asyncio_default_fixture_loop_scope` não está configurado; não bloqueou a suíte, mas é melhoria de configuração pendente.
 - [~] Não houve homologação MongoDB, FTP real, Supabase real, produção ou runtime instalado; a evidência é da suíte isolada Python.
 
+## Baseline Ruff NebulaPython — 2026-11-08 21:01 BRT
+
+- [~] `uv run --with ruff -- ruff check .` terminou exit 1 com **379 findings**; não foi aplicado `--fix`.
+- [x] Regras dominantes mapeadas: `BLE001` **126**, `B023` **37**, `I001` **25**, `S110` **23**, `RUF059` **16**, `UP045` **14**, `F401` **14**, `UP006` **14**, `UP041` **11**, `UP024` **11**, `TRY004` **10** e `PIE807` **9**.
+- [x] Arquivos com maior concentração: `main.py` **94**, `tools/supabase_sync.py` **65**, `tools/strm_downloader.py` **58**, `tools/feed_ftp.py` **43**, `ftp/server.py` **23**, `ftp/pathio.py` **18** e `control_plane.py` **13**.
+- [~] O baseline mistura qualidade, exceções amplas e regras de segurança; não corrigir em massa sem fatias TDD e revisão de comportamento. `BLE001` e `S110` exigem triagem semântica, não autofix cego.
+
 - [x] Restauração oficial do backup de 04/11 concluída; o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às 04:34:56 BRT e `Startup complete` às 04:35:44 BRT.
 - [x] Runtime `12.1.51` em `C:/Program Files/MulletaFlix/Server` com datadir oficial `C:/ProgramData/MulletaFlix/Server`; `/health` 200 `Healthy`; `/System/Info/Public` confirma `Version=12.1.51`, `TargetAbi=12.1.51` e wizard concluído.
 - [x] Banco restaurado confirmado por leitura: `users=16`, `baseitems=194203`, `peoplebaseitemmap=850927`, `activitylogs=2671`; `Username='Raphael'` ocorre uma vez.
