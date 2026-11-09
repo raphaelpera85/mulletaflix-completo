@@ -92,6 +92,8 @@ public sealed class ItemsControllerTests : IDisposable
         Guid? userId = null,
         int? startIndex = 0,
         int? limit = 10,
+        bool? recursive = null,
+        bool? collapseBoxSetItems = null,
         int? imageTypeLimit = null,
         int? minWidth = null,
         int? minHeight = null,
@@ -135,7 +137,7 @@ public sealed class ItemsControllerTests : IDisposable
             excludeItemIds: [],
             startIndex: startIndex,
             limit: limit,
-            recursive: null,
+            recursive: recursive,
             searchTerm: null,
             sortOrder: [],
             parentId: parentId,
@@ -172,7 +174,7 @@ public sealed class ItemsControllerTests : IDisposable
             isLocked: null,
             isPlaceHolder: null,
             hasOfficialRating: null,
-            collapseBoxSetItems: null,
+            collapseBoxSetItems: collapseBoxSetItems,
             minWidth: minWidth,
             minHeight: minHeight,
             maxWidth: maxWidth,
@@ -242,6 +244,53 @@ public sealed class ItemsControllerTests : IDisposable
         _userManager.Setup(m => m.GetUserById(nonExistentUser)).Returns((User?)null);
 
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => CallGetItems(userId: nonExistentUser));
+    }
+
+    [Fact]
+    public async Task GetItems_WithValidUserAndRecursiveQuery_ReturnsItemsAndForwardsQuery()
+    {
+        var parent = new Folder { Id = Guid.NewGuid(), Name = "Synthetic Library" };
+        var item = new Folder { Id = Guid.NewGuid(), Name = "Synthetic" };
+        var expectedDto = new BaseItemDto { Id = item.Id, Name = item.Name };
+        var queryResult = new QueryResult<BaseItem>
+        {
+            Items = [item],
+            TotalRecordCount = 1
+        };
+        InternalItemsQuery? capturedQuery = null;
+
+        _libraryManager.Setup(m => m.GetItemById<BaseItem>(parent.Id, _user)).Returns(parent);
+        _libraryManager
+            .Setup(m => m.GetItemsResult(It.IsAny<InternalItemsQuery>()))
+            .Callback<InternalItemsQuery>(query => capturedQuery = query)
+            .Returns(queryResult);
+        _dtoService
+            .Setup(m => m.GetBaseItemDtosAsync(
+                It.Is<IReadOnlyList<BaseItem>>(items => items.Count == 1 && items[0] == item),
+                It.IsAny<DtoOptions>(),
+                _user,
+                It.IsAny<BaseItem?>(),
+                true))
+            .ReturnsAsync([expectedDto]);
+
+        var previousLibraryManager = BaseItem.LibraryManager;
+        BaseItem.LibraryManager = _libraryManager.Object;
+        try
+        {
+            var result = await CallGetItems(parentId: parent.Id, recursive: true, collapseBoxSetItems: false);
+
+            Assert.NotNull(result.Value);
+            Assert.Equal(1, result.Value.TotalRecordCount);
+            Assert.Same(expectedDto, Assert.Single(result.Value.Items));
+            Assert.NotNull(capturedQuery);
+            Assert.True(capturedQuery!.Recursive);
+            Assert.Same(_user, capturedQuery.User);
+            Assert.True(capturedQuery.EnableTotalRecordCount);
+        }
+        finally
+        {
+            BaseItem.LibraryManager = previousLibraryManager;
+        }
     }
 
     [Fact]

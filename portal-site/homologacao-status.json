@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-09T07:22:00-03:00",
+  "generatedAt": "2026-11-09T07:36:37-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -16401,6 +16401,23 @@
       "updatedAt": "2026-11-09T07:22:00-03:00",
       "evidence": "RED inicial reproduzido no teste por assumir OkObjectResult em Result; GREEN após usar o padrão ActionResult<T> existente. Focal 1/1 e regressão LibraryControllerAuthorizationTests 22/22. A tentativa de integração foi removida após ficar 1 ignorada por exigir MariaDB descartável opt-in.",
       "release": "Cobertura unitária GREEN; MariaDB descartável, materialização de mídia, runtime instalado, playback e produção permanecem sem aceite.",
+      "links": ["docs/server-test-gap-map-2026-11-09.md"]
+    },
+    {
+      "id": "server-tdd-get-items-2026-11-09-0736",
+      "title": "Servidor: contrato unitário de GET Items",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; .NET 10 Release",
+      "location": "MulletaFlix-master/tests/Jellyfin.Api.Tests/Controllers/ItemsControllerTests.cs",
+      "scope": "Validar query recursiva autenticada, encaminhamento para Folder/GetItemsResult e materialização do DTO sintético.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T07:32:54-03:00",
+      "updatedAt": "2026-11-09T07:36:37-03:00",
+      "evidence": "RED inicial reproduziu NullReferenceException quando a fixture usava UserRootFolder sem dependência estática configurada. GREEN após fixture Folder sintética, BaseItem.LibraryManager restaurado em finally e CollapseBoxSetItems=false. Focal 1/1 e regressão ItemsControllerTests 22/22.",
+      "release": "Cobertura unitária GREEN; HTTP autenticado, MariaDB descartável, materialização persistente, runtime instalado, playback e produção permanecem sem aceite.",
       "links": ["docs/server-test-gap-map-2026-11-09.md"]
     }
   ]

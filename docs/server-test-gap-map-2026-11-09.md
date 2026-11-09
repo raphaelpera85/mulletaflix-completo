@@ -38,12 +38,17 @@
 - Priorizar invariantes observáveis: payload não nulo, contagens não negativas, autorização, isolamento por usuário e comportamento de erro.
 - Não fabricar testes de integração com mídia de produção; usar fixtures sintéticas descartáveis.
 
+## Evidência adicionada em 2026-11-09 07:36 BRT
+
+- `ItemsControllerTests.GetItems_WithValidUserAndRecursiveQuery_ReturnsItemsAndForwardsQuery`: **1/1** focal e **22/22** na classe.
+- O RED inicial revelou uma dependência legítima do caminho `Folder.GetItems` em `BaseItem.LibraryManager`; o teste final usa somente fixture sintética, restaura o estado estático e valida `Recursive`, usuário, `EnableTotalRecordCount` e DTO materializado pelo controller.
+- A cobertura continua unitária; o endpoint HTTP real, MariaDB descartável, materialização persistente, runtime instalado e playback permanecem sem aceite.
+
 ## Próximo ciclo TDD
 
-1. RED/GREEN de `Items/Counts` autenticado no `Jellyfin.Server.Integration.Tests`, sem depender de mídia real.
-2. Regressão do projeto de integração e build Release.
-3. Adicionar o resultado ao `TODO-AUDITORIA.md`, portal e Obsidian.
-4. Em seguida, mapear o fluxo de materialização com timeouts HTTP explícitos e evidência de cada chamada, sem alterar runtime instalado.
+1. Preparar execução opt-in do contrato HTTP autenticado com MariaDB descartável e fixture de mídia sintética, sem usar `3306` nem mídia de produção.
+2. Mapear o fluxo de materialização com timeouts HTTP explícitos e evidência de cada chamada, sem alterar runtime instalado.
+3. Depois, separar o aceite de playback HLS/multiusuário do aceite de catálogo.
 
 ## Limites de aceite
 

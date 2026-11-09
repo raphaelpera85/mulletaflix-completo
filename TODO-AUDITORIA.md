@@ -1,3 +1,10 @@
+## TDD do contrato `GET /Items` — 2026-11-09 07:36 BRT
+
+- [x] RED reproduzido: o teste inicial tentou consultar `UserRootFolder` sem o `ILibraryManager` estático do domínio e revelou `NullReferenceException` em `Folder.QueryRecursive`/`CollapseBoxSetItems`; isso confirmou que o teste precisava exercitar o caminho real de `Folder.GetItems` com dependências explicitamente configuradas.
+- [x] Ajuste mínimo no teste: fixture sintética com `Folder` pai, `BaseItem.LibraryManager` restaurado em `finally` e `CollapseBoxSetItems=false` para isolar o contrato do controller sem configuração global.
+- [x] GREEN: focal **1/1**; regressão da classe `ItemsControllerTests` **22/22**.
+- [~] O teste prova query/DTO em memória, não materialização persistente, HTTP autenticado no runtime nem catálogo real.
+
 ## TDD do contrato `Items/Counts` — 2026-11-09 07:22 BRT
 
 - [x] RED reproduzido: o primeiro teste de integração foi selecionado, mas ficou **1 ignorado** porque o ambiente exige MariaDB descartável opt-in (`MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` e confirmação explícita); não contou como aprovação.
