@@ -1322,7 +1322,7 @@ def iter_strm_files_prioritized(
                 logger.warning("[STRM-SCAN-SKIP] Não foi possível validar a raiz %s: %s", scan_root, exc)
                 continue
 
-        def log_walk_error(error: OSError) -> None:
+        def log_walk_error(error: OSError, scan_root=scan_root) -> None:
             logger.warning("[STRM-SCAN-ERROR] Falha ao enumerar %s: %s", error.filename or scan_root, error)
 
         scan_started = False

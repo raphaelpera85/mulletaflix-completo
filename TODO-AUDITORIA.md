@@ -56,6 +56,9 @@
 - [x] Regressão após a reordenação: suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**; warning `pytest_asyncio` permanece classificado.
 - [x] Correção segura adicional em `tools/supabase_sync.py`: Ruff reorganizou somente três blocos `I001` de imports, sem alteração comportamental; o baseline global caiu para **370 findings** (`I001`: 18).
 - [x] Regressão após a reordenação: suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**; não houve integração Supabase/Mongo real.
+- [x] TDD RED/GREEN do callback `os.walk` em `tools/strm_downloader.py`: o teste reproduziu o fechamento tardio na raiz errada e passou após vincular `scan_root` como argumento padrão.
+- [x] Ruff `B023` do `strm_downloader.py`: **0 findings**; baseline global caiu para **369 findings**. Regressão NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [~] O restante de `B023` está concentrado em `main.py` (**36 ocorrências**) e requer fatias separadas por fluxo assíncrono.
 
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 

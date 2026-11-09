@@ -290,6 +290,26 @@ def test_strm_scan_handles_single_file_scan_root(tmp_path, caplog):
     assert "[STRM-SCAN-STARTED]" in caplog.text
 
 
+def test_strm_scan_error_callback_binds_each_scan_root(tmp_path, monkeypatch, caplog):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    callbacks = []
+
+    def fake_walk(_root, onerror):
+        callbacks.append(onerror)
+        return iter(())
+
+    monkeypatch.setattr(downloader.os, "walk", fake_walk)
+    caplog.set_level("WARNING", logger="STRMDownloader")
+
+    downloader.iter_strm_files_prioritized([first, second])
+
+    callbacks[0](OSError("first scan failed"))
+    assert f"{first}" in caplog.text
+
+
 def test_title_scan_roots_split_category_into_alphabetical_titles(tmp_path):
     source = tmp_path / "library"
     category = source / "Animações"
