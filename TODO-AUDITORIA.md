@@ -59,6 +59,9 @@
 - [x] TDD RED/GREEN do callback `os.walk` em `tools/strm_downloader.py`: o teste reproduziu o fechamento tardio na raiz errada e passou após vincular `scan_root` como argumento padrão.
 - [x] Ruff `B023` do `strm_downloader.py`: **0 findings**; baseline global caiu para **369 findings**. Regressão NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
 - [~] O restante de `B023` está concentrado em `main.py` (**36 ocorrências**) e requer fatias separadas por fluxo assíncrono.
+- [x] Regressão focada de uma fatia do worker de arquivos pequenos em `main.py`: callbacks `reconcile`, `on_success` e `lease_check` agora vinculam os valores da iteração; regressão focal passou **33/33**.
+- [x] Ruff `B023` em `main.py` caiu de 36 para **26**; baseline global caiu para **359 findings**. Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [~] As 26 ocorrências restantes pertencem ao `_upload_one` do worker principal e exigem refatoração/teste de concorrência separados.
 
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 

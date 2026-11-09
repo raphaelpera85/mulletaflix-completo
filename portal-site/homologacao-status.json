@@ -15977,6 +15977,23 @@
       "evidence": "RED reproduziu o log apontando para a segunda raiz quando o callback da primeira era invocado após o loop. GREEN passou 1/1 após vincular `scan_root`; Ruff `B023` no arquivo ficou em 0. A suíte NebulaPython passou 727 testes, ignorou 2 e falhou em 0.",
       "release": "Correção limitada ao binding do callback e teste de regressão. Os 36 B023 restantes de `main.py`, integrações reais, runtime e produção continuam pendentes.",
       "links": []
+    },
+    {
+      "id": "nebulapython-b023-small-worker-2026-11-09-0245",
+      "title": "NebulaPython: callbacks do worker de arquivos pequenos vinculam a iteração",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/main.py; tests/test_main_upload_worker.py",
+      "scope": "Eliminar B023 das callbacks de reconciliação, confirmação e renovação de lease do worker de arquivos pequenos sem alterar o contrato de upload.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T02:30:00-03:00",
+      "updatedAt": "2026-11-09T02:45:00-03:00",
+      "evidence": "As callbacks passaram a vincular explicitamente `file_uuid`, `total_parts`, `source_sha256`, journal, tamanho, mtime e `file_doc`. A regressão focal de upload passou 33/33; a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. B023 em `main.py` caiu de 36 para 26; Ruff global caiu para 359 findings.",
+      "release": "Correção limitada ao binding de closures internos. O `_upload_one` do worker principal permanece pendente; não houve integração real, runtime ou produção.",
+      "links": []
     }
   ]
 }

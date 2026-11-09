@@ -2606,13 +2606,24 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
                             "upload_checkpoint_unavailable: não foi possível persistir a intenção antes do envio."
                         ) from exc
 
-                    async def reconcile():
+                    async def reconcile(
+                        file_uuid=file_uuid,
+                        total_parts=total_parts,
+                        source_sha256=source_sha256,
+                    ):
                         return await reconcile_telegram_part_with_retries(
                             bots, target_chat_id, file_uuid, 0, total_parts,
                             bot_index_offset=1, source_sha256=source_sha256,
                         )
 
-                    async def on_success(part_result):
+                    async def on_success(
+                        part_result,
+                        journal=journal,
+                        file_uuid=file_uuid,
+                        real_size=real_size,
+                        source_mtime_ns=source_mtime_ns,
+                        total_parts=total_parts,
+                    ):
                         try:
                             await asyncio.to_thread(
                                 journal.save_part, file_uuid, real_size, source_mtime_ns,
@@ -2628,7 +2639,7 @@ async def upload_small_file_worker(bots, target_chat_id, mongo, worker_id):
                     f"S{worker_id}", bots, target_chat_id, local_path, file_uuid, 0, chunk_data, 1,
                     caption=caption,
                     admission=admission,
-                    lease_check=lambda: _renew_upload_lease_for_retry(mongo, file_doc),
+                    lease_check=lambda file_doc=file_doc: _renew_upload_lease_for_retry(mongo, file_doc),
                     reconcile=reconcile,
                     on_success=on_success,
                     reconcile_before_send=0 in pending_parts,
