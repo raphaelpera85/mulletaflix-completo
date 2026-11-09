@@ -7,10 +7,11 @@ import logging
 import os
 from pathlib import Path
 
-import main as nebula
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client
 from pyrogram.errors import FloodWait
+
+import main as nebula
 
 
 async def _serve_until_owner_stops(server) -> None:

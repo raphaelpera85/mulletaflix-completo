@@ -16045,6 +16045,23 @@
       "evidence": "Ruff corrigiu 2 ocorrências I001 em `ftp/tg.py`; o focal Telegram/upload/rename passou 63 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 330 para 328 findings e I001 caiu de 15 para 13.",
       "release": "Alteração limitada à ordenação de imports. Telegram/FTP real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-stream-service-2026-11-09-0053",
+      "title": "NebulaPython: import local do stream_service.py separado",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/stream_service.py",
+      "scope": "Corrigir o bloco I001 de imports do worker de playback HTTP sem alterar sua inicialização ou ciclo de vida.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T00:50:00-03:00",
+      "updatedAt": "2026-11-09T00:53:31-03:00",
+      "evidence": "Ruff separou `import main as nebula` do bloco de dependências externas; o focal de playback HTTP/segurança/ciclo de vida passou 44 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 328 para 327 findings e I001 caiu de 13 para 12.",
+      "release": "Alteração limitada à organização de imports. Playback Telegram/Mongo real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
