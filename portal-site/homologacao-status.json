@@ -16317,6 +16317,23 @@
       "evidence": "O import não utilizado de `Path` foi removido. O teste focal passou 4 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff F401 no arquivo ficou em 0; o baseline global caiu de 314 para 313 findings.",
       "release": "Alteração limitada à organização de imports de teste. Cleanup real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-f401-test-restore-pending-uploads-2026-11-09-0257",
+      "title": "NebulaPython: remoção de import não utilizado no teste de restauração de uploads",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests/test_restore_pending_uploads.py",
+      "scope": "Remover somente o import não utilizado de `Path`.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T02:55:00-03:00",
+      "updatedAt": "2026-11-09T02:57:38-03:00",
+      "evidence": "O import não utilizado de `Path` foi removido. O teste focal passou 5 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff F401 no arquivo ficou em 0; o baseline global caiu de 313 para 312 findings.",
+      "release": "Alteração limitada à organização de imports de teste. Restauração real de uploads, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
