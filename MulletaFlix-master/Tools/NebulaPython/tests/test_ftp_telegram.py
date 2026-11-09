@@ -6,8 +6,8 @@ import importlib
 import io
 from types import SimpleNamespace
 
-import pytest
 import aiohttp
+import pytest
 
 tg = importlib.import_module("ftp.tg")
 
