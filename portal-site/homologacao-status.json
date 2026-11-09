@@ -16283,6 +16283,23 @@
       "evidence": "`motor.motor_asyncio` foi movido para o grupo de imports de terceiros. O teste focal passou 39 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 316 para 315 findings e I001 ficou em 0.",
       "release": "Alteração limitada à organização de imports de teste. Backup Supabase real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-f401-test-ftp-server-commands-2026-11-09-0248",
+      "title": "NebulaPython: remoção de import não utilizado no teste FTP",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests/test_ftp_server_commands.py",
+      "scope": "Remover somente o import não utilizado de `Server`.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T02:46:00-03:00",
+      "updatedAt": "2026-11-09T02:48:32-03:00",
+      "evidence": "O import não utilizado de `Server` foi removido. O teste focal passou 22 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff F401 no arquivo ficou em 0; o baseline global caiu de 315 para 314 findings.",
+      "release": "Alteração limitada à organização de imports de teste. Comandos FTP reais, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }

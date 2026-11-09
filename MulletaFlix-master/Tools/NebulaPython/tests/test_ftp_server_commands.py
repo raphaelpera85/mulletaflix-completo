@@ -9,7 +9,7 @@ import pytest
 from test_ftp_server_protocol import make_connection, make_server
 
 from ftp.errors import PathIOError
-from ftp.server import AbstractUserManager, Server, User
+from ftp.server import AbstractUserManager, User
 
 
 class CommandPathIO:
