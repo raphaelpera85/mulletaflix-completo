@@ -16113,6 +16113,23 @@
       "evidence": "Ruff reordenou o import de `aiohttp.test_utils`; o teste focal passou 23 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 325 para 324 findings e I001 caiu de 10 para 9.",
       "release": "Alteração limitada à organização de imports de teste. Control-plane real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-pytest-asyncio-loop-scope-2026-11-09-0115",
+      "title": "NebulaPython: loop scope assíncrono do pytest configurado",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/pytest.ini",
+      "scope": "Eliminar a depreciação de configuração do pytest_asyncio sem alterar a lógica dos testes.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T01:13:00-03:00",
+      "updatedAt": "2026-11-09T01:15:35-03:00",
+      "evidence": "Criado `pytest.ini` com `asyncio_default_fixture_loop_scope = function`. A suíte NebulaPython passou 727 testes, ignorou 2 e falhou em 0; a saída não emitiu mais o warning de configuração do pytest_asyncio. Build Release passou com 0 erros e 35 avisos.",
+      "release": "Melhoria restrita à configuração do runner de testes. Os dois skips ambientais, integrações reais, runtime e produção permanecem sem aceite.",
+      "links": []
     }
   ]
 }

@@ -111,6 +111,13 @@
 - [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
 - [~] Control-plane real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
 
+## Configuração do loop assíncrono do pytest — 2026-11-09 01:15 BRT
+
+- [x] Criado `Tools/NebulaPython/pytest.ini` com `asyncio_default_fixture_loop_scope = function` para eliminar a depreciação emitida pelo `pytest_asyncio`.
+- [x] Suíte NebulaPython repetida sem o warning de configuração: **727 aprovados, 2 ignorados, 0 falhas**.
+- [x] Build Release da solução: **0 erros, 35 avisos**.
+- [~] Os dois skips ambientais e as integrações reais continuam fora da homologação formal.
+
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
 - [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".
