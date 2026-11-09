@@ -230,6 +230,14 @@
 - [x] Baseline Ruff global reduzido de **311 para 310 findings**.
 - [~] Durabilidade POSIX/Windows permanece explicitamente ignorada por contrato ambiental; runtime instalado, produção e demais findings Ruff continuam sem aceite.
 
+## Correção Ruff F401 em `stream_service.py` — 2026-11-09 07:06 BRT
+
+- [x] Removido o import não utilizado de `logging`, sem alteração comportamental.
+- [x] Teste focal HTTP: **19 aprovados, 0 falhas**; `F401` no arquivo: **0 findings**.
+- [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [x] Baseline Ruff global reduzido de **310 para 309 findings**.
+- [~] Playback HTTP real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
+
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
 - [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".

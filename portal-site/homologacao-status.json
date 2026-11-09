@@ -16368,6 +16368,23 @@
       "evidence": "O import não utilizado de `asyncio` foi removido. O teste focal passou 17 casos, ignorou 2 e falhou em 0; a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff F401 no arquivo ficou em 0; o baseline global caiu de 311 para 310 findings. Os skips permanecem: durabilidade POSIX após rename e `MoveFileExW` no Windows.",
       "release": "Alteração limitada à organização de imports de teste. Durabilidade POSIX/Windows, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-f401-stream-service-2026-11-09-0706",
+      "title": "NebulaPython: remoção de import não utilizado no serviço de streaming",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/stream_service.py",
+      "scope": "Remover somente o import não utilizado de `logging`.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T07:04:00-03:00",
+      "updatedAt": "2026-11-09T07:06:32-03:00",
+      "evidence": "O import não utilizado de `logging` foi removido. O teste focal HTTP passou 19 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff F401 no arquivo ficou em 0; o baseline global caiu de 310 para 309 findings.",
+      "release": "Alteração limitada à organização de imports. Playback HTTP real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
