@@ -158,6 +158,14 @@
 - [x] Baseline Ruff global reduzido de **320 para 319 findings**; `I001` reduzido de 5 para **4**.
 - [~] Worker real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
 
+## Correção Ruff I001 em `test_main_lifecycle.py` — 2026-11-09 01:48 BRT
+
+- [x] Separação do import de `ftp.common` pelo Ruff, sem alteração comportamental.
+- [x] Teste focal: **14 aprovados, 0 falhas**; `I001` no arquivo: **0 findings**.
+- [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [x] Baseline Ruff global reduzido de **319 para 318 findings**; `I001` reduzido de 4 para **3**.
+- [~] Lifecycle real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
+
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
 - [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".

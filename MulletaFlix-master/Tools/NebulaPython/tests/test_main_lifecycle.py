@@ -4,6 +4,7 @@ import asyncio
 import importlib
 
 import pytest
+
 from ftp.common import DualLaneUploadQueue
 
 main_module = importlib.import_module("main")

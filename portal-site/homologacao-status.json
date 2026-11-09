@@ -16215,6 +16215,23 @@
       "evidence": "Os imports de `main` foram reorganizados. O teste focal passou 55 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 320 para 319 findings e I001 de 5 para 4.",
       "release": "Alteração limitada à organização de imports de teste. Worker real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-test-main-lifecycle-2026-11-09-0148",
+      "title": "NebulaPython: normalização dos imports do teste de lifecycle",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests/test_main_lifecycle.py",
+      "scope": "Eliminar I001 somente no bloco de imports, sem mudança de comportamento.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T01:47:00-03:00",
+      "updatedAt": "2026-11-09T01:48:40-03:00",
+      "evidence": "O import de `ftp.common` foi separado conforme o Ruff. O teste focal passou 14 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 319 para 318 findings e I001 de 4 para 3.",
+      "release": "Alteração limitada à organização de imports de teste. Lifecycle real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
