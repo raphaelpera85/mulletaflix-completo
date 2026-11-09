@@ -476,6 +476,7 @@ public sealed class NebulaFtpControllerTests
             {
                 ApiHash = "existing-api-hash",
                 HttpStreamToken = "existing-stream-token",
+                SupabaseKey = "existing-supabase-secret",
                 PlaybackCachePath = @"E:\NebulaCache",
                 PlaybackCacheMaxSizeGb = 120,
                 PlaybackCacheMinimumFreeSpaceGb = 8
@@ -496,6 +497,7 @@ public sealed class NebulaFtpControllerTests
         Assert.IsType<NoContentResult>(result);
         configuration.Verify(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()), Times.Once);
         Assert.NotNull(saved);
+        Assert.Equal("existing-supabase-secret", saved.SupabaseKey);
         Assert.Equal(@"E:\NebulaCache", saved.PlaybackCachePath);
         Assert.Equal(120, saved.PlaybackCacheMaxSizeGb);
         Assert.Equal(8, saved.PlaybackCacheMinimumFreeSpaceGb);
