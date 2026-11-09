@@ -50,7 +50,8 @@
 - [~] O baseline mistura qualidade, exceções amplas e regras de segurança; não corrigir em massa sem fatias TDD e revisão de comportamento. `BLE001` e `S110` exigem triagem semântica, não autofix cego.
 - [x] Corrigida uma ocorrência segura de `I001` em `upload_checkpoint.py` (remoção de linha em branco extra no bloco de imports), sem alteração comportamental.
 - [x] Regressão focada de `tests/test_upload_checkpoint.py`: **17 aprovados, 2 ignorados, 0 falhas**; regressão NebulaPython completa: **726 aprovados, 2 ignorados, 0 falhas** em **35,23 s**.
-- [~] Baseline pós-correção: **378 findings**; `upload_checkpoint.py` permanece com apenas dois `TRY004` sem autofix, porque trocar `ValueError` por `TypeError` altera o contrato de erro e exige decisão/TDD semântico.
+- [~] Baseline pós-correção: **376 findings**; dois `TRY004` de `upload_checkpoint.py` foram marcados como exceções intencionais porque trocar `ValueError` por `TypeError` quebra a tradução existente de journal inválido para `UploadCheckpointUnavailableError`.
+- [x] TDD/regressão do checkpoint: focal **17 aprovados, 2 ignorados**; suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**. A decisão preserva o contrato público e reduz somente o falso positivo de lint.
 
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 

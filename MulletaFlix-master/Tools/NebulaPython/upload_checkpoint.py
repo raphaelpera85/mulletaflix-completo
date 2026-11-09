@@ -123,7 +123,8 @@ class UploadCheckpointJournal:
             raw_pending = document.get("pending_part_numbers", [])
             raw_pending_hashes = document.get("pending_part_sha256", {})
             if not isinstance(raw_parts, list) or not isinstance(raw_pending, list) or not isinstance(raw_pending_hashes, dict):
-                raise ValueError("O checkpoint local do upload Nebula está corrompido.")
+                # Preserve the public ValueError contract consumed by main._prepare_upload_resume.
+                raise ValueError("O checkpoint local do upload Nebula está corrompido.")  # noqa: TRY004
 
             parts: dict[int, dict[str, Any]] = {}
             for part in raw_parts:
@@ -240,7 +241,8 @@ class UploadCheckpointJournal:
         chunk_size: int, allow_unverified: bool = False,
     ) -> int:
         if not isinstance(part, dict):
-            raise ValueError("O checkpoint local contém uma parte inválida.")
+            # Preserve the public ValueError contract consumed by main._prepare_upload_resume.
+            raise ValueError("O checkpoint local contém uma parte inválida.")  # noqa: TRY004
         number = part.get("part_id")
         if isinstance(number, bool) or not isinstance(number, int) or not 0 <= number < total_parts:
             raise ValueError("O checkpoint local contém uma parte fora dos limites.")

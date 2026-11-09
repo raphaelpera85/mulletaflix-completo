@@ -15909,6 +15909,23 @@
       "evidence": "RED falhou em 2 testes porque o view model não existia. GREEN passou 2/2 com fallback de campos legados e status persistido. A UI agora consulta `GET /NebulaFtp/Supabase/Status` e atualiza o card com `LastBackupStatus` e conectividade sem expor a chave.",
       "release": "Melhora a observabilidade no source, mas não prova browser autenticado, runtime instalado ou backup real contra Supabase. Nenhum pacote foi promovido.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-try004-contract-2026-11-09-0045",
+      "title": "NebulaPython: TRY004 classificado sem quebrar contrato do journal",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/upload_checkpoint.py",
+      "scope": "Remover somente os dois falsos positivos TRY004 cuja troca para TypeError bypassaria a tradução pública de journal inválido.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T00:35:00-03:00",
+      "updatedAt": "2026-11-09T00:45:00-03:00",
+      "evidence": "`ruff check upload_checkpoint.py` passou sem findings; o baseline global caiu de 378 para 376. O focal passou 17 testes, ignorou 2 e falhou em 0; a suíte completa passou 726, ignorou 2 e falhou em 0. O warning pytest_asyncio sobre asyncio_default_fixture_loop_scope permanece registrado.",
+      "release": "A correção é somente uma exceção explícita de lint: `ValueError` foi preservado porque `main._prepare_upload_resume` o converte em `UploadCheckpointUnavailableError` e adia o upload. Não houve integração real, runtime ou produção.",
+      "links": []
     }
   ]
 }
