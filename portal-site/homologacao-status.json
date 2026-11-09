@@ -16249,6 +16249,23 @@
       "evidence": "Removida a linha em branco extra no bloco de imports. O teste focal passou 3 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 318 para 317 findings e I001 de 3 para 2.",
       "release": "Alteração limitada à organização de imports de teste. Montagem real de unidade, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-test-strm-downloader-2026-11-09-0236",
+      "title": "NebulaPython: normalização dos imports do teste STRM downloader",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests/test_strm_downloader.py",
+      "scope": "Eliminar I001 somente no bloco de imports, sem mudança de comportamento.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T02:34:00-03:00",
+      "updatedAt": "2026-11-09T02:36:20-03:00",
+      "evidence": "Os imports de `sys` e `io.BytesIO` foram reorganizados. O teste focal passou 26 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 317 para 316 findings e I001 de 2 para 1.",
+      "release": "Alteração limitada à organização de imports de teste. Download STRM real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
