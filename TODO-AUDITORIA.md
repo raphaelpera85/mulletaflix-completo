@@ -95,6 +95,14 @@
 - [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
 - [~] Download STRM real, Mongo/FTP real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
 
+## Correção Ruff I001 em `tools/feed_ftp.py` — 2026-11-09 01:05 BRT
+
+- [x] Ruff reorganizou o bloco de imports de `tools/feed_ftp.py`, sem alteração comportamental.
+- [x] Regressão focal feed/STRM/ingestion/helpers/cleanup: **169 aprovados, 0 falhas**.
+- [x] Baseline Ruff global caiu de **326 para 325 findings**; `I001` caiu de 11 para **10**.
+- [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [~] Feed FTP/STRM real, Mongo/FTP real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
+
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
 - [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".

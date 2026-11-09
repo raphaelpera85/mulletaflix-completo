@@ -16079,6 +16079,23 @@
       "evidence": "Ruff reorganizou o bloco de imports de `tools/strm_downloader.py`; o focal STRM/ingestion/queue passou 222 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 327 para 326 findings e I001 caiu de 12 para 11.",
       "release": "Alteração limitada à organização de imports. Download STRM/Mongo/FTP real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-feed-ftp-2026-11-09-0105",
+      "title": "NebulaPython: imports do feed_ftp.py reordenados com segurança",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tools/feed_ftp.py",
+      "scope": "Corrigir somente o bloco I001 de imports do feeder FTP sem alterar ingestão, registro ou cleanup.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T01:00:00-03:00",
+      "updatedAt": "2026-11-09T01:05:12-03:00",
+      "evidence": "Ruff reorganizou o bloco de imports de `tools/feed_ftp.py`; o focal feed/STRM/ingestion/helpers/cleanup passou 169 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 326 para 325 findings e I001 caiu de 11 para 10.",
+      "release": "Alteração limitada à organização de imports. Feed FTP/STRM/Mongo real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
