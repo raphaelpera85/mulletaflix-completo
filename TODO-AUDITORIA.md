@@ -52,6 +52,8 @@
 - [x] Regressão focada de `tests/test_upload_checkpoint.py`: **17 aprovados, 2 ignorados, 0 falhas**; regressão NebulaPython completa: **726 aprovados, 2 ignorados, 0 falhas** em **35,23 s**.
 - [~] Baseline pós-correção: **376 findings**; dois `TRY004` de `upload_checkpoint.py` foram marcados como exceções intencionais porque trocar `ValueError` por `TypeError` quebra a tradução existente de journal inválido para `UploadCheckpointUnavailableError`.
 - [x] TDD/regressão do checkpoint: focal **17 aprovados, 2 ignorados**; suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**. A decisão preserva o contrato público e reduz somente o falso positivo de lint.
+- [x] Correção segura adicional em `main.py`: Ruff reorganizou somente três blocos `I001` de imports, sem alteração comportamental; o baseline global caiu para **373 findings** (`I001`: 21).
+- [x] Regressão após a reordenação: suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**; warning `pytest_asyncio` permanece classificado.
 
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 

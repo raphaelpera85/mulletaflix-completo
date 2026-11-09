@@ -15,8 +15,6 @@ except RuntimeError as exc:
     raise SystemExit(f"[deps] {exc}") from None
 
 import contextlib
-from dataclasses import dataclass
-from enum import Enum
 import hmac
 import inspect
 import io
@@ -34,6 +32,8 @@ import sys
 import time
 import uuid
 from collections import deque
+from dataclasses import dataclass
+from enum import Enum
 from html import escape
 from logging.handlers import RotatingFileHandler
 from os import environ
@@ -44,6 +44,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
 
 import aiofiles
+import pyrogram.session.internals.msg_id as pyrogram_msg_id
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument, UpdateOne
@@ -51,12 +52,11 @@ from pymongo.errors import DuplicateKeyError
 from pyrogram import Client
 from pyrogram import utils as pyrogram_utils
 from pyrogram.errors import FloodWait, RPCError
-import pyrogram.session.internals.msg_id as pyrogram_msg_id
 
 # Auto-sync time offset com Telegram (previne SecurityCheckMismatch em relógios dessincronizados)
 try:
-    import urllib.request
     import email.utils
+    import urllib.request
     if environ.get("NEBULA_STREAM_SERVICE") != "1":
         _req = urllib.request.Request('https://api.telegram.org', headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(_req, timeout=5) as _resp:
@@ -82,6 +82,7 @@ from ftp.common import UPLOAD_QUEUE
 from ftp.pathio import MongoDBMemoryIO, Node, is_uploadable_name, movie_folder_score
 from ftp.range import parse_range as _parse_range
 from ftp.tg import close_upload_sessions, install_reliable_upload, send_document_bot_api
+from queue_identity import queue_identity
 from tools.mongo_admission import acquire_upload_admission
 from upload_checkpoint import (
     UploadCheckpointJournal,
@@ -89,7 +90,6 @@ from upload_checkpoint import (
     compute_file_part_sha256,
     compute_part_sha256,
 )
-from queue_identity import queue_identity
 
 
 async def acquire_worker_upload_admission(mongo, owner):

@@ -15926,6 +15926,23 @@
       "evidence": "`ruff check upload_checkpoint.py` passou sem findings; o baseline global caiu de 378 para 376. O focal passou 17 testes, ignorou 2 e falhou em 0; a suíte completa passou 726, ignorou 2 e falhou em 0. O warning pytest_asyncio sobre asyncio_default_fixture_loop_scope permanece registrado.",
       "release": "A correção é somente uma exceção explícita de lint: `ValueError` foi preservado porque `main._prepare_upload_resume` o converte em `UploadCheckpointUnavailableError` e adia o upload. Não houve integração real, runtime ou produção.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-main-2026-11-09-0115",
+      "title": "NebulaPython: imports do main.py reordenados com segurança",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/main.py",
+      "scope": "Corrigir somente três ocorrências I001 de ordenação de imports no arquivo com maior concentração de findings.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T01:05:00-03:00",
+      "updatedAt": "2026-11-09T01:15:00-03:00",
+      "evidence": "Ruff corrigiu 3 ocorrências I001 em `main.py`; o arquivo ficou com I001=0. O baseline global caiu de 376 para 373 findings. A suíte NebulaPython passou 726 testes, ignorou 2 e falhou em 0.",
+      "release": "Alteração limitada à ordenação de imports. BLE001, B023 e demais findings semânticos permanecem sem autofix global; não houve integração real, runtime ou produção.",
+      "links": []
     }
   ]
 }
