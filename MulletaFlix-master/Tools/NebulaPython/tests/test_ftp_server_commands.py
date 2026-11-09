@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path, PurePosixPath
 from stat import S_IFREG
-from pathlib import Path
-from pathlib import PurePosixPath
 from types import SimpleNamespace
 
 import pytest
+from test_ftp_server_protocol import make_connection, make_server
 
 from ftp.errors import PathIOError
 from ftp.server import AbstractUserManager, Server, User
-
-from test_ftp_server_protocol import make_connection, make_server
 
 
 class CommandPathIO:
