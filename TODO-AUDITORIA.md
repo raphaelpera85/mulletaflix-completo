@@ -118,6 +118,14 @@
 - [x] Build Release da solução: **0 erros, 35 avisos**.
 - [~] Os dois skips ambientais e as integrações reais continuam fora da homologação formal.
 
+## Correção Ruff I001 em `test_control_plane_validation.py` — 2026-11-09 01:24 BRT
+
+- [x] Formatação do import multiline pelo Ruff, sem alteração comportamental.
+- [x] Teste focal: **17 aprovados, 0 falhas**; `I001` no arquivo: **0 findings**.
+- [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [x] Baseline Ruff global reduzido de **324 para 323 findings**; `I001` reduzido de 9 para **8**.
+- [~] Control-plane real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
+
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
 - [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".

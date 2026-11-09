@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from control_plane import ControlPlane, _normalize_permissions, _resolve_allowed, validate_ftp_security
+from control_plane import (
+    ControlPlane,
+    _normalize_permissions,
+    _resolve_allowed,
+    validate_ftp_security,
+)
 
 
 @pytest.mark.parametrize(

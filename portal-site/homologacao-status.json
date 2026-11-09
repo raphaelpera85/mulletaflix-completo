@@ -16130,6 +16130,23 @@
       "evidence": "Criado `pytest.ini` com `asyncio_default_fixture_loop_scope = function`. A suíte NebulaPython passou 727 testes, ignorou 2 e falhou em 0; a saída não emitiu mais o warning de configuração do pytest_asyncio. Build Release passou com 0 erros e 35 avisos.",
       "release": "Melhoria restrita à configuração do runner de testes. Os dois skips ambientais, integrações reais, runtime e produção permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-test-control-plane-validation-2026-11-09-0124",
+      "title": "NebulaPython: normalização de imports do teste de validação do control-plane",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests/test_control_plane_validation.py",
+      "scope": "Eliminar I001 somente no bloco de imports, sem mudança de comportamento.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T01:22:00-03:00",
+      "updatedAt": "2026-11-09T01:24:41-03:00",
+      "evidence": "O import multiline foi formatado pelo Ruff. O teste focal passou 17 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 324 para 323 findings e I001 de 9 para 8.",
+      "release": "Alteração limitada à formatação de imports de teste. Control-plane real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
