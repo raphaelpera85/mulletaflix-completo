@@ -58,10 +58,10 @@
 - [x] Regressão após a reordenação: suíte NebulaPython **726 aprovados, 2 ignorados, 0 falhas**; não houve integração Supabase/Mongo real.
 - [x] TDD RED/GREEN do callback `os.walk` em `tools/strm_downloader.py`: o teste reproduziu o fechamento tardio na raiz errada e passou após vincular `scan_root` como argumento padrão.
 - [x] Ruff `B023` do `strm_downloader.py`: **0 findings**; baseline global caiu para **369 findings**. Regressão NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
-- [~] O restante de `B023` está concentrado em `main.py` (**36 ocorrências**) e requer fatias separadas por fluxo assíncrono.
+- [x] O `B023` foi tratado em três fatias: callback de scan STRM, callbacks do worker de arquivos pequenos e closures do `_upload_one`.
 - [x] Regressão focada de uma fatia do worker de arquivos pequenos em `main.py`: callbacks `reconcile`, `on_success` e `lease_check` agora vinculam os valores da iteração; regressão focal passou **33/33**.
-- [x] Ruff `B023` em `main.py` caiu de 36 para **26**; baseline global caiu para **359 findings**. Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
-- [~] As 26 ocorrências restantes pertencem ao `_upload_one` do worker principal e exigem refatoração/teste de concorrência separados.
+- [x] Ruff `B023` em `main.py`: **0 findings** após vincular os valores da iteração no `_upload_one`; baseline global caiu de 359 para **333 findings**. Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [~] O baseline restante é composto por regras semânticas (`BLE001`, `S110`, `I001` e outras); não aplicar autofix global.
 
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 

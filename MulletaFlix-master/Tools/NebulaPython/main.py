@@ -2365,7 +2365,22 @@ async def upload_worker_parallel(bots, target_chat_id, mongo, worker_id):
 
                 # Upload each part in the batch — bot rotation happens
                 # inside upload_part_with_retries via the bots[] list.
-                async def _upload_one(pn: int) -> dict:
+                async def _upload_one(
+                    pn: int,
+                    heartbeat=heartbeat,
+                    chunk_map=chunk_map,
+                    local_path=local_path,
+                    media_type=media_type,
+                    filename=filename,
+                    total_parts=total_parts,
+                    file_uuid=file_uuid,
+                    real_size=real_size,
+                    journal=journal,
+                    source_mtime_ns=source_mtime_ns,
+                    admission=admission,
+                    file_doc=file_doc,
+                    pending_parts=pending_parts,
+                ) -> dict:
                     _ensure_upload_lease(heartbeat)
                     chunk_data = chunk_map.get(pn)
                     if chunk_data is None:

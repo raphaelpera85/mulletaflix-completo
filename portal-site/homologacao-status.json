@@ -15994,6 +15994,23 @@
       "evidence": "As callbacks passaram a vincular explicitamente `file_uuid`, `total_parts`, `source_sha256`, journal, tamanho, mtime e `file_doc`. A regressão focal de upload passou 33/33; a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. B023 em `main.py` caiu de 36 para 26; Ruff global caiu para 359 findings.",
       "release": "Correção limitada ao binding de closures internos. O `_upload_one` do worker principal permanece pendente; não houve integração real, runtime ou produção.",
       "links": []
+    },
+    {
+      "id": "nebulapython-b023-main-upload-one-2026-11-09-0315",
+      "title": "NebulaPython: `_upload_one` vincula closures do worker principal",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/main.py",
+      "scope": "Eliminar as 26 ocorrências B023 restantes no `_upload_one` sem alterar a execução concorrente dos uploads.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T03:00:00-03:00",
+      "updatedAt": "2026-11-09T03:15:00-03:00",
+      "evidence": "`_upload_one` agora vincula `heartbeat`, `chunk_map`, caminhos, metadados, journal, admissão, documento e partes pendentes como argumentos padrão. Ruff B023 ficou em 0 em `main.py` e no projeto; o baseline caiu de 359 para 333. A regressão focal passou 33/33 e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0.",
+      "release": "Correção limitada ao binding de closures internos. BLE001, S110, I001 e demais findings semânticos permanecem abertos; não houve integração real, runtime ou produção.",
+      "links": []
     }
   ]
 }
