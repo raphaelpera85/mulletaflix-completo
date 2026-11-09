@@ -6,9 +6,11 @@ using System.Threading.Tasks;
 using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Activity;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Globalization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -71,6 +73,29 @@ public sealed class LibraryControllerAuthorizationTests
         Assert.NotNull(result);
         Assert.IsNotType<UnauthorizedResult>(result);
         Assert.NotEmpty(fixture.LibraryManager.Invocations);
+    }
+
+    [Fact]
+    public void GetItemCounts_AuthenticatedUser_DelegatesQueryAndReturnsCounts()
+    {
+        var fixture = CreateFixture(includeUserIdClaim: true, userExists: true);
+        var expected = new ItemCounts { MovieCount = 2, ItemCount = 2 };
+        InternalItemsQuery? capturedQuery = null;
+        fixture.LibraryManager
+            .Setup(manager => manager.GetItemCounts(It.IsAny<InternalItemsQuery>()))
+            .Callback<InternalItemsQuery>(query => capturedQuery = query)
+            .Returns(expected);
+
+        var result = fixture.Controller.GetItemCounts(null, isFavorite: true);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result ?? new OkObjectResult(result.Value));
+        Assert.Same(expected, ok.Value);
+        Assert.NotNull(capturedQuery);
+        Assert.True(capturedQuery!.Recursive);
+        Assert.False(capturedQuery.IsVirtualItem);
+        Assert.True(capturedQuery.IsFavorite);
+        Assert.NotNull(capturedQuery.User);
+        Assert.False(capturedQuery.DtoOptions.EnableImages);
     }
 
     private static async Task<IActionResult?> InvokeEndpoint(ControllerFixture fixture, string endpoint)

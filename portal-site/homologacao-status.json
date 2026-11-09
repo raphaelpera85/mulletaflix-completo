@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T21:42:45-03:00",
+  "generatedAt": "2026-11-09T07:22:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -16385,6 +16385,23 @@
       "evidence": "O import não utilizado de `logging` foi removido. O teste focal HTTP passou 19 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff F401 no arquivo ficou em 0; o baseline global caiu de 310 para 309 findings.",
       "release": "Alteração limitada à organização de imports. Playback HTTP real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "server-tdd-items-counts-2026-11-09-0722",
+      "title": "Servidor: contrato autenticado de Items/Counts",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; .NET 10 Release",
+      "location": "MulletaFlix-master/tests/Jellyfin.Api.Tests/Controllers/LibraryControllerAuthorizationTests.cs",
+      "scope": "Validar que o controller autenticado delega o filtro correto ao ILibraryManager e retorna ItemCounts.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T07:18:00-03:00",
+      "updatedAt": "2026-11-09T07:22:00-03:00",
+      "evidence": "RED inicial reproduzido no teste por assumir OkObjectResult em Result; GREEN após usar o padrão ActionResult<T> existente. Focal 1/1 e regressão LibraryControllerAuthorizationTests 22/22. A tentativa de integração foi removida após ficar 1 ignorada por exigir MariaDB descartável opt-in.",
+      "release": "Cobertura unitária GREEN; MariaDB descartável, materialização de mídia, runtime instalado, playback e produção permanecem sem aceite.",
+      "links": ["docs/server-test-gap-map-2026-11-09.md"]
     }
   ]
 }
