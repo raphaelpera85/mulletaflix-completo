@@ -28,13 +28,13 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
-import urllib.error
 
 from bson import ObjectId
 from dotenv import load_dotenv
