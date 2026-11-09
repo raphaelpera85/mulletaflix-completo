@@ -16011,6 +16011,23 @@
       "evidence": "`_upload_one` agora vincula `heartbeat`, `chunk_map`, caminhos, metadados, journal, admissão, documento e partes pendentes como argumentos padrão. Ruff B023 ficou em 0 em `main.py` e no projeto; o baseline caiu de 359 para 333. A regressão focal passou 33/33 e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0.",
       "release": "Correção limitada ao binding de closures internos. BLE001, S110, I001 e demais findings semânticos permanecem abertos; não houve integração real, runtime ou produção.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-pathio-2026-11-09-0044",
+      "title": "NebulaPython: imports do ftp/pathio.py reordenados com segurança",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/ftp/pathio.py",
+      "scope": "Corrigir somente três ocorrências I001 de ordenação de imports no módulo de persistência e caminho FTP.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T00:35:00-03:00",
+      "updatedAt": "2026-11-09T00:44:04-03:00",
+      "evidence": "Ruff corrigiu 3 ocorrências I001 em `ftp/pathio.py`; o focal de path/FTP/control-plane passou 79 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 333 para 330 findings e I001 caiu de 18 para 15.",
+      "release": "Alteração limitada à ordenação de imports. FTP/Mongo real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }

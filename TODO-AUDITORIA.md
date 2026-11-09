@@ -63,6 +63,14 @@
 - [x] Ruff `B023` em `main.py`: **0 findings** após vincular os valores da iteração no `_upload_one`; baseline global caiu de 359 para **333 findings**. Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
 - [~] O baseline restante é composto por regras semânticas (`BLE001`, `S110`, `I001` e outras); não aplicar autofix global.
 
+## Correção Ruff I001 em `ftp/pathio.py` — 2026-11-09 00:44 BRT
+
+- [x] Ruff reorganizou somente três blocos de imports em `ftp/pathio.py`, sem alteração comportamental.
+- [x] Regressão focal de path/FTP/control-plane: **79 aprovados, 0 falhas**.
+- [x] Baseline Ruff global caiu de **333 para 330 findings**; `I001` caiu de 18 para **15**.
+- [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [~] A integração FTP/Mongo real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
+
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
 - [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".

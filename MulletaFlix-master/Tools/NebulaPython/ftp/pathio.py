@@ -1,16 +1,16 @@
-import logging
-import hashlib
 import asyncio
 import contextlib
+import hashlib
 import json
+import logging
 import os
 import re
 import shutil
 import unicodedata
 from asyncio import CancelledError, Lock, gather, get_event_loop
-from contextlib import asynccontextmanager
 from asyncio import sleep as asleep
 from collections import OrderedDict, namedtuple
+from contextlib import asynccontextmanager
 from functools import wraps
 from io import BytesIO
 from itertools import count
@@ -23,7 +23,12 @@ from uuid import uuid4
 import aiofiles
 
 try:
-    from pymongo.errors import ConnectionFailure, DuplicateKeyError, PyMongoError, ServerSelectionTimeoutError
+    from pymongo.errors import (
+        ConnectionFailure,
+        DuplicateKeyError,
+        PyMongoError,
+        ServerSelectionTimeoutError,
+    )
 except ImportError:
     # Fallbacks if pymongo not installed (e.g., test-only env): widen defensively
     class _PyMongoError(Exception):
@@ -39,9 +44,10 @@ except ImportError:
     ServerSelectionTimeoutError = _ServerSelectionTimeoutError
     PyMongoError = _PyMongoError
 
+from queue_identity import queue_identity
+
 from .common import UPLOAD_QUEUE
 from .errors import PathIOError
-from queue_identity import queue_identity
 
 try:
     from .tg import File  # requires pyrogram + ideally tgcrypto
