@@ -48,6 +48,9 @@
 - [x] Regras dominantes mapeadas: `BLE001` **126**, `B023` **37**, `I001` **25**, `S110` **23**, `RUF059` **16**, `UP045` **14**, `F401` **14**, `UP006` **14**, `UP041` **11**, `UP024` **11**, `TRY004` **10** e `PIE807` **9**.
 - [x] Arquivos com maior concentração: `main.py` **94**, `tools/supabase_sync.py` **65**, `tools/strm_downloader.py` **58**, `tools/feed_ftp.py` **43**, `ftp/server.py` **23**, `ftp/pathio.py` **18** e `control_plane.py` **13**.
 - [~] O baseline mistura qualidade, exceções amplas e regras de segurança; não corrigir em massa sem fatias TDD e revisão de comportamento. `BLE001` e `S110` exigem triagem semântica, não autofix cego.
+- [x] Corrigida uma ocorrência segura de `I001` em `upload_checkpoint.py` (remoção de linha em branco extra no bloco de imports), sem alteração comportamental.
+- [x] Regressão focada de `tests/test_upload_checkpoint.py`: **17 aprovados, 2 ignorados, 0 falhas**; regressão NebulaPython completa: **726 aprovados, 2 ignorados, 0 falhas** em **35,23 s**.
+- [~] Baseline pós-correção: **378 findings**; `upload_checkpoint.py` permanece com apenas dois `TRY004` sem autofix, porque trocar `ValueError` por `TypeError` altera o contrato de erro e exige decisão/TDD semântico.
 
 - [x] Restauração oficial do backup de 04/11 concluída; o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às 04:34:56 BRT e `Startup complete` às 04:35:44 BRT.
 - [x] Runtime `12.1.51` em `C:/Program Files/MulletaFlix/Server` com datadir oficial `C:/ProgramData/MulletaFlix/Server`; `/health` 200 `Healthy`; `/System/Info/Public` confirma `Version=12.1.51`, `TargetAbi=12.1.51` e wizard concluído.

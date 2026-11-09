@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 CURRENT_FORMAT_VERSION = 2
 _SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 
