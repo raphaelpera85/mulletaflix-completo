@@ -11,13 +11,20 @@ from pathlib import PurePath
 from types import SimpleNamespace
 
 import aiohttp
+
 try:
     asyncio.get_event_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 from pyrogram import raw
-from pyrogram.errors import AuthBytesInvalid, FileReferenceExpired, LimitInvalid, OffsetInvalid, RPCError
+from pyrogram.errors import (
+    AuthBytesInvalid,
+    FileReferenceExpired,
+    LimitInvalid,
+    OffsetInvalid,
+    RPCError,
+)
 from pyrogram.file_id import FileId
 from pyrogram.methods import Methods
 from pyrogram.methods.advanced.save_file import SaveFile

@@ -71,6 +71,14 @@
 - [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
 - [~] A integração FTP/Mongo real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
 
+## Correção Ruff I001 em `ftp/tg.py` — 2026-11-09 00:49 BRT
+
+- [x] Ruff reorganizou dois blocos de imports em `ftp/tg.py`, sem alteração comportamental.
+- [x] Regressão focal Telegram/upload/rename: **63 aprovados, 0 falhas**.
+- [x] Baseline Ruff global caiu de **330 para 328 findings**; `I001` caiu de 15 para **13**.
+- [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [~] Integração Telegram/FTP real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
+
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
 - [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".

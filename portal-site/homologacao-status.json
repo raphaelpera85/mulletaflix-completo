@@ -16028,6 +16028,23 @@
       "evidence": "Ruff corrigiu 3 ocorrências I001 em `ftp/pathio.py`; o focal de path/FTP/control-plane passou 79 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 333 para 330 findings e I001 caiu de 18 para 15.",
       "release": "Alteração limitada à ordenação de imports. FTP/Mongo real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-tg-2026-11-09-0049",
+      "title": "NebulaPython: imports do ftp/tg.py reordenados com segurança",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test and Ruff",
+      "location": "MulletaFlix-master/Tools/NebulaPython/ftp/tg.py",
+      "scope": "Corrigir somente dois blocos I001 de ordenação de imports no adaptador Telegram usado pelos uploads.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T00:45:00-03:00",
+      "updatedAt": "2026-11-09T00:49:12-03:00",
+      "evidence": "Ruff corrigiu 2 ocorrências I001 em `ftp/tg.py`; o focal Telegram/upload/rename passou 63 testes, e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. O baseline Ruff caiu de 330 para 328 findings e I001 caiu de 15 para 13.",
+      "release": "Alteração limitada à ordenação de imports. Telegram/FTP real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
