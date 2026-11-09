@@ -214,6 +214,14 @@
 - [x] Baseline Ruff global reduzido de **313 para 312 findings**.
 - [~] Restauração real de uploads, runtime instalado, produção e demais findings Ruff continuam sem aceite.
 
+## Correção Ruff F401 em `test_strm_process_item.py` — 2026-11-09 03:03 BRT
+
+- [x] Removido o import não utilizado de `Path`, sem alteração comportamental.
+- [x] Teste focal: **10 aprovados, 0 falhas**; `F401` no arquivo: **0 findings**.
+- [x] Suíte NebulaPython: **727 aprovados, 2 ignorados, 0 falhas**.
+- [x] Baseline Ruff global reduzido de **312 para 311 findings**.
+- [~] Processamento STRM real, runtime instalado, produção e demais findings Ruff continuam sem aceite.
+
 ## Backup Nebula → Supabase — diagnóstico e correção — 2026-11-08 21:42 BRT
 
 - [x] Reproduzida a causa no fluxo `POST /NebulaFtp/Supabase/Backup`: quando URL/chave não estão configuradas, `BackupMongoToSupabaseAsync` retornava falha em segundo plano sem registrar `SupabaseLastBackupStatus`, `SupabaseLastBackupAttemptTime` ou log operacional; a UI mantinha "Nenhum backup realizado ainda" após exibir apenas "Solicitação de backup enviada".
