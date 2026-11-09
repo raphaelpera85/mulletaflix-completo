@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from bson import ObjectId
 
 import pytest
+from bson import ObjectId
 
 main = importlib.import_module("main")
 

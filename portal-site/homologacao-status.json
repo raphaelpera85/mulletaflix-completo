@@ -16181,6 +16181,23 @@
       "evidence": "O import de `aiohttp` foi reorganizado. O teste focal passou 30 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 322 para 321 findings e I001 de 7 para 6.",
       "release": "Alteração limitada à organização de imports de teste. Telegram real, runtime, produção e demais findings Ruff permanecem sem aceite.",
       "links": []
+    },
+    {
+      "id": "nebulapython-ruff-i001-test-http-stream-routes-2026-11-09-0140",
+      "title": "NebulaPython: normalização do import das rotas HTTP de stream",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; uv isolated requirements-test",
+      "location": "MulletaFlix-master/Tools/NebulaPython/tests/test_http_stream_routes.py",
+      "scope": "Eliminar I001 somente no bloco de imports, sem mudança de comportamento.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T01:39:00-03:00",
+      "updatedAt": "2026-11-09T01:40:35-03:00",
+      "evidence": "O import de `ObjectId` foi reorganizado. O teste focal passou 19 casos e a suíte NebulaPython passou 727, ignorou 2 e falhou em 0. Ruff I001 no arquivo ficou em 0; o baseline global caiu de 321 para 320 findings e I001 de 6 para 5.",
+      "release": "Alteração limitada à organização de imports de teste. Playback HTTP real, runtime, produção e demais findings Ruff permanecem sem aceite.",
+      "links": []
     }
   ]
 }
