@@ -3,6 +3,19 @@ export function resolveNebulaEnabledForSave(silent, enabledControl, baseConfig) 
     return !silent && enabledControl ? enabledControl.checked : persistedEnabled;
 }
 
+export function getSupabaseStatusViewModel(status) {
+    var source = status || {};
+    var configured = source.IsConfigured === true || (
+        source.IsConfigured === undefined
+        && Boolean(source.SupabaseUrl && source.SupabaseKey)
+    );
+    return {
+        configured: configured,
+        connected: source.IsConnected === true,
+        lastBackupStatus: source.LastBackupStatus || source.SupabaseLastBackupStatus || 'Nenhum backup realizado ainda'
+    };
+}
+
 export default function (view, params) {
     'use strict';
 
@@ -488,6 +501,8 @@ export default function (view, params) {
                         var term = view.querySelector('#supabaseLogTerminal');
                         if (term) term.textContent = '[SUPABASE] Solicitação de backup enviada.\n' + (res.Message || '') + '\n';
                         pollStatusAndLogs();
+                        refreshSupabaseStatus();
+                        setTimeout(refreshSupabaseStatus, 1000);
                         if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
                             Dashboard.alert(res.Message || 'Backup iniciado. Acompanhe o status de manutenção.');
                         } else {
@@ -588,10 +603,11 @@ export default function (view, params) {
         var badge = view.querySelector('#lblSupabaseConnBadge');
         var lastBackupLbl = view.querySelector('#lblSupabaseLastBackup');
         var cardStep = view.querySelector('#sbCardStep');
+        var status = getSupabaseStatusViewModel(config);
 
-        if (config && config.SupabaseUrl && config.SupabaseKey) {
+        if (status.configured) {
             if (badge) {
-                badge.textContent = 'Configurado';
+                badge.textContent = status.connected ? '🟢 Conectado' : 'Configurado';
                 badge.style.color = '#89b4fa';
             }
         } else {
@@ -601,10 +617,14 @@ export default function (view, params) {
             }
         }
 
-        if (config && config.SupabaseLastBackupStatus) {
-            if (lastBackupLbl) lastBackupLbl.textContent = 'Status: ' + config.SupabaseLastBackupStatus;
-            if (cardStep) cardStep.textContent = config.SupabaseLastBackupStatus;
-        }
+        if (lastBackupLbl) lastBackupLbl.textContent = 'Status: ' + status.lastBackupStatus;
+        if (cardStep) cardStep.textContent = status.lastBackupStatus;
+    }
+
+    function refreshSupabaseStatus() {
+        apiRequest('GET', 'NebulaFtp/Supabase/Status').then(function (status) {
+            updateSupabaseStatusDisplay(status);
+        }).catch(function () {});
     }
 
     function loadConfiguration() {
@@ -647,6 +667,7 @@ export default function (view, params) {
             var chkSbAuto = view.querySelector('#chkSupabaseAutoBackup');
             if (chkSbAuto) chkSbAuto.checked = config.SupabaseAutoBackup !== false;
             updateSupabaseStatusDisplay(config);
+            refreshSupabaseStatus();
 
             renderList('listMonitorPaths', config.MonitorPaths || ['D:\\midias']);
             renderList('listStagePaths', config.StagePaths || ['E:\\NebulaStage', 'F:\\NebulaStage', 'I:\\NebulaStage']);

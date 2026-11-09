@@ -60,6 +60,9 @@
 - [x] Teste focal GREEN: **1/1**; `NebulaFtpController` focal: **36/36**; regressão Nebula filtrada: **739 aprovados, 38 ignorados, 0 falhas / 777**.
 - [x] Build Release da solução: **0 erros, 32 avisos**.
 - [~] O runtime instalado `12.1.51` em `C:/Program Files/MulletaFlix/Server` não foi alterado; a correção está no source e não deve ser considerada ativa em produção sem pacote controlado, rollback e autorização operacional.
+- [x] TDD da UI: `NebulaFtpConfigPage.test.mjs` passou **2/2**, cobrindo falha persistida e fallback de configuração legada.
+- [x] A página agora consulta `GET /NebulaFtp/Supabase/Status` e exibe `LastBackupStatus`/conectividade persistidos, evitando que o card permaneça em "Nenhum backup realizado ainda" após uma falha.
+- [~] O contrato visual foi validado por view model, mas ainda não houve aceite browser autenticado no runtime instalado nem backup real contra Supabase.
 
 - [x] Restauração oficial do backup de 04/11 concluída; o log registrou `Restored primary and media-domain databases`, `Restored MulletaFlix system` às 04:34:56 BRT e `Startup complete` às 04:35:44 BRT.
 - [x] Runtime `12.1.51` em `C:/Program Files/MulletaFlix/Server` com datadir oficial `C:/ProgramData/MulletaFlix/Server`; `/health` 200 `Healthy`; `/System/Info/Public` confirma `Version=12.1.51`, `TargetAbi=12.1.51` e wizard concluído.

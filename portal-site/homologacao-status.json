@@ -15892,6 +15892,23 @@
       "evidence": "RED reproduziu `SupabaseLastBackupFailed == null` após `BackupMongoToSupabaseAsync()` sem configuração. GREEN passou 1/1; o filtro `NebulaFtpController` passou 36/36; a regressão Nebula passou 739 testes, ignorou 38 e falhou em 0 de 777; o build Release passou com 0 erros e 32 avisos.",
       "release": "O ramo ausente agora escreve log `[SUPABASE-ERRO]`, persiste status/timestamp de falha e grava replay idempotente. O runtime instalado 12.1.51 não foi atualizado; a correção ainda não está homologada em produção.",
       "links": []
+    },
+    {
+      "id": "nebula-supabase-status-ui-2026-11-09-0015",
+      "title": "UI Nebula → Supabase passa a exibir status persistido do backup",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows checkout; Node test runner",
+      "location": "MulletaFlix-master/Jellyfin.Api/Web/NebulaFTP/configPage.js; tests/Jellyfin.Api.Tests/Frontend/NebulaFtpConfigPage.test.mjs",
+      "scope": "Consultar o status Supabase persistido e mostrar falha/conectividade no card após o acionamento do backup.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-09T00:08:00-03:00",
+      "updatedAt": "2026-11-09T00:15:00-03:00",
+      "evidence": "RED falhou em 2 testes porque o view model não existia. GREEN passou 2/2 com fallback de campos legados e status persistido. A UI agora consulta `GET /NebulaFtp/Supabase/Status` e atualiza o card com `LastBackupStatus` e conectividade sem expor a chave.",
+      "release": "Melhora a observabilidade no source, mas não prova browser autenticado, runtime instalado ou backup real contra Supabase. Nenhum pacote foi promovido.",
+      "links": []
     }
   ]
 }
