@@ -9,16 +9,15 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 import main as main_module
-
 from main import (
     classify_media_type,
     doc_download_timestamp,
     extract_media_year,
     get_contiguous_uploaded_parts,
     get_media_category_priority,
+    get_required_config,
     get_small_upload_worker_count,
     get_upload_worker_count,
-    get_required_config,
     has_telegram_parts,
     is_loopback_host,
     is_staging_path,
