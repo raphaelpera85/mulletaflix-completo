@@ -49,6 +49,7 @@ namespace MulletaFlix.Server.Integration.Tests
         private string? _originalPluginDatabaseName;
         private string? _originalMariaDbUser;
         private string? _originalMariaDbPassword;
+        private string? _originalDisableExternalBootstrap;
         private string? _privateTestRoot;
         private bool _mariaDbPortEnvironmentOverridden;
 
@@ -165,6 +166,8 @@ namespace MulletaFlix.Server.Integration.Tests
             // Skip ffmpeg check for testing
             Environment.SetEnvironmentVariable("MulletaFlix_FFMPEG__NOVALIDATION", "true");
             Environment.SetEnvironmentVariable("MulletaFlix_DISABLE_RUNTIME_METRICS", "true");
+            _originalDisableExternalBootstrap = Environment.GetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP");
+            Environment.SetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP", "true");
             var adminConnection = MariaDbTestEnvironment.GetAdminConnection();
             _originalMariaDbServer = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_SERVER");
             _originalMariaDbPort = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PORT");
@@ -201,6 +204,14 @@ namespace MulletaFlix.Server.Integration.Tests
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "config"));
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "cache"));
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "MulletaFlix-web"));
+            var pluginConfigurationPath = Path.Combine(webHostPathRoot, "plugins", "configurations");
+            Directory.CreateDirectory(pluginConfigurationPath);
+            File.WriteAllText(
+                Path.Combine(pluginConfigurationPath, "IntroSkipper.xml"),
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                + "<PluginConfiguration xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\n"
+                + "  <AutoDetectIntros>false</AutoDetectIntros>\n"
+                + "</PluginConfiguration>\n");
 
             // Pre-initialize the system configuration expected by the legacy
             // network migration. A fresh test host otherwise reaches
@@ -343,6 +354,8 @@ namespace MulletaFlix.Server.Integration.Tests
                 Environment.SetEnvironmentVariable("MULLETAFLIX_TEST_INTROSKIPPER_DATABASE", _originalPluginDatabaseName);
                 Environment.SetEnvironmentVariable("MULLETAFLIX_DB_USER", _originalMariaDbUser);
                 Environment.SetEnvironmentVariable("MULLETAFLIX_DB_PASSWORD", _originalMariaDbPassword);
+                Environment.SetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP", _originalDisableExternalBootstrap);
+                _originalDisableExternalBootstrap = null;
                 _mariaDbPortEnvironmentOverridden = false;
             }
             _disposableComponents.Clear();

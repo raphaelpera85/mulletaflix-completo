@@ -263,6 +263,7 @@ public sealed partial class AnalysisScheduler(
         }
 
         await _stopping.CancelAsync().ConfigureAwait(false);
+        Wake();
 
         // Dropped requests are cancelled before the wait on the worker, so a host deadline
         // that expires while a pass ignores cancellation still leaves no handle pending.

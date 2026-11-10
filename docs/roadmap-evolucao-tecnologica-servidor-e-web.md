@@ -1,3 +1,14 @@
+## Regressão integrada pós-correção de shutdown — 2026-11-10 13:35 BRT
+
+Correções locais para tornar o encerramento do host integrado determinístico e separar entradas inválidas de operações concorrentes foram implementadas e verificadas:
+
+- `AnalysisScheduler.StopAsync` acorda o worker ocioso depois do cancelamento; TDD focal `StopAsync_WakesIdleWorker`: **1/1**.
+- `JellyfinApplicationFactory` isola bootstrap externo e grava configuração scratch do IntroSkipper com `AutoDetectIntros=false`.
+- `LibraryStructureController` valida parâmetros antes de adquirir o gate; testes focais da API passaram **39/39**.
+- A bateria integrada serial das **26 classes** terminou com **162 aprovados, 0 falhas e 0 ignorados**; `LibraryStructureControllerTests` **6/6** e `MediaStructureControllerTests` **7/7**.
+- Build Release da solução: **0 erros, 31 avisos existentes**; portal: **379/379**.
+- Status continua **PARTIAL**: a execução única global ainda precisa ser repetida; não houve aceite do runtime instalado, Supabase real, Linux/POSIX, CI hospedada, Android instrumentado, catálogo persistente ou playback.
+
 ## Mapeamento completo das partes não homologadas, runtime isolado (`18096`/`33188`) e suítes Playwright/a11y — 2026-11-04 00:30 BRT
 
 Mapeadas todas as partes ainda não homologadas do sistema (`server` 2/7 áreas formais = 28,6%, `android` 10/21 áreas = 47,6% + 47 itens abertos em `TODO-APP.md`, `web` em monitoramento `W1..W4`, e os 79 itens abertos do roadmap: 7 `in_progress` e 72 `pending`) e executadas as homologações locais pendentes de runtime isolado e Playwright/a11y sem tocar a produção (`127.0.0.1:8096`), o MariaDB operacional (`127.0.0.1:3306`) ou o MongoDB operacional (`127.0.0.1:27017`):

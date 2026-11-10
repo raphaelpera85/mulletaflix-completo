@@ -60,7 +60,7 @@ public sealed class LibraryBackgroundOperationGateTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
 
-        var result = controller.AddMediaPath(null!, refreshLibrary: true);
+        var result = controller.AddMediaPath(new MediaPathDto { Name = "Movies", Path = "D:\\Movies" }, refreshLibrary: true);
 
         Assert.Equal(StatusCodes.Status429TooManyRequests, Assert.IsType<StatusCodeResult>(result).StatusCode);
         Assert.Equal("1", controller.Response.Headers.RetryAfter.ToString());

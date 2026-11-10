@@ -1,3 +1,14 @@
+## TDD e regressão integrada pós-correção do shutdown — 2026-11-10 13:22 BRT
+
+- [x] RED reproduzido na suíte integrada: execução ampla anulada após **81 aprovados** por falha do `testhost`; a análise dos dumps e do ciclo de vida apontou bootstrap remoto do GetAvatar e espera do worker ocioso do `IntroSkipper` como riscos de shutdown.
+- [x] Isolamento do harness: `JellyfinApplicationFactory` define `MFLX_DISABLE_EXTERNAL_BOOTSTRAP=true` e grava `IntroSkipper.xml` com `AutoDetectIntros=false`, evitando bootstrap externo nos cenários cobertos.
+- [x] GREEN de shutdown: `AnalysisScheduler.StopAsync` acorda o canal após cancelar o token, evitando espera indefinida do worker ocioso.
+- [x] TDD focal `AnalysisSchedulerTests.StopAsync_WakesIdleWorker`: **1/1 aprovado**.
+- [x] A cobertura da classe `LibraryStructureControllerTests` ficou determinística ao remover `refreshLibrary=true` do DELETE de limpeza; os testes de criação/atualização continuam exercitando refresh assíncrono.
+- [x] Regressão serial pós-correção: **26 classes, 162 aprovados, 0 falhas, 0 ignorados**; `LibraryStructureControllerTests` passou **6/6** e `MediaStructureControllerTests` **7/7**.
+- [x] Build do projeto integrado: **0 erros, 31 avisos**; build focal de `Jellyfin.Api.Tests` concluiu e o TDD passou **1/1**.
+- [~] A execução global da suíte integrada continua pendente: a bateria serial por classes passou, mas o comando único anterior ainda foi anulado por falha do `testhost`; runtime instalado, Supabase real, Linux/POSIX, CI hospedada, Android instrumentado, catálogo persistente e playback permanecem sem aceite.
+
 ## Correção da ativação DI do backup e aceite HTTP de Items — 2026-11-10
 
 - [x] RED reproduzido no wiring de `ApplicationHost`: `AddSingleton<IBackupService, BackupService>()` não conseguia escolher entre os construtores públicos de `BackupService`.

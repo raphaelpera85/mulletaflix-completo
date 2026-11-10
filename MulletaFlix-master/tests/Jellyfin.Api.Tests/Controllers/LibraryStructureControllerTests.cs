@@ -156,6 +156,34 @@ public class LibraryStructureControllerTests
     }
 
     [Fact]
+    public void AddMediaPath_InvalidName_ReturnsBadRequestWhenBackgroundOperationIsActive()
+    {
+        var lease = LibraryBackgroundOperationGate.TryAcquire();
+        Assert.NotNull(lease);
+        using (lease)
+        {
+            var result = _subject.AddMediaPath(new MediaPathDto { Name = " ", Path = "C:\\media" });
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Equal("Library name is required.", badRequest.Value);
+        }
+    }
+
+    [Fact]
+    public void RemoveMediaPath_InvalidName_ReturnsBadRequestWhenBackgroundOperationIsActive()
+    {
+        var lease = LibraryBackgroundOperationGate.TryAcquire();
+        Assert.NotNull(lease);
+        using (lease)
+        {
+            var result = _subject.RemoveMediaPath(" ", "C:\\media");
+
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Equal("Library name is required.", badRequest.Value);
+        }
+    }
+
+    [Fact]
     public void UpdateLibraryOptions_NullPayload_ReturnsBadRequest()
     {
         var result = _subject.UpdateLibraryOptions(null!);

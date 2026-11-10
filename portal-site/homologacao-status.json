@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T00:59:16-03:00",
+  "generatedAt": "2026-11-10T13:35:08-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "server-integration-shutdown-regression-2026-11-10-1322",
+      "title": "Suíte integrada serial GREEN após correção de shutdown e isolamento externo",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Host Windows local; MariaDB descartável em 127.0.0.1:33190; datadir efêmero removido ao final",
+      "location": "MulletaFlix.Plugin.IntroSkipper/Services/AnalysisScheduler.cs, tests/Jellyfin.Api.Tests/Controllers/AnalysisSchedulerTests.cs, tests/Jellyfin.Server.Integration.Tests/JellyfinApplicationFactory.cs, tests/Jellyfin.Server.Integration.Tests/Controllers/LibraryStructureControllerTests.cs",
+      "scope": "Reproduzir e eliminar hangs de shutdown da integração sem acessar endpoints externos ou iniciar refresh de limpeza fora do contrato",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T10:55:00-03:00",
+      "updatedAt": "2026-11-10T13:35:08-03:00",
+      "evidence": "A execução ampla anterior foi anulada após 81 aprovados; a análise dos dumps e do ciclo de vida apontou riscos de bootstrap remoto do GetAvatar e espera do worker do IntroSkipper durante shutdown. O harness passou a desabilitar bootstrap externo e gravar AutoDetectIntros=false. AnalysisScheduler.StopAsync agora acorda o canal após cancelar o token. O TDD focal passou 1/1; a regressão serial pós-correção passou 26 classes, 162/162 aprovados, 0 falhas e 0 ignorados. LibraryStructureControllerTests passou 6/6 e MediaStructureControllerTests 7/7. Nenhuma credencial foi registrada, o runtime instalado não foi alterado e a instância MariaDB 33190 foi encerrada/removida.",
+      "release": "GREEN serial por classes; a execução única global da suíte integrada ainda precisa de repetição após o build final. Homologação formal continua PARTIAL por Supabase real, runtime, Linux/POSIX, CI hospedada, Android instrumentado, catálogo persistente e playback.",
+      "links": []
+    },
     {
       "id": "server-supabase-count-head-get-fallback-2026-11-10-0024",
       "title": "Backup Supabase: confirmação de persistência resiliente a HEAD sem Content-Range",

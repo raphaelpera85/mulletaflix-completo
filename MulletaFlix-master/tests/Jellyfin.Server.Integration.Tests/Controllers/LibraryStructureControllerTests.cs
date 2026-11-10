@@ -172,7 +172,7 @@ public sealed class LibraryStructureControllerTests : IClassFixture<MulletaFlixA
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
 
-        using var response = await client.DeleteAsync("Library/VirtualFolders?name=test&refreshLibrary=true", TestContext.Current.CancellationToken);
+        using var response = await client.DeleteAsync("Library/VirtualFolders?name=test", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
 }

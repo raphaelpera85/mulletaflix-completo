@@ -305,6 +305,21 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         [FromBody, Required] MediaPathDto mediaPathDto,
         [FromQuery] bool refreshLibrary = false)
     {
+        if (mediaPathDto is null)
+        {
+            return BadRequest("Media path data is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(mediaPathDto.Name))
+        {
+            return BadRequest("Library name is required.");
+        }
+
+        if (mediaPathDto.PathInfo is null && string.IsNullOrWhiteSpace(mediaPathDto.Path))
+        {
+            return BadRequest("Path or PathInfo is required.");
+        }
+
         var operationLease = LibraryBackgroundOperationGate.TryAcquire();
         if (operationLease is null)
         {
@@ -314,24 +329,6 @@ public class LibraryStructureController : BaseMulletaFlixApiController
             }
 
             return StatusCode(StatusCodes.Status429TooManyRequests);
-        }
-
-        if (mediaPathDto is null)
-        {
-            operationLease.Dispose();
-            return BadRequest("Media path data is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(mediaPathDto.Name))
-        {
-            operationLease.Dispose();
-            return BadRequest("Library name is required.");
-        }
-
-        if (mediaPathDto.PathInfo is null && string.IsNullOrWhiteSpace(mediaPathDto.Path))
-        {
-            operationLease.Dispose();
-            return BadRequest("Path or PathInfo is required.");
         }
 
         try
@@ -414,6 +411,16 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         [FromQuery] string path,
         [FromQuery] bool refreshLibrary = false)
     {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return BadRequest("Library name is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return BadRequest("Media path is required.");
+        }
+
         var operationLease = LibraryBackgroundOperationGate.TryAcquire();
         if (operationLease is null)
         {
@@ -422,23 +429,6 @@ public class LibraryStructureController : BaseMulletaFlixApiController
                 Response.Headers.RetryAfter = "1";
             }
 
-            return StatusCode(StatusCodes.Status429TooManyRequests);
-        }
-
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            operationLease.Dispose();
-            return BadRequest("Library name is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            operationLease.Dispose();
-            return BadRequest("Media path is required.");
-        }
-        if (operationLease is null)
-        {
-            Response.Headers.RetryAfter = "1";
             return StatusCode(StatusCodes.Status429TooManyRequests);
         }
 
