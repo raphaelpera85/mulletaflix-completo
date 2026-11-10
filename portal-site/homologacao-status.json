@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T20:07:00-03:00",
+  "generatedAt": "2026-11-10T21:00:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -71,7 +71,8 @@
       "name": "Frontend Web",
       "kind": "web",
       "status": "monitoring",
-      "source": "GitHub Actions e roadmap"
+      "source": "GitHub Actions e roadmap",
+      "evidence": "Em 2026-11-10, Playwright administrativo passou 7/7 (10 - Admin 4/4; 12 - Admin surfaces 3/3), usando bundle atual e servidor Debug descartável com a correção de idioma US -> en-US. Vitest passou 81 arquivos/433 testes, TypeScript e verify:build passaram; runtime instalado, produção, catálogo persistente e playback real continuam sem aceite."
     }
   ],
   "androidHomologation": {

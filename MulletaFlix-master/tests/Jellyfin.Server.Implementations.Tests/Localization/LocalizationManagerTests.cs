@@ -32,6 +32,19 @@ namespace MulletaFlix.Server.Implementations.Tests.Localization
             Assert.Equal("DE", germany.TwoLetterISORegionName);
         }
 
+        [Theory]
+        [InlineData("US", "en-US")]
+        [InlineData("BR", "pt-BR")]
+        public void GetDefaultMetadataLanguage_ReturnsStableCultureForCountry(string countryCode, string expectedLanguage)
+        {
+            var localizationManager = Setup(new ServerConfiguration
+            {
+                UICulture = "de-DE"
+            });
+
+            Assert.Equal(expectedLanguage, localizationManager.GetDefaultMetadataLanguage(countryCode));
+        }
+
         [Fact]
         public async Task GetCultures_All_Success()
         {

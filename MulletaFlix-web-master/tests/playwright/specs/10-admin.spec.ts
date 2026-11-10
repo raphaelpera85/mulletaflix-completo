@@ -85,8 +85,8 @@ test.describe.serial('10 - Admin', () => {
         await expect(page.locator('button[type="submit"]')).toBeVisible();
 
         await navigateStage(page, '/dashboard/logs');
-        await expect(page.locator('input[name="SlowResponseTime"]')).toBeVisible();
-        await expect(page.locator('input[name="EnableWarningMessage"]')).toBeVisible();
+        await expect(page.locator('#logPage input[placeholder="SearchByUsername"]')).toBeVisible();
+        await expect(page.locator('#logPage [role="combobox"]')).toHaveCount(4);
 
         await navigateStage(page, '/dashboard/plugins');
         await navigateStage(page, '/dashboard/plugins/repositories');

@@ -1,4 +1,16 @@
+## E2E administrativo com bundle e servidor corrigidos — 2026-11-10
+
+- [x] Publicação descartável Debug do servidor em `C:/Users/Raphael/.mulletaflix-tmp/mflx-e2e-server-20261110`, incluindo MariaDB embarcado, permitiu exercitar a correção `US -> en-US` sem tocar o runtime instalado.
+- [x] `10 - Admin`: **4/4 aprovados**; wizard, criação/edição de usuário, shells administrativos e `/dashboard/logs` passaram com o bundle atual.
+- [x] `12 - Admin surfaces`: **3/3 aprovados**; dashboard, configurações, usuários, bibliotecas, playback, activity, logs, devices, plugins, backups, networking, tasks, Live TV e recordings passaram.
+- [x] TDD backend `LocalizationManagerTests`: **69/69 aprovados**; `GetDefaultMetadataLanguage` estabiliza `US -> en-US` e preserva `BR -> pt-BR`.
+- [x] Frontend: **81 arquivos / 433 testes**, `tsc --noEmit` e `verify:build` aprovados; payload inicial **299,3 KB gzip / 420 KB**.
+- [x] Build Release da solução: **0 erros, 642 avisos**; avisos são baseline/diagnósticos existentes e não foram convertidos em aprovação funcional.
+- [~] Evidência é stage descartável com mídia externa desativada; runtime instalado, catálogo persistente, playback real, Supabase, Linux/POSIX, CI hospedada, Android instrumentado e produção continuam sem aceite.
+- Sessão Obsidian: `2026-11-10 - E2E administrativo com servidor corrigido.md`.
+
 ## Playwright focal requests/Nebula — 2026-11-10 14:44 BRT
+
 
 - [x] `npm run test:playwright:requests`: **8/8 aprovados** em 2,1 min; cobre grids/retry, autocomplete por teclado, Nebula controller em 390/1280 px e backup coverage.
 - [~] A configuração usa fixture Vite dedicada em `127.0.0.1:8097`; o rótulo “authenticated” é estado simulado da fixture, não uma sessão autenticada contra o runtime instalado.

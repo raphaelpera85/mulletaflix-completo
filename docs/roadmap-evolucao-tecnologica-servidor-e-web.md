@@ -1,4 +1,13 @@
+## E2E administrativo com bundle e servidor corrigidos — 2026-11-10
+
+- `10 - Admin`: **4/4 aprovados** com servidor Debug publicado em diretório descartável e `MFLX_E2E_WEBDIR=dist`; o wizard, usuários, shells e `/dashboard/logs` passaram.
+- `12 - Admin surfaces`: **3/3 aprovados**, incluindo logs, plugins, backups, networking, tarefas, Live TV e gravações.
+- `LocalizationManagerTests`: **69/69 aprovados**; `US -> en-US` e `BR -> pt-BR` estabilizados por TDD.
+- Frontend: **81 arquivos / 433 testes**, TypeScript e artefatos aprovados; payload inicial **299,3 KB gzip** contra orçamento de **420 KB**.
+- Build Release da solução: **0 erros, 642 avisos**. O aceite formal global continua **PARTIAL**: produção, runtime instalado, Supabase real, catálogo persistente/playback, Linux/POSIX, CI hospedada e Android instrumentado ainda não foram homologados.
+
 ## Playwright focal requests/Nebula — 2026-11-10 14:44 BRT
+
 
 - A configuração dedicada `playwright.requests.config.ts` passou **8/8** em 2,1 min: requests/retry, autocomplete por teclado, Nebula controller e backup coverage em viewports 390/1280 px.
 - Os testes exercitam fixture Vite dedicada em `127.0.0.1:8097`; o estado “authenticated” é da fixture e não substitui sessão real no runtime.

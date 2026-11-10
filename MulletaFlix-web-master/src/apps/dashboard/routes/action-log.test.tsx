@@ -9,7 +9,8 @@ const { useQueryMock, useApiMock, useNavigateMock } = vi.hoisted(() => ({
     useNavigateMock: vi.fn()
 }));
 
-vi.mock('@tanstack/react-query', () => ({
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@tanstack/react-query')>(),
     keepPreviousData: (previousData: unknown) => previousData,
     useQuery: useQueryMock
 }));
@@ -96,6 +97,12 @@ describe('ActionLogPage query states', () => {
         const markup = renderPage();
 
         expect(markup).toContain('id="logPage"');
+    });
+
+    it('emits the page lifecycle contract used by appRouter navigation', () => {
+        const markup = renderPage();
+
+        expect(markup).toContain('data-role="page"');
     });
 
     it('does not offer retry when the API is unavailable', () => {

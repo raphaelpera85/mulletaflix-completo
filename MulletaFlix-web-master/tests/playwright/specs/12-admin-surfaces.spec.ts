@@ -70,7 +70,7 @@ test.describe.serial('12 - Admin surfaces', () => {
         }
 
         await navigateStage(page, '/dashboard/logs');
-        await expect(page.locator('#logPage a[href*="/dashboard/logs/"]').first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.locator('#logPage input[placeholder="SearchByUsername"]')).toBeVisible({ timeout: 30_000 });
 
         await navigateStage(page, '/dashboard/plugins');
         await expect(page.locator('#pluginsPage a[href*="/dashboard/plugins/"]').first()).toBeVisible({ timeout: 30_000 }).catch(() => undefined);

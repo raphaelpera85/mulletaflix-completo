@@ -92,6 +92,10 @@ namespace Emby.Server.Implementations.Localization
         {
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             map["BR"] = "pt-BR";
+            // RegionInfo ordering is not a language preference: for the US it can select
+            // Cherokee (chr-US) before the default English culture, which the wizard does
+            // not expose as a selectable metadata language.
+            map["US"] = "en-US";
 
             foreach (var culture in CultureInfo.GetCultures(CultureTypes.SpecificCultures).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
             {

@@ -6,6 +6,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useApi } from 'hooks/useApi';
 
 import Widget from 'apps/dashboard/components/widgets/Widget';
+import Page from 'components/Page';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Table from '@mui/material/Table';
@@ -313,7 +314,7 @@ const ActionLogPage = () => {
     );
 
     return (
-        <Box id='logPage'>
+        <Page id='logPage' title={globalize.translate('ActionLog')}>
             <Widget title={globalize.translate('ActionLog')} href='/dashboard/logs'>
             <Toolbar sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
                 <TextField
@@ -589,7 +590,7 @@ const ActionLogPage = () => {
                 )}
             </Menu>
             </Widget>
-        </Box>
+        </Page>
     );
 };
 
