@@ -7,6 +7,7 @@
 - [x] Integração HTTP autenticada `ItemsControllerTests` com MariaDB descartável em `127.0.0.1:33188`: **6 aprovados, 0 ignorados, 0 falhas**; o banco e o datadir scratch foram removidos ao final.
 - [x] `dotnet test` de `Jellyfin.Server.Tests`: **95 aprovados, 3 ignorados, 0 falhas**.
 - [x] Build Release serial da solução: **0 erros, 32 avisos**.
+- [x] Regressão integral `Jellyfin.Server.Implementations.Tests`: **1.760 aprovados, 95 ignorados, 0 falhas** em 1.855 casos.
 - [~] O upload real contra Supabase continua sem aceite por ausência de configuração/credencial autorizada; runtime instalado e produção não foram alterados.
 
 ## Correção do backup Supabase: confirmação resiliente de contagem — 2026-11-10 00:24 BRT

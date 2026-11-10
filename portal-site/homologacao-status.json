@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T00:54:29-03:00",
+  "generatedAt": "2026-11-10T00:59:16-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -16449,8 +16449,8 @@
       "status": "partial",
       "progressPercent": null,
       "startedAt": "2026-11-10T00:35:00-03:00",
-      "updatedAt": "2026-11-10T00:54:29-03:00",
-      "evidence": "RED reproduzido no wiring de ApplicationHost. GREEN com factory explícita preservando context factories opcionais e participantes de backup. TDD focal 1/1; BackupServiceTests + NebulaSupabaseSyncTests 157 aprovados, 5 ignorados, 0 falhas; Jellyfin.Server.Tests 95 aprovados, 3 ignorados, 0 falhas; ItemsControllerTests autenticados com MariaDB descartável 6/6 aprovados. Build Release da solução 0 erros e 32 avisos. Instância MariaDB e datadir scratch foram encerrados/removidos.",
+      "updatedAt": "2026-11-10T00:59:16-03:00",
+      "evidence": "RED reproduzido no wiring de ApplicationHost. GREEN com factory explícita preservando context factories opcionais e participantes de backup. TDD focal 1/1; BackupServiceTests + NebulaSupabaseSyncTests 157 aprovados, 5 ignorados, 0 falhas; Jellyfin.Server.Tests 95 aprovados, 3 ignorados, 0 falhas; ItemsControllerTests autenticados com MariaDB descartável 6/6 aprovados; regressão integral Jellyfin.Server.Implementations.Tests 1.760 aprovados, 95 ignorados, 0 falhas em 1.855 casos. Build Release da solução 0 erros e 32 avisos. Instância MariaDB e datadir scratch foram encerrados/removidos.",
       "release": "Correção não foi instalada no runtime nem executou upload autenticado contra Supabase real; aceite externo, restore, produção e demais gates permanecem pendentes.",
       "links": ["docs/server-test-gap-map-2026-11-09.md"]
     },
