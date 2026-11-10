@@ -1,3 +1,9 @@
+## Playwright focal web — 2026-11-10 14:40 BRT
+
+- A configuração dedicada de acessibilidade passou **3/3** (backup coverage em 390/1280 px e WCAG 2.2 AA).
+- A configuração dedicada de scroll buttons passou **2/2**.
+- Os testes usaram servidores Vite descartáveis nas portas 8098 e 8097; continuam sem aceite autenticado do runtime, catálogo persistente e playback real.
+
 ## Lint frontend: fonte sem mudanças; lint global não concluiu — 2026-11-10 14:32 BRT
 
 - `npm run lint:changed` passou sem arquivos-fonte frontend alterados.

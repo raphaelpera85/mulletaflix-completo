@@ -1,3 +1,9 @@
+## Playwright focal web — 2026-11-10 14:40 BRT
+
+- [x] `npm run test:playwright:a11y`: **3/3 aprovados** em 1,8 min; inclui WCAG 2.2 AA em estados e viewports.
+- [x] `npm run test:playwright:scrollbuttons`: **2/2 aprovados** em 1,3 min.
+- [~] Evidência é de fixtures Vite dedicadas em portas 8098/8097; não fecha o E2E autenticado contra runtime instalado nem catálogo/playback real.
+
 ## Lint frontend: fonte sem mudanças; lint global não concluiu — 2026-11-10 14:32 BRT
 
 - [x] `npm run lint:changed`: passou e reportou **nenhum arquivo-fonte frontend alterado**.

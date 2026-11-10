@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T14:32:00-03:00",
+  "generatedAt": "2026-11-10T14:40:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "web-playwright-focused-2026-11-10-1440",
+      "title": "Playwright focal web: acessibilidade e scroll buttons",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows local; MulletaFlix-web-master com Chromium headless",
+      "location": "MulletaFlix-web-master",
+      "scope": "Executar configurações dedicadas de Playwright para acessibilidade/backup e controles de rolagem, sem apontar para runtime compartilhado",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T14:35:00-03:00",
+      "updatedAt": "2026-11-10T14:40:00-03:00",
+      "evidence": "test:playwright:a11y passou 3/3 em 1,8 min, incluindo WCAG 2.2 AA em estados/viewports. test:playwright:scrollbuttons passou 2/2 em 1,3 min. Os configs dedicados iniciaram Vite em 127.0.0.1:8098 e 127.0.0.1:8097 e não deixaram processos Node ativos.",
+      "release": "GREEN focal para as fixtures dedicadas. Homologação permanece PARTIAL: não valida runtime instalado autenticado, catálogo persistente ou playback real.",
+      "links": []
+    },
     {
       "id": "web-eslint-global-timeout-2026-11-10-1432",
       "title": "Lint frontend focal e timeout do lint global",
