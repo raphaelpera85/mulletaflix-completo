@@ -22,11 +22,11 @@ Uma rodada anterior desta auditoria citou "servidor em produção na versão 12.
 | **DADOS-1** — conflito de tracking do EF Core no refresh de episódios | `ItemPersistenceService.cs:656` usa `context.Entry(current).CurrentValues.SetValues(entity)` com comentário explícito citando a exceção original ("cannot be tracked because another instance..."). | ✅ **Corrigido e presente em produção.** |
 | **E-4 / PeopleRepository** — full scan de 52 mil linhas a cada atualização de metadado | `PeopleRepository.cs:130` usa `Enumerable.Contains(candidateNames, e.Name)` com comentário explicando por que a forma anterior (`candidateNames.Contains`) quebrava a tradução do EF. | ✅ **Corrigido e presente em produção.** |
 | **DADOS-2** — séries homônimas fundidas (`A Agência` 2020/2024) por perda do ano | `SeriesResolver.cs` (Emby.Server.Implementations) preenche `ProductionYear = seriesInfo.Year` nos três pontos de criação de série. | ✅ **Causa corrigida no código e em produção.** ⚠️ Os dois registros já corrompidos no banco desta instalação **continuam precisando de correção manual** (isso não é algo que git ou código resolvem). |
-| **HTTP-1** — todo segmento HLS reconstrói o `StreamState` inteiro | Nenhum cache (`MemoryCache`, `ConcurrentDictionary` por `PlaySessionId`) encontrado em `DynamicHlsController.cs` nem nos arredores de `GetDynamicSegment`. | ❌ **Ainda aberto em produção.** Maior achado de performance P0 sem correção. |
-| **FRONT-1 / F-3** — boot do cliente web bloqueado por import estático de rotas | `RootAppRouter.tsx` continua importando `DASHBOARD_APP_ROUTES`, `EXPERIMENTAL_APP_ROUTES`, `STABLE_APP_ROUTES`, `WIZARD_APP_ROUTES` de forma estática (linhas 10-13), sem `lazy()`. | ❌ **Ainda aberto em produção.** |
+| **HTTP-1** — todo segmento HLS reconstrói o `StreamState` inteiro | `DynamicHlsController.cs` usa `StreamStateCache`, com chave por sessão/media source e parâmetros de encoding; `StreamStateCacheTests` passou 18/18 em 2026-11-10. | ✅ **Corrigido no código/main.** A validação do runtime instalado continua separada e não deve ser inferida do teste focal. |
+| **FRONT-1 / F-3** — boot do cliente web bloqueado por import estático de rotas | `RootAppRouter.tsx` usa `routeLoaders` dinâmicos com `patchRoutesOnNavigation`; os slices administrativos atuais passaram 7/7 no stage descartável. | ✅ **Corrigido no código/main.** A validação do runtime instalado continua separada. |
 | **Android — assinatura de release cai para chave de debug** | `MulletaFlix-android/app/build.gradle.kts:35` ainda tem `initWith(getByName("debug"))` como fallback quando as variáveis de ambiente de assinatura não estão definidas. | ❌ **Ainda aberto.** Maior risco de segurança do app Android, sem mudança. |
 
-Esta tabela substitui a seção de riscos operacionais da rodada anterior no que diz respeito ao estado do servidor: **não é mais verdade que a produção esteja desatualizada em relação às correções críticas de dados** (DADOS-1, DADOS-2, E-4) — essas já estão na 12.0.92. O que resta é o backlog de performance/segurança que nunca dependeu de "aplicar update", e sim de trabalho ainda não feito.
+Esta tabela substitui a seção de riscos operacionais da rodada anterior no que diz respeito ao estado do servidor: **não é mais verdade que a produção esteja desatualizada em relação às correções críticas de dados** (DADOS-1, DADOS-2, E-4). HTTP-1 e FRONT-1/F-3 também foram corrigidos no código/main e validados por testes focais/stage descartável; o que ainda não pode ser afirmado é que o runtime instalado contenha todos esses commits sem promoção controlada.
 
 ---
 
@@ -180,7 +180,7 @@ Confirmado no git: desde 22/09, a `main` recebeu commits com "Prepare Android 1.
 
 1. Corrigir manualmente as duas séries "A Agência" já corrompidas no banco.
 2. Decidir o destino dos 10 commits pendentes em `main` (revisar, testar, e incluir ou não no próximo release).
-3. Priorizar **HTTP-1** (cache de `StreamState` por sessão) e **FRONT-1/F-3** (rotas lazy no cliente web) na próxima rodada de performance — são os dois P0 de maior impacto ainda sem correção, ambos confirmados abertos no código atual em produção.
+3. Fechar a evidência de promoção controlada do código/main para o runtime instalado antes de declarar HTTP-1 e FRONT-1/F-3 corrigidos em produção; manter a distinção entre correção no código, stage descartável e runtime instalado.
 4. Decidir o destino da chave de assinatura Android (aceitar o risco formalmente ou migrar para assinatura real antes da próxima release pública).
 5. Reavaliar a arquitetura Nebula: confirmar se a pasta `MulletaFlix-master/Nebula/` vazia (dentro do .NET) é resíduo a remover.
 6. Planejar a Onda 3 de banco de dados (índices PK/Type) como projeto isolado, com janela de manutenção e rollback testado.

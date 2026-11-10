@@ -16,6 +16,13 @@
 - [~] Não há aceite de runtime instalado, AdSense real, monetização, Supabase ou produção. O script Google foi apenas stub descartável quando exercitado.
 - Sessão Obsidian: `2026-11-10 - TDD AdSense após intro e avanço para mídia principal.md`.
 
+## Reconciliação de achados históricos HTTP-1 / FRONT-1 — 2026-11-10
+
+- [x] **HTTP-1** não está aberto no código atual: `StreamStateCache` está integrado ao HLS dinâmico e o teste focal passou **18/18**.
+- [x] **FRONT-1/F-3** não está aberto no código atual: `RootAppRouter` usa carregadores dinâmicos e `patchRoutesOnNavigation`; os slices administrativos passaram **7/7** no stage descartável.
+- [~] A validação do runtime instalado continua pendente; não confundir correção em `main` ou stage com promoção em produção.
+- [x] Corrigida a tabela contraditória em `docs/AUDITORIA-COMPLETA-2026-09.md`, preservando a distinção entre código, stage e runtime.
+
 ## E2E administrativo com bundle e servidor corrigidos — 2026-11-10
 
 

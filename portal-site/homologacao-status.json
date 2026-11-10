@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T20:07:29-03:00",
+  "generatedAt": "2026-11-10T20:33:29-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -33,7 +33,7 @@
         "skipped": 101,
         "failed": 0,
         "percent": 98.4,
-        "label": "Auditoria técnica reconciliada em Windows/.NET 10 Release no checkout local: 6.028 aprovados, 101 ignorados, 0 falhas/6.129 casos auditados. Server.Implementations teve 1.757 aprovados e 95 ignorados; API teve 1.242 aprovados e 3 ignorados; Naming teve 681/681; Providers teve 982/982. O filtro excluiu casos Integration e dois projetos não tiveram casos selecionados. Homologação formal permanece 2/7 (28,6%), sem crédito."
+        "label": "Auditoria técnica reconciliada em Windows/.NET 10 Release no checkout local: 6.028 aprovados, 101 ignorados, 0 falhas/6.129 casos auditados. Server.Implementations teve 1.757 aprovados e 95 ignorados; API teve 1.242 aprovados e 3 ignorados; Naming teve 681/681; Providers teve 982/982. O filtro excluiu casos Integration e dois projetos não tiveram casos selecionados. HTTP-1 foi revalidado no código atual com StreamStateCacheTests 18/18; FRONT-1/F-3 foi revalidado com RootAppRouter dinâmico e slices administrativos 7/7 em stage descartável. Homologação formal permanece 2/7 (28,6%), sem crédito de runtime instalado."
       }
     },
     {
