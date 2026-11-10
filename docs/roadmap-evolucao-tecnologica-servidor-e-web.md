@@ -1,3 +1,8 @@
+## Playwright focal requests/Nebula — 2026-11-10 14:44 BRT
+
+- A configuração dedicada `playwright.requests.config.ts` passou **8/8** em 2,1 min: requests/retry, autocomplete por teclado, Nebula controller e backup coverage em viewports 390/1280 px.
+- Os testes exercitam fixture Vite dedicada em `127.0.0.1:8097`; o estado “authenticated” é da fixture e não substitui sessão real no runtime.
+
 ## Playwright focal web — 2026-11-10 14:40 BRT
 
 - A configuração dedicada de acessibilidade passou **3/3** (backup coverage em 390/1280 px e WCAG 2.2 AA).

@@ -1,3 +1,8 @@
+## Playwright focal requests/Nebula — 2026-11-10 14:44 BRT
+
+- [x] `npm run test:playwright:requests`: **8/8 aprovados** em 2,1 min; cobre grids/retry, autocomplete por teclado, Nebula controller em 390/1280 px e backup coverage.
+- [~] A configuração usa fixture Vite dedicada em `127.0.0.1:8097`; o rótulo “authenticated” é estado simulado da fixture, não uma sessão autenticada contra o runtime instalado.
+
 ## Playwright focal web — 2026-11-10 14:40 BRT
 
 - [x] `npm run test:playwright:a11y`: **3/3 aprovados** em 1,8 min; inclui WCAG 2.2 AA em estados e viewports.

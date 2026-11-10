@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T14:40:00-03:00",
+  "generatedAt": "2026-11-10T14:44:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "web-playwright-requests-focused-2026-11-10-1444",
+      "title": "Playwright focal de requests, autocomplete, Nebula e backup",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows local; MulletaFlix-web-master com Chromium headless",
+      "location": "MulletaFlix-web-master",
+      "scope": "Executar a configuração dedicada de requests em fixture Vite, cobrindo estados simulados e viewports móveis/desktop",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T14:41:00-03:00",
+      "updatedAt": "2026-11-10T14:44:00-03:00",
+      "evidence": "npm run test:playwright:requests passou 8/8 em 2,1 min: grids/retry, autocomplete por teclado, Nebula controller e backup coverage em 390/1280 px. O config usa Vite em 127.0.0.1:8097 e não deixou Node ativo.",
+      "release": "GREEN focal da fixture. O estado authenticated é simulado; não fecha login real, catálogo, playback ou runtime instalado.",
+      "links": []
+    },
     {
       "id": "web-playwright-focused-2026-11-10-1440",
       "title": "Playwright focal web: acessibilidade e scroll buttons",
