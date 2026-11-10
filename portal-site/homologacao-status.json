@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T21:00:00-03:00",
+  "generatedAt": "2026-11-10T20:07:29-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -72,7 +72,7 @@
       "kind": "web",
       "status": "monitoring",
       "source": "GitHub Actions e roadmap",
-      "evidence": "Em 2026-11-10, Playwright administrativo passou 7/7 (10 - Admin 4/4; 12 - Admin surfaces 3/3) e os slices de catálogo/playback passaram 2/2: MovieCount=2 com dois itens Movie/Video e playback simultâneo com duas sessões distintas. A primeira falha de playback foi causada por fixture sintética de 12 s; com mídia de 180 s passou. Bundle atual e servidor Debug descartável; runtime instalado, produção, catálogo persistente e playback amplo continuam sem aceite."
+      "evidence": "Em 2026-11-10, Playwright administrativo passou 7/7 (10 - Admin 4/4; 12 - Admin surfaces 3/3) e os slices de catálogo/playback passaram 2/2: MovieCount=2 com dois itens Movie/Video e playback simultâneo com duas sessões distintas. A primeira falha de playback foi causada por fixture sintética de 12 s; com mídia de 180 s passou. TDD AdSense adicionou a transição intro -> vídeo quando autoplay de vídeo está desligado; focal 4/4 e regressão playIntroThenMain 4/4. Frontend posterior: 82 arquivos/437 testes, TypeScript e artefatos aprovados, payload inicial 299,4 KB gzip. O Playwright AdSense amplo segue sem aceite após deadlock transitório de varredura concorrente; runtime instalado, produção, catálogo persistente e playback amplo continuam sem aceite."
     }
   ],
   "androidHomologation": {

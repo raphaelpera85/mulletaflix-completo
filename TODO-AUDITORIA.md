@@ -6,6 +6,16 @@
 - [~] Esta evidência usa servidor, MariaDB e mídia descartáveis; não fecha playback no runtime instalado, catálogo persistente, transcodificação ampla, AdSense, Supabase ou produção.
 - Sessão Obsidian: `2026-11-10 - Catálogo e playback E2E corrigidos.md`.
 
+## TDD AdSense após intro e avanço para mídia principal — 2026-11-10
+
+- [x] RED reproduzido no contrato de avanço: uma intro com próxima mídia `Video` não avançava quando `EnableNextEpisodeAutoPlay=false`; essa mesma condição impedia o caminho que aguardava o interstitial AdSense.
+- [x] GREEN: criado `shouldAdvanceAfterPlayback`, preservando a política de autoplay para vídeos regulares e forçando a transição de intro para a próxima mídia, inclusive quando a próxima mídia é vídeo.
+- [x] TDD focal: **4/4 aprovados**; regressão relacionada `playIntroThenMain`: **4/4 aprovados**.
+- [x] Regressão frontend posterior: **82 arquivos / 437 testes**, `tsc --noEmit`, `build:check` e `verify:build` aprovados; payload inicial **299,4 KB gzip / 420 KB**. `build:production` também passou antes da regressão final.
+- [!] O aceite Playwright AdSense ainda não foi fechado: a execução isolada ampla encontrou deadlock transitório durante a varredura concorrente das duas bibliotecas e foi encerrada; não converter essa tentativa em GREEN.
+- [~] Não há aceite de runtime instalado, AdSense real, monetização, Supabase ou produção. O script Google foi apenas stub descartável quando exercitado.
+- Sessão Obsidian: `2026-11-10 - TDD AdSense após intro e avanço para mídia principal.md`.
+
 ## E2E administrativo com bundle e servidor corrigidos — 2026-11-10
 
 

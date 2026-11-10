@@ -5,6 +5,13 @@
 - A falha inicial veio de fixtures de **12 s**; com filmes sintéticos de **180 s**, o fluxo passou. Não há falha de produto confirmada neste slice.
 - Evidência local em servidor/MariaDB scratch; runtime instalado, catálogo persistente, transcodificação ampla, AdSense, Supabase e produção seguem pendentes.
 
+## TDD AdSense após intro e avanço para mídia principal — 2026-11-10
+
+- A condição anterior só avançava para a próxima mídia de vídeo quando `EnableNextEpisodeAutoPlay=true`; isso deixava a transição intro → filme bloqueada para o padrão de autoplay desligado.
+- TDD RED/GREEN adicionou `shouldAdvanceAfterPlayback`: intros sempre avançam para a próxima mídia existente, enquanto vídeos regulares continuam respeitando autoplay.
+- TDD focal **4/4**, regressão `playIntroThenMain` **4/4**, Vitest **82 arquivos / 437 testes**, TypeScript, `build:check`, `build:production` e `verify:build` aprovados; payload **299,4 KB gzip / 420 KB**.
+- O Playwright AdSense não foi promovido a aceite: a execução descartável mais ampla encontrou deadlock durante a varredura concorrente das bibliotecas; o cenário exige nova rodada controlada após isolar esse bloqueio.
+
 ## E2E administrativo com bundle e servidor corrigidos — 2026-11-10
 
 

@@ -44,6 +44,7 @@ import { getAudioMaxValues } from 'utils/playback/audioProfile';
 import { warmupMediaStream } from 'utils/playback/warmupMediaStream';
 import { playIntroThenMain } from 'utils/playback/playIntroThenMain';
 import { showAdSenseInterstitial } from '../branding/adsense';
+import { shouldAdvanceAfterPlayback } from './shouldAdvanceAfterPlayback';
 
 const UNLIMITED_ITEMS = -1;
 
@@ -3771,7 +3772,12 @@ export class PlaybackManager {
                 const apiClient = ServerConnections.getApiClient(nextItem.item.ServerId);
 
                 void apiClient.getCurrentUser().then(async function (user: any) {
-                    if (user.Configuration.EnableNextEpisodeAutoPlay || nextMediaType !== MediaType.Video) {
+                    if (shouldAdvanceAfterPlayback({
+                        hasNextItem: Boolean(nextItem),
+                        isIntro: streamInfo?.item?.IsIntro === true,
+                        nextMediaType,
+                        enableNextEpisodeAutoPlay: user.Configuration.EnableNextEpisodeAutoPlay === true
+                    })) {
                         if (streamInfo?.item?.IsIntro) {
                             try {
                                 await showAdSenseInterstitial(apiClient, 'playback');
