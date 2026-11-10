@@ -1,3 +1,11 @@
+## TDD do serviço `ItemCountService` e MariaDB descartável — 2026-11-09 23:46 BRT
+
+- [x] Criado `ItemCountServiceTests.GetItemCounts_GroupsKnownTypesAndPreservesTotal` com EF Core InMemory e lookup explícito dos tipos `Movie`, `Series` e `Audio`.
+- [x] RED da fixture reproduzido: o mock de `IEntityFrameworkCoreLockingBehavior` não executava o callback de `SaveChanges`, deixando a base vazia; a fixture foi corrigida para executar o callback, sem alteração de produção.
+- [x] GREEN focal: **1 aprovado, 0 falhas**; build Release da solução: **0 erros, 32 avisos**.
+- [x] Criado ambiente MariaDB descartável isolado em `127.0.0.1:33188`, com as variáveis efêmeras `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` e `MULLETAFLIX_TEST_MARIADB_CONFIRM_DISPOSABLE`; o datadir foi removido ao final e a porta ficou livre.
+- [~] Integração `ItemsControllerTests` executada com a configuração descartável: **0 aprovados, 6 falhas, 0 ignorados**. Foram reproduzidos dois bloqueios: ativação ambígua de `BackupService` por construtores múltiplos e colisão de banco `mulletaflix_test_08402c543d23` após falha de inicialização. O resultado não conta como aceite HTTP.
+
 ## TDD do contrato `GET /Items` — 2026-11-09 07:36 BRT
 
 - [x] RED reproduzido: o teste inicial tentou consultar `UserRootFolder` sem o `ILibraryManager` estático do domínio e revelou `NullReferenceException` em `Folder.QueryRecursive`/`CollapseBoxSetItems`; isso confirmou que o teste precisava exercitar o caminho real de `Folder.GetItems` com dependências explicitamente configuradas.

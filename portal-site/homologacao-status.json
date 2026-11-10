@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-09T07:36:37-03:00",
+  "generatedAt": "2026-11-09T23:46:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "server-itemcount-mariadb-disposable-2026-11-09-2346",
+      "title": "MariaDB descartável criado e bloqueio de integração autenticada reproduzido",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Host Windows local; MariaDB 11.4.4 descartável em 127.0.0.1:33188; datadir efêmero",
+      "location": "tests/Shared/MariaDbTestEnvironment.cs, tests/Jellyfin.Server.Integration.Tests/Controllers/ItemsControllerTests.cs",
+      "scope": "Criar variáveis de confirmação, executar ItemsControllerTests e preservar a fronteira com MariaDB produtivo",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-09T23:40:00-03:00",
+      "updatedAt": "2026-11-09T23:46:00-03:00",
+      "evidence": "A instância descartável respondeu em 127.0.0.1:33188. As variáveis MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING e MULLETAFLIX_TEST_MARIADB_CONFIRM_DISPOSABLE foram usadas somente no processo. ItemsControllerTests terminou com 0 aprovados, 6 falhas e 0 ignorados: ativação ambígua de BackupService e colisão do banco de teste após falha de setup. O datadir foi removido, a instância foi encerrada e 3306 não foi acessado.",
+      "release": "Não há aceite HTTP nem promoção. Próximo passo: corrigir a composição DI de BackupService e tornar a limpeza do banco idempotente antes de repetir o contrato.",
+      "links": []
+    },
     {
       "id": "web-playwright-dedicated-fixtures-green-2026-11-05-0936",
       "title": "Requests, Nebula, backup e acessibilidade GREEN nos configs dedicados",

@@ -46,9 +46,18 @@
 
 ## Próximo ciclo TDD
 
-1. Preparar execução opt-in do contrato HTTP autenticado com MariaDB descartável e fixture de mídia sintética, sem usar `3306` nem mídia de produção.
-2. Mapear o fluxo de materialização com timeouts HTTP explícitos e evidência de cada chamada, sem alterar runtime instalado.
-3. Depois, separar o aceite de playback HLS/multiusuário do aceite de catálogo.
+1. Corrigir o bloqueio de composição DI de `BackupService` observado no harness de integração e garantir limpeza idempotente do banco de teste após falha de inicialização.
+2. Reexecutar o contrato HTTP autenticado com MariaDB descartável em porta não padrão, sem usar `3306` nem mídia de produção.
+3. Mapear o fluxo de materialização com timeouts HTTP explícitos e evidência de cada chamada, sem alterar runtime instalado.
+4. Depois, separar o aceite de playback HLS/multiusuário do aceite de catálogo.
+
+## Evidência adicionada em 2026-11-09 23:46 BRT
+
+- `ItemCountServiceTests.GetItemCounts_GroupsKnownTypesAndPreservesTotal`: **1/1** focal.
+- A primeira execução RED revelou que a fixture mockava o locking sem chamar o callback real de `SaveChanges`; a correção ficou restrita ao teste.
+- MariaDB 11.4.4 descartável foi inicializado em `127.0.0.1:33188` com datadir efêmero; as variáveis de confirmação foram usadas somente no processo da execução e não ficaram persistidas no ambiente.
+- `Jellyfin.Server.Integration.Tests` com filtro `ItemsControllerTests`: **0/6 aprovados, 6 falhas**. Falhas observadas: DI ambígua para `BackupService` e banco de teste já existente após falha de setup.
+- O MariaDB descartável foi encerrado, o datadir removido e nenhuma instância scratch permaneceu; `3306` não foi acessado.
 
 ## Limites de aceite
 
