@@ -1,4 +1,10 @@
-## TDD do serviço `ItemCountService` e MariaDB descartável — 2026-11-09 23:46 BRT
+## Correção do backup Supabase: confirmação resiliente de contagem — 2026-11-10 00:24 BRT
+
+- [x] RED reproduzido em `GetSupabaseFileCountAsync_FallsBackToGetWhenHeadDoesNotExposeExactCount`: resposta `HEAD` HTTP 200 sem `Content-Range` fazia o backup terminar com contagem desconhecida (`-1`), embora o PostgREST pudesse entregar a contagem via `GET`.
+- [x] GREEN: `NebulaSupabaseSyncService` agora tenta `GET` com `Prefer: count=exact` quando `HEAD` falha ou não expõe `Content-Range`; a confirmação só aceita contagens não negativas.
+- [x] TDD focal de contagem: **3/3 aprovados**; classe `NebulaSupabaseSyncTests`: **69/69 aprovados**.
+- [~] O upload real contra Supabase não foi executado: não havia configuração/credencial autorizada para integração externa. O runtime instalado não foi alterado.
+
 
 - [x] Criado `ItemCountServiceTests.GetItemCounts_GroupsKnownTypesAndPreservesTotal` com EF Core InMemory e lookup explícito dos tipos `Movie`, `Series` e `Audio`.
 - [x] RED da fixture reproduzido: o mock de `IEntityFrameworkCoreLockingBehavior` não executava o callback de `SaveChanges`, deixando a base vazia; a fixture foi corrigida para executar o callback, sem alteração de produção.

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-09T23:46:00-03:00",
+  "generatedAt": "2026-11-10T00:24:46-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "server-supabase-count-head-get-fallback-2026-11-10-0024",
+      "title": "Backup Supabase: confirmação de persistência resiliente a HEAD sem Content-Range",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Checkout Windows local; sem chamada autenticada ao Supabase real",
+      "location": "Jellyfin.Server.Implementations/Nebula/NebulaSupabaseSyncService.cs, tests/Jellyfin.Server.Implementations.Tests/Nebula/NebulaSupabaseSyncTests.cs",
+      "scope": "Confirmar a quantidade persistida após o upload do backup sem declarar falha quando HEAD não retorna Content-Range",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T00:18:00-03:00",
+      "updatedAt": "2026-11-10T00:24:46-03:00",
+      "evidence": "RED reproduzido com HEAD HTTP 200 sem Content-Range e GET posterior com Content-Range. GREEN: o serviço tenta GET com Prefer: count=exact e aceita somente contagens não negativas. TDD focal passou 3/3 e a classe NebulaSupabaseSyncTests passou 69/69. Nenhuma credencial foi registrada, o upload Supabase real não foi executado e o runtime instalado não foi alterado.",
+      "release": "Correção de source validada localmente; sem deploy/release. Próximo aceite exige configuração autorizada e integração real contra Supabase.",
+      "links": []
+    },
     {
       "id": "server-itemcount-mariadb-disposable-2026-11-09-2346",
       "title": "MariaDB descartável criado e bloqueio de integração autenticada reproduzido",

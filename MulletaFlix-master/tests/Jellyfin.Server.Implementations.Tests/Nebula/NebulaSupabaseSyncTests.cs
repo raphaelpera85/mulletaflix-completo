@@ -696,6 +696,30 @@ public class NebulaSupabaseSyncTests
         Assert.Equal(-1, count);
     }
 
+    [Fact]
+    public async Task GetSupabaseFileCountAsync_FallsBackToGetWhenHeadDoesNotExposeExactCount()
+    {
+        var fallbackResponse = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("[]")
+        };
+        fallbackResponse.Content.Headers.ContentRange = new ContentRangeHeaderValue(42);
+        var handler = new SequenceResponseHandler(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(string.Empty) },
+            fallbackResponse);
+        using var service = new NebulaSupabaseSyncService(
+            null!,
+            NullLogger<NebulaSupabaseSyncService>.Instance,
+            null,
+            handler);
+
+        var count = await service.GetSupabaseFileCountAsync("https://supabase.invalid", "sb_secret_test", TestContext.Current.CancellationToken);
+
+        Assert.Equal(42, count);
+        Assert.Equal([HttpMethod.Head, HttpMethod.Get], handler.Methods);
+        Assert.All(handler.RequestUris, uri => Assert.Contains("select=id", uri, StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("sync-node")]
     [InlineData("get-bot-tokens")]

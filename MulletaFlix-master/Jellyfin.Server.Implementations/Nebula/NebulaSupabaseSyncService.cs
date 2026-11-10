@@ -529,25 +529,23 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             req.Headers.Add("Prefer", "count=exact");
 
             using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode)
+            if (resp.IsSuccessStatusCode && TryReadExactCount(resp, out var headCount))
             {
-                return -1;
+                return headCount;
             }
 
-            if (resp.Content.Headers.TryGetValues("Content-Range", out var ranges))
-            {
-                var rangeStr = ranges.FirstOrDefault();
-                if (!string.IsNullOrEmpty(rangeStr))
-                {
-                    var slashIdx = rangeStr.LastIndexOf('/');
-                    if (slashIdx >= 0 && long.TryParse(rangeStr[(slashIdx + 1)..], out var count))
-                    {
-                        return count;
-                    }
-                }
-            }
+            // Alguns proxies e versões do PostgREST não expõem Content-Range
+            // para HEAD. O GET mantém a confirmação do backup funcional sem
+            // depender do suporte a HEAD no caminho intermediário.
+            using var fallback = new HttpRequestMessage(HttpMethod.Get, uri);
+            fallback.Headers.Add("apikey", supabaseKey);
+            fallback.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+            fallback.Headers.Add("Prefer", "count=exact");
 
-            return -1;
+            using var fallbackResponse = await _httpClient.SendAsync(fallback, cancellationToken).ConfigureAwait(false);
+            return fallbackResponse.IsSuccessStatusCode && TryReadExactCount(fallbackResponse, out var fallbackCount)
+                ? fallbackCount
+                : -1;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -558,6 +556,21 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             _logger.LogDebug(ex, "[SUPABASE-COUNT] Falha ao consultar total de arquivos no Supabase.");
             return -1;
         }
+    }
+
+    private static bool TryReadExactCount(HttpResponseMessage response, out long count)
+    {
+        count = -1;
+        if (!response.Content.Headers.TryGetValues("Content-Range", out var ranges))
+        {
+            return false;
+        }
+
+        var range = ranges.FirstOrDefault();
+        var slashIndex = range?.LastIndexOf('/') ?? -1;
+        return slashIndex >= 0
+            && long.TryParse(range![(slashIndex + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out count)
+            && count >= 0;
     }
 
     /// <summary>
