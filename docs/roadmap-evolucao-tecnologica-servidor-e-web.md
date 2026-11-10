@@ -1,3 +1,9 @@
+## Regressão completa NebulaPython — 2026-11-10 14:07 BRT
+
+- `uv run --with-requirements requirements-test.txt -- python -m pytest -q -rs`: **727 aprovados, 2 ignorados, 0 falhas**, em **75,62 s**.
+- Os dois skips são os branches de plataforma de `tests/test_upload_checkpoint.py`; não recebem crédito de aprovação.
+- O resultado é evidência Windows local; MongoDB, FTP, Supabase real, Linux/POSIX, runtime instalado e produção continuam sem aceite.
+
 ## Execução global integrada pós-correção — 2026-11-10 14:00 BRT
 
 - Execução única de `Jellyfin.Server.Integration.Tests` concluída com **146 aprovados, 0 falhas, 0 ignorados**, em **8 m 36 s**, usando MariaDB descartável na porta `33190`.

@@ -1,3 +1,10 @@
+## Regressão completa NebulaPython — 2026-11-10 14:07 BRT
+
+- [x] Suíte completa via `uv run --with-requirements requirements-test.txt -- python -m pytest -q -rs`: **727 aprovados, 2 ignorados, 0 falhas**, em **75,62 s**.
+- [~] Os dois skips são condicionais de plataforma em `tests/test_upload_checkpoint.py` (POSIX e Windows); não contam como aprovação.
+- [~] Execução local Windows não fecha MongoDB, FTP, Supabase real, Linux/POSIX, runtime instalado ou produção.
+- Sessão Obsidian: `2026-11-10 - Regressão NebulaPython.md`.
+
 ## TDD e regressão integrada pós-correção do shutdown — 2026-11-10 13:22 BRT
 
 - [x] RED reproduzido na suíte integrada: execução ampla anulada após **81 aprovados** por falha do `testhost`; a análise dos dumps e do ciclo de vida apontou bootstrap remoto do GetAvatar e espera do worker ocioso do `IntroSkipper` como riscos de shutdown.

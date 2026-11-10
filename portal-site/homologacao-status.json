@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T14:00:52-03:00",
+  "generatedAt": "2026-11-10T14:07:23-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "nebula-python-full-regression-2026-11-10-1407",
+      "title": "Regressão completa NebulaPython",
+      "agent": "Hermes",
+      "front": "nebula",
+      "featureIds": [],
+      "local": "Windows local; uv com requirements-test.txt",
+      "location": "MulletaFlix-master/Tools/NebulaPython",
+      "scope": "Executar a suíte Python completa sem transformar skips de plataforma em aprovação",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T14:05:00-03:00",
+      "updatedAt": "2026-11-10T14:07:23-03:00",
+      "evidence": "uv run --with-requirements requirements-test.txt -- python -m pytest -q -rs concluiu com 727 aprovados, 2 ignorados e 0 falhas em 75,62 s. Os dois skips são os branches POSIX e Windows de tests/test_upload_checkpoint.py; não recebem crédito de aprovação.",
+      "release": "GREEN para a suíte Python local no Windows. Homologação formal continua PARTIAL por MongoDB, FTP, Supabase real, Linux/POSIX, runtime instalado e produção não exercitados.",
+      "links": []
+    },
     {
       "id": "server-integration-global-postfix-2026-11-10-1400",
       "title": "Suíte integrada global GREEN após correção de shutdown",
