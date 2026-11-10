@@ -7,7 +7,8 @@
 - [x] A cobertura da classe `LibraryStructureControllerTests` ficou determinística ao remover `refreshLibrary=true` do DELETE de limpeza; os testes de criação/atualização continuam exercitando refresh assíncrono.
 - [x] Regressão serial pós-correção: **26 classes, 162 aprovados, 0 falhas, 0 ignorados**; `LibraryStructureControllerTests` passou **6/6** e `MediaStructureControllerTests` **7/7**.
 - [x] Build do projeto integrado: **0 erros, 31 avisos**; build focal de `Jellyfin.Api.Tests` concluiu e o TDD passou **1/1**.
-- [~] A execução global da suíte integrada continua pendente: a bateria serial por classes passou, mas o comando único anterior ainda foi anulado por falha do `testhost`; runtime instalado, Supabase real, Linux/POSIX, CI hospedada, Android instrumentado, catálogo persistente e playback permanecem sem aceite.
+- [x] Execução global da suíte integrada pós-correção: **146 aprovados, 0 falhas, 0 ignorados**, em **8 m 36 s**, com MariaDB descartável em `127.0.0.1:33190`; o datadir, as ferramentas copiadas e o listener foram removidos ao final.
+- [~] Runtime instalado, Supabase real, Linux/POSIX, CI hospedada, Android instrumentado, catálogo persistente e playback permanecem sem aceite.
 
 ## Correção da ativação DI do backup e aceite HTTP de Items — 2026-11-10
 

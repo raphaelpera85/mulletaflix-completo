@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T13:35:08-03:00",
+  "generatedAt": "2026-11-10T14:00:52-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "server-integration-global-postfix-2026-11-10-1400",
+      "title": "Suíte integrada global GREEN após correção de shutdown",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Host Windows local; MariaDB descartável em 127.0.0.1:33190; cleanup confirmado",
+      "location": "tests/Jellyfin.Server.Integration.Tests/Jellyfin.Server.Integration.Tests.csproj",
+      "scope": "Repetir a execução única global após corrigir o shutdown do IntroSkipper e isolar bootstrap externo",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T13:50:00-03:00",
+      "updatedAt": "2026-11-10T14:00:52-03:00",
+      "evidence": "A execução única de Jellyfin.Server.Integration.Tests passou 146/146, com 0 falhas e 0 ignorados, em 8 m 36 s, usando MariaDB descartável na porta 33190. mysqladmin shutdown retornou 0; o listener, o datadir scratch e a cópia temporária das ferramentas foram removidos. O MariaDB produtivo em 3306 não foi alterado.",
+      "release": "GREEN para a suíte integrada global local. Homologação formal continua PARTIAL por runtime instalado, Supabase real, Linux/POSIX, CI hospedada, Android instrumentado, catálogo persistente e playback não exercitados.",
+      "links": []
+    },
     {
       "id": "server-integration-shutdown-regression-2026-11-10-1322",
       "title": "Suíte integrada serial GREEN após correção de shutdown e isolamento externo",

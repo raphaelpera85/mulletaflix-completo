@@ -1,3 +1,10 @@
+## Execução global integrada pós-correção — 2026-11-10 14:00 BRT
+
+- Execução única de `Jellyfin.Server.Integration.Tests` concluída com **146 aprovados, 0 falhas, 0 ignorados**, em **8 m 36 s**, usando MariaDB descartável na porta `33190`.
+- O `testhost` não foi anulado nesta repetição; a evidência anterior de falha após 81 testes permanece histórica e foi superada por esta execução pós-correção.
+- Cleanup confirmado: `mysqladmin shutdown` retornou 0, o listener `33190`, o datadir scratch e a cópia temporária das ferramentas MariaDB foram removidos; MariaDB produtivo em `3306` permaneceu intocado.
+- O aceite global do projeto continua **PARTIAL** por runtime instalado, Supabase real, Linux/POSIX, CI hospedada, Android instrumentado, catálogo persistente e playback não exercitados.
+
 ## Regressão integrada pós-correção de shutdown — 2026-11-10 13:35 BRT
 
 Correções locais para tornar o encerramento do host integrado determinístico e separar entradas inválidas de operações concorrentes foram implementadas e verificadas:
