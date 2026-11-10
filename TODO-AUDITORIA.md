@@ -1,3 +1,14 @@
+## Correção da ativação DI do backup e aceite HTTP de Items — 2026-11-10
+
+- [x] RED reproduzido no wiring de `ApplicationHost`: `AddSingleton<IBackupService, BackupService>()` não conseguia escolher entre os construtores públicos de `BackupService`.
+- [x] GREEN: o registro passou a usar factory explícita, preservando os context factories opcionais e os `IBackupDatabaseParticipant` registrados.
+- [x] TDD focal `ApplicationHostBackupServiceRegistrationTests`: **1/1 aprovado**.
+- [x] Regressão dos testes `BackupServiceTests` + `NebulaSupabaseSyncTests`: **157 aprovados, 5 ignorados, 0 falhas**.
+- [x] Integração HTTP autenticada `ItemsControllerTests` com MariaDB descartável em `127.0.0.1:33188`: **6 aprovados, 0 ignorados, 0 falhas**; o banco e o datadir scratch foram removidos ao final.
+- [x] `dotnet test` de `Jellyfin.Server.Tests`: **95 aprovados, 3 ignorados, 0 falhas**.
+- [x] Build Release serial da solução: **0 erros, 32 avisos**.
+- [~] O upload real contra Supabase continua sem aceite por ausência de configuração/credencial autorizada; runtime instalado e produção não foram alterados.
+
 ## Correção do backup Supabase: confirmação resiliente de contagem — 2026-11-10 00:24 BRT
 
 - [x] RED reproduzido em `GetSupabaseFileCountAsync_FallsBackToGetWhenHeadDoesNotExposeExactCount`: resposta `HEAD` HTTP 200 sem `Content-Range` fazia o backup terminar com contagem desconhecida (`-1`), embora o PostgREST pudesse entregar a contagem via `GET`.

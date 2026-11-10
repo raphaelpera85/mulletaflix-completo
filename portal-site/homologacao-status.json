@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T00:24:46-03:00",
+  "generatedAt": "2026-11-10T00:54:29-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -16435,6 +16435,23 @@
       "updatedAt": "2026-11-09T07:22:00-03:00",
       "evidence": "RED inicial reproduzido no teste por assumir OkObjectResult em Result; GREEN após usar o padrão ActionResult<T> existente. Focal 1/1 e regressão LibraryControllerAuthorizationTests 22/22. A tentativa de integração foi removida após ficar 1 ignorada por exigir MariaDB descartável opt-in.",
       "release": "Cobertura unitária GREEN; MariaDB descartável, materialização de mídia, runtime instalado, playback e produção permanecem sem aceite.",
+      "links": ["docs/server-test-gap-map-2026-11-09.md"]
+    },
+    {
+      "id": "server-tdd-backup-di-items-http-2026-11-10-0130",
+      "title": "Servidor: ativação DI do BackupService e integração HTTP de Items",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows checkout; .NET 10 Release; MariaDB descartável em 127.0.0.1:33188",
+      "location": "MulletaFlix-master/Emby.Server.Implementations/ApplicationHost.cs",
+      "scope": "Eliminar a ambiguidade de construtores no registro de IBackupService e validar ItemsControllerTests com banco efêmero isolado.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-10T00:35:00-03:00",
+      "updatedAt": "2026-11-10T00:54:29-03:00",
+      "evidence": "RED reproduzido no wiring de ApplicationHost. GREEN com factory explícita preservando context factories opcionais e participantes de backup. TDD focal 1/1; BackupServiceTests + NebulaSupabaseSyncTests 157 aprovados, 5 ignorados, 0 falhas; Jellyfin.Server.Tests 95 aprovados, 3 ignorados, 0 falhas; ItemsControllerTests autenticados com MariaDB descartável 6/6 aprovados. Build Release da solução 0 erros e 32 avisos. Instância MariaDB e datadir scratch foram encerrados/removidos.",
+      "release": "Correção não foi instalada no runtime nem executou upload autenticado contra Supabase real; aceite externo, restore, produção e demais gates permanecem pendentes.",
       "links": ["docs/server-test-gap-map-2026-11-09.md"]
     },
     {

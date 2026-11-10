@@ -40,6 +40,8 @@ using Emby.Server.Implementations.SyncPlay;
 using Emby.Server.Implementations.TV;
 using Emby.Server.Implementations.Updates;
 using MulletaFlix.Api.Helpers;
+using MulletaFlix.Database.Implementations;
+using MulletaFlix.Database.Implementations.Contexts;
 using MulletaFlix.Drawing;
 using MulletaFlix.MediaEncoding.Hls.Playlist;
 using MulletaFlix.Networking.Manager;
@@ -114,8 +116,10 @@ using MediaBrowser.Providers.Subtitles;
 using MediaBrowser.XbmcMetadata.Providers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Prometheus.DotNetRuntime;
 using static MediaBrowser.Controller.Extensions.ConfigurationExtensions;
@@ -503,7 +507,18 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<IPluginManager>(_pluginManager);
             serviceCollection.AddSingleton<IApplicationPaths>(ApplicationPaths);
             serviceCollection.AddSingleton<IStorageSpaceProvider, StorageSpaceProvider>();
-            serviceCollection.AddSingleton<IBackupService, BackupService>();
+            serviceCollection.AddSingleton<IBackupService>(serviceProvider => new BackupService(
+                serviceProvider.GetRequiredService<ILogger<BackupService>>(),
+                serviceProvider.GetRequiredService<IDbContextFactory<MulletaFlixDbContext>>(),
+                serviceProvider.GetRequiredService<IServerApplicationHost>(),
+                serviceProvider.GetRequiredService<IServerApplicationPaths>(),
+                serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>(),
+                serviceProvider.GetRequiredService<IHostApplicationLifetime>(),
+                serviceProvider.GetService<IDbContextFactory<MoviesDbContext>>(),
+                serviceProvider.GetService<IDbContextFactory<SeriesDbContext>>(),
+                serviceProvider.GetService<IDbContextFactory<ChannelsDbContext>>(),
+                serviceProvider.GetService<IDbContextFactory<BooksDbContext>>(),
+                serviceProvider.GetServices<IBackupDatabaseParticipant>()));
             serviceCollection.AddSingleton<ICatalogAuditService, CatalogAuditService>();
 
             serviceCollection.AddSingleton<IFileSystem, ManagedFileSystem>();
