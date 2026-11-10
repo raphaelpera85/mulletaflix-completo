@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T14:18:07-03:00",
+  "generatedAt": "2026-11-10T14:23:10-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "installed-runtime-read-only-smoke-2026-11-10-1423",
+      "title": "Probe read-only do runtime instalado 12.1.51",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Runtime instalado em C:/Program Files/MulletaFlix/Server",
+      "location": "http://127.0.0.1:8096",
+      "scope": "Consultar health e metadados públicos sem alterar configuração, dados ou processos de produção",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T14:22:40-03:00",
+      "updatedAt": "2026-11-10T14:23:10-03:00",
+      "evidence": "GET /health respondeu Healthy. GET /System/Info/Public confirmou Version=12.1.51, TargetAbi=12.1.51, ProductName=MulletaFlix e StartupWizardCompleted=true.",
+      "release": "Smoke read-only GREEN para disponibilidade e versão observadas. Homologação permanece PARTIAL: chamadas autenticadas, catálogo persistente, playback, Supabase, Nebula e promoção de código não foram executados.",
+      "links": []
+    },
     {
       "id": "web-full-regression-build-2026-11-10-1418",
       "title": "Regressão frontend web e build de produção",

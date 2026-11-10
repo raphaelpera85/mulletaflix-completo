@@ -1,3 +1,9 @@
+## Probe read-only do runtime instalado 12.1.51 — 2026-11-10 14:23 BRT
+
+- `/health` respondeu `Healthy` em `127.0.0.1:8096`.
+- `/System/Info/Public` confirmou `Version=12.1.51`, `TargetAbi=12.1.51` e `StartupWizardCompleted=true`.
+- Evidência limitada a smoke read-only; autenticação, catálogo persistente, playback, Supabase, Nebula e promoção de código continuam sem aceite.
+
 ## Regressão frontend web e build de produção — 2026-11-10 14:18 BRT
 
 - Vitest completo: **80 arquivos / 430 testes aprovados**, exit code 0, em **41,43 s**.

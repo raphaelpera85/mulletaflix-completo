@@ -1,3 +1,10 @@
+## Probe read-only do runtime instalado 12.1.51 — 2026-11-10 14:23 BRT
+
+- [x] `GET http://127.0.0.1:8096/health`: `Healthy`.
+- [x] `GET /System/Info/Public`: `Version=12.1.51`, `TargetAbi=12.1.51`, `ProductName=MulletaFlix`, `StartupWizardCompleted=true`.
+- [~] O probe confirmou disponibilidade e versão do runtime instalado, mas não substitui aceite autenticado de catálogo, playback, Supabase, Nebula ou configuração persistente; nenhuma alteração operacional foi feita.
+- Sessão Obsidian: `2026-11-10 - Probe runtime instalado 12.1.51.md`.
+
 ## Regressão frontend web e build de produção — 2026-11-10 14:18 BRT
 
 - [x] Vitest completo: **80 arquivos, 430 testes aprovados**, exit code 0, em **41,43 s**.
