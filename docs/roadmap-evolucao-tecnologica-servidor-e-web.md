@@ -1,3 +1,10 @@
+## Regressão frontend web e build de produção — 2026-11-10 14:18 BRT
+
+- Vitest completo: **80 arquivos / 430 testes aprovados**, exit code 0, em **41,43 s**.
+- `tsc --noEmit`: exit code 0; build de produção: exit code 0.
+- `verify:build`: **1.928 arquivos válidos**, limite individual **1.536 KiB**, payload inicial **299,3 KB gzip** contra orçamento de **420 KB**.
+- Avisos jsdom/webcomponents e diretivas `use client` do Vite foram observados como não bloqueantes; Playwright autenticado, runtime instalado e produção continuam sem aceite.
+
 ## Regressão completa NebulaPython — 2026-11-10 14:07 BRT
 
 - `uv run --with-requirements requirements-test.txt -- python -m pytest -q -rs`: **727 aprovados, 2 ignorados, 0 falhas**, em **75,62 s**.

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T14:07:23-03:00",
+  "generatedAt": "2026-11-10T14:18:07-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "web-full-regression-build-2026-11-10-1418",
+      "title": "Regressão frontend web e build de produção",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows local; MulletaFlix-web-master com node_modules existente",
+      "location": "MulletaFlix-web-master",
+      "scope": "Executar testes Vitest, typecheck, build de produção e validação de artefatos sem promover runtime ou browser autenticado",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T14:11:02-03:00",
+      "updatedAt": "2026-11-10T14:18:07-03:00",
+      "evidence": "npm test -- --run passou 80 arquivos e 430 testes em 41,43 s. npm run build:check e npm run build:production terminaram com exit code 0. npm run verify:build validou 1.928 arquivos, limite individual de 1.536 KiB e payload inicial de 299,3 KB gzip contra orçamento de 420 KB. Foram observados avisos conhecidos de jsdom/webcomponents e diretivas use client do Vite; não bloquearam as execuções.",
+      "release": "GREEN para a regressão web local e o bundle. Homologação formal continua PARTIAL por Playwright autenticado, runtime instalado, browser real e produção não exercitados.",
+      "links": []
+    },
     {
       "id": "nebula-python-full-regression-2026-11-10-1407",
       "title": "Regressão completa NebulaPython",

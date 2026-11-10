@@ -1,3 +1,12 @@
+## Regressão frontend web e build de produção — 2026-11-10 14:18 BRT
+
+- [x] Vitest completo: **80 arquivos, 430 testes aprovados**, exit code 0, em **41,43 s**.
+- [x] `npm run build:check`: exit code 0 (`tsc --noEmit`).
+- [x] `npm run build:production`: exit code 0; bundle e assets estáticos produzidos.
+- [x] `npm run verify:build`: **1.928 arquivos válidos**, nenhum acima de **1.536 KiB** e payload inicial **299,3 KB gzip**, abaixo do orçamento de **420 KB**.
+- [~] Permanecem avisos jsdom/webcomponents e do bundler Vite; não bloquearam os comandos, mas exigem triagem separada. Playwright autenticado, runtime instalado e produção não foram exercitados.
+- Sessão Obsidian: `2026-11-10 - Regressão frontend web.md`.
+
 ## Regressão completa NebulaPython — 2026-11-10 14:07 BRT
 
 - [x] Suíte completa via `uv run --with-requirements requirements-test.txt -- python -m pytest -q -rs`: **727 aprovados, 2 ignorados, 0 falhas**, em **75,62 s**.
