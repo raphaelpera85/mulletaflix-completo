@@ -1,4 +1,13 @@
+## Catálogo e playback multiusuário em stage descartável — 2026-11-10
+
+- [x] Diagnóstico de reconhecimento com bundle atual e servidor Debug publicado em scratch: **1/1 aprovado**, `MovieCount=2`, `ItemCount=3`, dois itens concretos `Movie`/`Video` com caminhos das fixtures sintéticas.
+- [x] Playback simultâneo multiusuário: **1/1 aprovado** com dois usuários descartáveis, duas sessões distintas e o mesmo filme reproduzido simultaneamente.
+- [x] A primeira tentativa do playback falhou porque os filmes sintéticos tinham **12 s** e terminavam antes da segunda sessão; a reexecução com mídia de **180 s** passou. Isso era limitação da fixture, não falha confirmada do servidor.
+- [~] Esta evidência usa servidor, MariaDB e mídia descartáveis; não fecha playback no runtime instalado, catálogo persistente, transcodificação ampla, AdSense, Supabase ou produção.
+- Sessão Obsidian: `2026-11-10 - Catálogo e playback E2E corrigidos.md`.
+
 ## E2E administrativo com bundle e servidor corrigidos — 2026-11-10
+
 
 - [x] Publicação descartável Debug do servidor em `C:/Users/Raphael/.mulletaflix-tmp/mflx-e2e-server-20261110`, incluindo MariaDB embarcado, permitiu exercitar a correção `US -> en-US` sem tocar o runtime instalado.
 - [x] `10 - Admin`: **4/4 aprovados**; wizard, criação/edição de usuário, shells administrativos e `/dashboard/logs` passaram com o bundle atual.

@@ -1,4 +1,12 @@
+## Catálogo e playback multiusuário em stage descartável — 2026-11-10
+
+- Diagnóstico de catálogo: **1/1 aprovado**, `MovieCount=2`, `ItemCount=3`, com dois itens `Movie`/`Video` concretos.
+- Playback multiusuário: **1/1 aprovado** com dois usuários descartáveis e duas sessões distintas reproduzindo o mesmo filme.
+- A falha inicial veio de fixtures de **12 s**; com filmes sintéticos de **180 s**, o fluxo passou. Não há falha de produto confirmada neste slice.
+- Evidência local em servidor/MariaDB scratch; runtime instalado, catálogo persistente, transcodificação ampla, AdSense, Supabase e produção seguem pendentes.
+
 ## E2E administrativo com bundle e servidor corrigidos — 2026-11-10
+
 
 - `10 - Admin`: **4/4 aprovados** com servidor Debug publicado em diretório descartável e `MFLX_E2E_WEBDIR=dist`; o wizard, usuários, shells e `/dashboard/logs` passaram.
 - `12 - Admin surfaces`: **3/3 aprovados**, incluindo logs, plugins, backups, networking, tarefas, Live TV e gravações.

@@ -72,7 +72,7 @@
       "kind": "web",
       "status": "monitoring",
       "source": "GitHub Actions e roadmap",
-      "evidence": "Em 2026-11-10, Playwright administrativo passou 7/7 (10 - Admin 4/4; 12 - Admin surfaces 3/3), usando bundle atual e servidor Debug descartável com a correção de idioma US -> en-US. Vitest passou 81 arquivos/433 testes, TypeScript e verify:build passaram; runtime instalado, produção, catálogo persistente e playback real continuam sem aceite."
+      "evidence": "Em 2026-11-10, Playwright administrativo passou 7/7 (10 - Admin 4/4; 12 - Admin surfaces 3/3) e os slices de catálogo/playback passaram 2/2: MovieCount=2 com dois itens Movie/Video e playback simultâneo com duas sessões distintas. A primeira falha de playback foi causada por fixture sintética de 12 s; com mídia de 180 s passou. Bundle atual e servidor Debug descartável; runtime instalado, produção, catálogo persistente e playback amplo continuam sem aceite."
     }
   ],
   "androidHomologation": {
