@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T14:23:10-03:00",
+  "generatedAt": "2026-11-10T14:32:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "web-eslint-global-timeout-2026-11-10-1432",
+      "title": "Lint frontend focal e timeout do lint global",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows local; MulletaFlix-web-master",
+      "location": "MulletaFlix-web-master",
+      "scope": "Executar lint somente nas mudanças e tentar o lint global sem aplicar autofix ou alterar código-fonte",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T14:25:00-03:00",
+      "updatedAt": "2026-11-10T14:32:00-03:00",
+      "evidence": "npm run lint:changed passou e informou que não havia arquivos-fonte frontend alterados. npm run lint -- --no-error-on-unmatched-pattern não concluiu em 420 s; o processo Node foi encerrado e nenhuma contagem foi promovida.",
+      "release": "O gate de lint global permanece aberto. O timeout não foi tratado como falha funcional nem como aprovação; nenhum autofix foi aplicado.",
+      "links": []
+    },
     {
       "id": "installed-runtime-read-only-smoke-2026-11-10-1423",
       "title": "Probe read-only do runtime instalado 12.1.51",

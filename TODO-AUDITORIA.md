@@ -1,3 +1,9 @@
+## Lint frontend: fonte sem mudanças; lint global não concluiu — 2026-11-10 14:32 BRT
+
+- [x] `npm run lint:changed`: passou e reportou **nenhum arquivo-fonte frontend alterado**.
+- [!] `npm run lint -- --no-error-on-unmatched-pattern`: não concluiu em **420 s**; o processo Node foi encerrado para evitar resíduo. Não usar essa tentativa como contagem ou aprovação.
+- [~] O baseline histórico de ESLint permanece separado; a execução focal por arquivos alterados está verde. Stylelint global não foi promovido nesta rodada.
+
 ## Probe read-only do runtime instalado 12.1.51 — 2026-11-10 14:23 BRT
 
 - [x] `GET http://127.0.0.1:8096/health`: `Healthy`.

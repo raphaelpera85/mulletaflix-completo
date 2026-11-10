@@ -1,3 +1,8 @@
+## Lint frontend: fonte sem mudanças; lint global não concluiu — 2026-11-10 14:32 BRT
+
+- `npm run lint:changed` passou sem arquivos-fonte frontend alterados.
+- O lint global não concluiu no limite de **420 s** e foi encerrado; não há nova contagem utilizável. Isso mantém o gate de qualidade global aberto, sem converter o timeout em falha funcional do produto.
+
 ## Probe read-only do runtime instalado 12.1.51 — 2026-11-10 14:23 BRT
 
 - `/health` respondeu `Healthy` em `127.0.0.1:8096`.
