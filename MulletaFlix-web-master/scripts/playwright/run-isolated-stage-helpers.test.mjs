@@ -4,6 +4,7 @@ import {
     buildIsolatedIntroSkipperConfiguration,
     buildIsolatedNebulaConfiguration,
     buildStageEnvironment,
+    buildStageLaunchArguments,
     createStageDirName
 } from './run-isolated-stage-helpers.mjs';
 
@@ -24,6 +25,13 @@ test('buildStageEnvironment isolates TEMP and TMP without mutating the parent en
     assert.equal(child.TEMP, 'C:\\Users\\Raphael\\.mulletaflix-tmp');
     assert.equal(child.TMP, 'C:\\Users\\Raphael\\.mulletaflix-tmp');
     assert.equal(child.PW_ISOLATED_STAGE_DATA_DIR, 'C:\\Users\\Raphael\\.mulletaflix-tmp\\mflx-playwright-stage-test');
+});
+
+test('buildStageLaunchArguments can point an isolated stage at a current web bundle', () => {
+    assert.deepEqual(
+        buildStageLaunchArguments('stage/MulletaFlix.dll', 'stage-data', 'web-dist'),
+        [ 'stage/MulletaFlix.dll', '--datadir=stage-data', '--webdir=web-dist' ]
+    );
 });
 
 test('buildIsolatedNebulaConfiguration disables external notifications and credentials', () => {

@@ -92,6 +92,12 @@ describe('ActionLogPage query states', () => {
         expect(markup).not.toContain('No action logs found');
     });
 
+    it('exposes the legacy log page anchor used by dashboard consumers', () => {
+        const markup = renderPage();
+
+        expect(markup).toContain('id="logPage"');
+    });
+
     it('does not offer retry when the API is unavailable', () => {
         useApiMock.mockReturnValue({ api: null });
         useQueryMock.mockReturnValue({

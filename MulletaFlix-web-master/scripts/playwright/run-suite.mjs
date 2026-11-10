@@ -18,7 +18,8 @@ import {
 } from '../../tests/playwright/support/index.mjs';
 import {
     buildIsolatedIntroSkipperConfiguration,
-    buildIsolatedNebulaConfiguration
+    buildIsolatedNebulaConfiguration,
+    buildStageLaunchArguments
 } from './run-isolated-stage-helpers.mjs';
 import {
     assertSafeRemovalTargets,
@@ -274,7 +275,7 @@ async function resetStageWorkspace() {
 
 async function startStageAndWaitClean(baseUrl, databasePort) {
     console.error('[playwright] starting clean stage');
-    const child = spawn(dotnetExecutable, [ stageDll, `--datadir=${stageDataDir}` ], {
+    const child = spawn(dotnetExecutable, buildStageLaunchArguments(stageDll, stageDataDir, process.env.MFLX_E2E_WEBDIR || ''), {
         windowsHide: true,
         env: {
             ...process.env,

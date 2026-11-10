@@ -4481,3 +4481,11 @@ Sem release, instalação, publicação remota ou crédito formal. Homologação
 ## Fallback de imagem resiliente a falha não-HTTP — 2026-11-03 12:57 BRT
 
 O fluxo de refresh de imagens não interrompe mais a seleção quando um candidato lança `IOException` ou outra exceção comum. O candidato falho é registrado com URL redigida e o próximo candidato é tentado; cancelamento continua propagado. TDD focal passou 1/1, Providers sem Integration 923/923, regressão serial sem Integration 5.638 aprovados/98 ignorados/0 falhas em 5.736 casos e build Release 0 erros. A evidência é local: runtime instalado 12.1.45, CI/Linux, instalação persistente, providers reais e produção seguem sem aceite.
+## Playwright E2E isolado com bundle web atual e correção da rota de logs — 2026-11-10 20:07 BRT
+
+- A falha `#logPage` foi rastreada ao roteador assíncrono: `logs` resolvia `logs/index`, enquanto a implementação React está em `routes/action-log.tsx`.
+- TDD RED/GREEN passou: contrato de `ASYNC_ADMIN_ROUTES` e anchor legado `#logPage` cobertos; `logs` agora declara `page: 'action-log'`.
+- O runner recebeu `MFLX_E2E_WEBDIR` opcional para stage descartável validar o bundle atual sem promover artefato ao runtime instalado.
+- Vitest/build/verify continuaram GREEN: **80 arquivos / 430 testes**, typecheck, produção e **299,3 KB gzip**.
+- O stage focal com bundle atual eliminou o erro de componente ausente, mas permaneceu PARTIAL (**1/7 passou, 2 falharam, 4 não executaram**) por timeout de navegação/hash e instabilidade de preenchimento do login.
+- A rodada ampla com mídia sintética não fecha o catálogo/playback: `MovieCount=0`, `ERR_ABORTED` no multi-user, AdSense expirado e item-details sem progresso; cleanup foi confirmado.

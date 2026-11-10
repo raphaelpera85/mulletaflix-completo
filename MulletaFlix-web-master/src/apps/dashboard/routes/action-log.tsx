@@ -313,7 +313,8 @@ const ActionLogPage = () => {
     );
 
     return (
-        <Widget title={globalize.translate('ActionLog')} href='/dashboard/action-log'>
+        <Box id='logPage'>
+            <Widget title={globalize.translate('ActionLog')} href='/dashboard/logs'>
             <Toolbar sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
                 <TextField
                     placeholder={globalize.translate('SearchByUsername')}
@@ -587,7 +588,8 @@ const ActionLogPage = () => {
                     </>
                 )}
             </Menu>
-        </Widget>
+            </Widget>
+        </Box>
     );
 };
 

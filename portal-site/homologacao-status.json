@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T14:44:00-03:00",
+  "generatedAt": "2026-11-10T20:07:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -3283,6 +3283,23 @@
     }
   ],
   "events": [
+    {
+      "id": "web-playwright-current-bundle-log-route-2026-11-10-2007",
+      "title": "Playwright E2E com bundle atual e correção da rota de logs",
+      "agent": "Hermes",
+      "front": "web",
+      "featureIds": [],
+      "local": "Windows local; stage descartável em 18096/33100 com bundle dist explícito",
+      "location": "MulletaFlix-web-master/src/apps/dashboard/routes/_asyncRoutes.ts, action-log.tsx, scripts/playwright/run-suite.mjs",
+      "scope": "Reproduzir a falha #logPage, corrigir o roteamento React mínimo e validar o bundle atual sem promoção ao runtime instalado",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-10T16:42:00-03:00",
+      "updatedAt": "2026-11-10T20:07:00-03:00",
+      "evidence": "RED reproduziu logs/index ausente e page=undefined; GREEN passou os testes React focais 6/6, os helpers do runner 5/5 e a regressão web 80 arquivos/430 testes. O stage focal com MFLX_E2E_WEBDIR=dist terminou 1/7 aprovado, 2 falhas e 4 não executados: o erro de componente ausente deixou de aparecer, mas permanecem timeout de navegação/hash e reset do valor no login. A rodada ampla com mídia sintética observou MovieCount=0, ERR_ABORTED no multi-user, AdSense expirado e item-details sem progresso; cleanup confirmou ausência de listeners/stage/MariaDB scratch.",
+      "release": "Correção de source e harness validada localmente; homologação global continua PARTIAL. Não houve promoção do bundle ao runtime 12.1.51, release, Supabase real, catálogo persistente ou playback de produção.",
+      "links": []
+    },
     {
       "id": "web-playwright-requests-focused-2026-11-10-1444",
       "title": "Playwright focal de requests, autocomplete, Nebula e backup",

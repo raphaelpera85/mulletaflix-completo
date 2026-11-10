@@ -13,6 +13,15 @@ export function buildStageEnvironment(parentEnvironment, tempBase, overrides = {
     };
 }
 
+export function buildStageLaunchArguments(stageDll, stageDataDir, webDir = '') {
+    const argumentsList = [ stageDll, `--datadir=${stageDataDir}` ];
+    if (webDir.trim()) {
+        argumentsList.push(`--webdir=${webDir}`);
+    }
+
+    return argumentsList;
+}
+
 export function buildIsolatedNebulaConfiguration() {
     return '<NebulaFtpConfiguration>\n'
         + '  <Enabled>false</Enabled>\n'

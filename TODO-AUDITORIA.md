@@ -2059,3 +2059,13 @@ Sem release, instalação, publicação remota ou crédito formal. Homologação
 - **GREEN focal:** `99-pagination.spec.ts` passou 2/2 após corrigir a espera da navegação SPA, a asserção do nome de log e a consulta de folders do usuário comum; a regressão ampla histórica ainda não foi reconciliada.
 - **BLOCKED refinado:** `21-multi-user-playback.spec.ts` prova playback no primeiro contexto, mas o segundo fica com fila intro + filme sem `NowPlayingItem`; trace registra fallback de intro e `player cannot be null` antes de qualquer `POST /Sessions/Playing`. Próximo TDD deve cobrir o ciclo de vida do player no fallback.
 - A homologação global permanece **PARTIAL**; não executar release, deploy ou aplicar bundle ao runtime instalado.
+## Playwright E2E isolado com bundle web atual e correção da rota de logs — 2026-11-10 20:07 BRT
+
+- [x] O diagnóstico da falha `#logPage` encontrou a causa no roteamento: `logs` apontava implicitamente para `logs/index`, mas a implementação existente está em `routes/action-log.tsx`.
+- [x] TDD RED/GREEN: `asyncRoutes.test.ts` reproduziu `page=undefined`; após o patch, o contrato focal passou. `action-log.test.tsx` também passou a exigir o anchor legado `#logPage`.
+- [x] Correção mínima: `logs` agora usa `page: 'action-log'`; `ActionLogPage` expõe `id='logPage'` e mantém o link canônico em `/dashboard/logs`.
+- [x] O runner ganhou `MFLX_E2E_WEBDIR` opcional para validar o bundle frontend atual em stage descartável, sem alterar o runtime instalado; contrato dos helpers passou **5/5**.
+- [x] Regressão web local após a correção: **80 arquivos / 430 testes**, `build:check`, `build:production` e `verify:build` passaram; payload inicial **299,3 KB gzip**.
+- [~] Stage focal com bundle atual (`MFLX_E2E_WEBDIR=dist`, 7 testes): **1 aprovado, 2 falhas e 4 não executados**. O erro `Route component not found for page: logs/index` deixou de aparecer; permanecem timeout de navegação/hash em `10-admin.spec.ts:57` e reset do valor do usuário no login em `12-admin-surfaces.spec.ts:19`.
+- [~] A execução ampla com mídia sintética não recebeu resumo final: reconhecimento terminou com `MovieCount=0`, playback multiusuário falhou com `ERR_ABORTED`, AdSense expirou após **27,6 min** e o fluxo de detalhes ficou sem progresso; o processo foi encerrado depois de aproximadamente **56 min** para liberar o stage.
+- [x] Cleanup verificado: nenhum listener em `18096`, `18197` ou `33100`, nenhum stage/MariaDB scratch ativo e fixtures de mídia descartáveis removidas; runtime instalado e MariaDB produtivo permaneceram intocados.
