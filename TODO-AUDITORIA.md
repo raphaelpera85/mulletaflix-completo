@@ -12,6 +12,7 @@
 - [x] Limpeza de dependência GetAvatar: removido `Microsoft.Extensions.Http` redundante, já fornecido pelo `Microsoft.AspNetCore.App`; build Release incremental passou com **0 erros** e sem `NU1510`; auditoria NuGet permaneceu em **0 entradas vulneráveis**.
 - [x] Inventário completo do build Release da solução reprocessado com parser corrigido: **2.242 avisos, 0 erros**; `xUnit1051=762`, `SA1516=916`, `SA1611=880`, `SA1615=310`, `SA1503=260`, `SA1402=220`, `CA1416=108`, `xUnit2031=80`. O erro anterior foi somente do parser auxiliar, não do build.
 - [x] Lote xUnit1051 focal em `NebulaUploadEngineTests.cs`: 6 chamadas passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **226/226** e o log não contém xUnit1051 para esse arquivo.
+- [x] Lote xUnit1051 focal em `NebulaCleanupLifecycleTests.cs`: 3 chamadas passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **10/10** e o log não contém xUnit1051 para esse arquivo.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 

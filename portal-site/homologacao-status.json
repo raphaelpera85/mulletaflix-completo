@@ -3302,6 +3302,23 @@
       "links": []
     },
     {
+      "id": "xunit1051-nebula-cleanup-lifecycle-2026-11-11",
+      "title": "Lote xUnit1051 em NebulaCleanupLifecycleTests",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; .NET SDK 10.0.300; teste focal Release",
+      "location": "tests/Jellyfin.Server.Implementations.Tests/Nebula/NebulaCleanupLifecycleTests.cs",
+      "scope": "Propagar o token de cancelamento do xUnit nas três chamadas sinalizadas, sem alterar código de produção",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-11T12:47:00-03:00",
+      "updatedAt": "2026-11-11T12:50:44-03:00",
+      "evidence": "SemaphoreSlim.WaitAsync, Task.Delay e WaitAsync com timeout passaram a receber TestContext.Current.CancellationToken. O teste focal terminou com 10 aprovados, 0 falhas, 0 ignorados / 10; o log não contém xUnit1051 para NebulaCleanupLifecycleTests.cs.",
+      "release": "Somente testes foram alterados; nenhum código de produção, contrato, runtime, banco ou ambiente externo foi alterado. O inventário global xUnit1051 permanece aberto.",
+      "links": []
+    },
+    {
       "id": "dotnet-build-warning-inventory-full-2026-11-11",
       "title": "Inventário completo de warnings do build Release",
       "agent": "Hermes",

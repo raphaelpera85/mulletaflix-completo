@@ -129,7 +129,7 @@ public sealed class NebulaCleanupLifecycleTests
     {
         var manager = CreateManager();
         var maintenance = (SemaphoreSlim)GetField(manager, "_maintenanceLock")!;
-        await maintenance.WaitAsync();
+        await maintenance.WaitAsync(TestContext.Current.CancellationToken);
         var mount = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         SetField(manager, "_automaticMountTask", mount.Task);
 
@@ -137,7 +137,7 @@ public sealed class NebulaCleanupLifecycleTests
         {
             var disposal = manager.DisposeAsync().AsTask();
             mount.SetResult();
-            await Task.Delay(50);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
             Assert.False(disposal.IsCompleted);
             Assert.Same(maintenance, GetField(manager, "_maintenanceLock"));
             maintenance.Release();
@@ -193,7 +193,7 @@ public sealed class NebulaCleanupLifecycleTests
         {
             manager.Dispose();
             Assert.True(cancellation.IsCancellationRequested);
-            Assert.True(await transition.WaitAsync(0));
+            Assert.True(await transition.WaitAsync(0, TestContext.Current.CancellationToken));
             transition.Release();
             Assert.Same(cleanup.Task, GetField(manager, "_cleanupTask"));
         }
