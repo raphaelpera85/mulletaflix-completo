@@ -14,6 +14,10 @@
 - [x] Lote xUnit1051 focal em `NebulaUploadEngineTests.cs`: 6 chamadas passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **226/226** e o log não contém xUnit1051 para esse arquivo.
 - [x] Lote xUnit1051 focal em `NebulaCleanupLifecycleTests.cs`: 3 chamadas passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **10/10** e o log não contém xUnit1051 para esse arquivo.
 - [x] Lote xUnit1051 focal em `ItemPersistenceServiceTests.cs`: 15 chamadas passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **39/39** e o log não contém xUnit1051 para esse arquivo.
+- [x] Lote xUnit1051 focal em `MidiaStorageOnlineLinkValidatorTests.cs`: chamadas de probe e gravação de cache passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **5/5** e o log não contém xUnit1051 para esse arquivo.
+- [x] Lote xUnit1051 focal em `StrmPrebufferManagerTests.cs`: gravação do fixture `.strm` e duas leituras do prebuffer passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **1/1** e o log não contém xUnit1051 para esse arquivo.
+- [x] Regressão .NET completa final pós-`ItemPersistenceServiceTests.cs`, `MidiaStorageOnlineLinkValidatorTests.cs` e `StrmPrebufferManagerTests.cs`: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos** em 17 projetos, com `-m:1`; os testes ignorados não receberam crédito.
+- [x] Build Release incremental final após os dois últimos lotes: **0 erros**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 

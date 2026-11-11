@@ -37,7 +37,7 @@ public class MidiaStorageOnlineLinkValidatorTests
             entries,
             factory,
             NullLogger.Instance,
-            CancellationToken.None);
+            TestContext.Current.CancellationToken);
 
         Assert.Single(filtered);
         Assert.Equal("Online", filtered[0].Name);
@@ -64,7 +64,7 @@ public class MidiaStorageOnlineLinkValidatorTests
             entries,
             factory,
             NullLogger.Instance,
-            CancellationToken.None);
+            TestContext.Current.CancellationToken);
 
         Assert.Single(filtered);
         Assert.Single(requests);
@@ -92,7 +92,7 @@ public class MidiaStorageOnlineLinkValidatorTests
             entries,
             factory,
             NullLogger.Instance,
-            CancellationToken.None);
+            TestContext.Current.CancellationToken);
 
         Assert.Single(filtered);
         Assert.Equal(2, requests.Count);
@@ -120,7 +120,7 @@ public class MidiaStorageOnlineLinkValidatorTests
             entries,
             factory,
             NullLogger.Instance,
-            CancellationToken.None);
+            TestContext.Current.CancellationToken);
 
         Assert.Single(filtered);
         Assert.Single(requests);
@@ -133,7 +133,7 @@ public class MidiaStorageOnlineLinkValidatorTests
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         var cachePath = Path.Combine(tempDir, "offline-links.json");
-        await File.WriteAllTextAsync(cachePath, JsonSerializer.Serialize(new[] { "https://offline.example/movie.m3u8" }));
+        await File.WriteAllTextAsync(cachePath, JsonSerializer.Serialize(new[] { "https://offline.example/movie.m3u8" }), TestContext.Current.CancellationToken);
 
         var requests = 0;
         var entries = new List<IMidiaStorageOnlineM3uEntry>
@@ -152,7 +152,7 @@ public class MidiaStorageOnlineLinkValidatorTests
             entries,
             factory,
             NullLogger.Instance,
-            CancellationToken.None,
+            TestContext.Current.CancellationToken,
             offlineCachePath: cachePath);
 
         Assert.Single(filtered);

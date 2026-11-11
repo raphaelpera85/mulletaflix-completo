@@ -24,7 +24,7 @@ public class StrmPrebufferManagerTests
     public async Task CopyToAsync_Should_KeepPrebufferAvailable_ForRepeatedReads()
     {
         var tempStrm = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.strm");
-        await File.WriteAllTextAsync(tempStrm, "https://example.test/video.mp4");
+        await File.WriteAllTextAsync(tempStrm, "https://example.test/video.mp4", TestContext.Current.CancellationToken);
 
         try
         {
@@ -68,13 +68,13 @@ public class StrmPrebufferManagerTests
 
             await using (var first = new MemoryStream())
             {
-                await manager.CopyToAsync(item.Id, first, CancellationToken.None);
+                await manager.CopyToAsync(item.Id, first, TestContext.Current.CancellationToken);
                 Assert.Equal("abcdef", System.Text.Encoding.UTF8.GetString(first.ToArray()));
             }
 
             await using (var second = new MemoryStream())
             {
-                await manager.CopyToAsync(item.Id, second, CancellationToken.None);
+                await manager.CopyToAsync(item.Id, second, TestContext.Current.CancellationToken);
                 Assert.Equal("abcdef", System.Text.Encoding.UTF8.GetString(second.ToArray()));
             }
         }
