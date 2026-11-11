@@ -96,10 +96,10 @@ public class ItemPersistenceServiceTests
             NullLogger<ItemPersistenceService>.Instance);
         var item = new Movie { Id = itemId };
 
-        await itemLock.WaitAsync();
+        await itemLock.WaitAsync(TestContext.Current.CancellationToken);
         try
         {
-            var saveTask = service.SaveImagesAsync(item);
+            var saveTask = service.SaveImagesAsync(item, TestContext.Current.CancellationToken);
             Assert.False(saveTask.IsCompleted);
             dbFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
 
@@ -147,11 +147,11 @@ public class ItemPersistenceServiceTests
             }
         });
 
-        itemLock.Wait();
+        itemLock.Wait(TestContext.Current.CancellationToken);
         try
         {
             updateThread.Start();
-            Assert.True(started.Wait(TimeSpan.FromSeconds(5)), "UpdatePeople worker did not start.");
+            Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "UpdatePeople worker did not start.");
             Assert.True(
                 SpinWait.SpinUntil(
                     () => !updateThread.IsAlive || (updateThread.ThreadState & ThreadState.WaitSleepJoin) != 0,
@@ -162,7 +162,7 @@ public class ItemPersistenceServiceTests
             dbFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
 
             itemLock.Release();
-            Assert.True(finished.Wait(TimeSpan.FromSeconds(5)), "UpdatePeople worker did not finish after lock release.");
+            Assert.True(finished.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "UpdatePeople worker did not finish after lock release.");
         }
         finally
         {
@@ -209,11 +209,11 @@ public class ItemPersistenceServiceTests
             }
         });
 
-        itemLock.Wait();
+        itemLock.Wait(TestContext.Current.CancellationToken);
         try
         {
             updateThread.Start();
-            Assert.True(started.Wait(TimeSpan.FromSeconds(5)), "UpdateInheritedValues worker did not start.");
+            Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "UpdateInheritedValues worker did not start.");
             Assert.True(
                 SpinWait.SpinUntil(
                     () => !updateThread.IsAlive || (updateThread.ThreadState & ThreadState.WaitSleepJoin) != 0,
@@ -224,7 +224,7 @@ public class ItemPersistenceServiceTests
             dbFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
 
             itemLock.Release();
-            Assert.True(finished.Wait(TimeSpan.FromSeconds(5)), "UpdateInheritedValues worker did not finish after lock release.");
+            Assert.True(finished.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "UpdateInheritedValues worker did not finish after lock release.");
         }
         finally
         {
@@ -258,7 +258,7 @@ public class ItemPersistenceServiceTests
             logger);
 
         var actualException = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.SaveImagesAsync(new Movie { Id = itemId }));
+            () => service.SaveImagesAsync(new Movie { Id = itemId }, TestContext.Current.CancellationToken));
 
         Assert.Same(expectedException, actualException);
         dbFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Exactly(3));
@@ -288,7 +288,7 @@ public class ItemPersistenceServiceTests
             NullLogger<ItemPersistenceService>.Instance);
 
         var actualException = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.SaveImagesAsync(new Movie { Id = Guid.NewGuid() }));
+            () => service.SaveImagesAsync(new Movie { Id = Guid.NewGuid() }, TestContext.Current.CancellationToken));
 
         Assert.Same(expectedException, actualException);
         dbFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Exactly(10));
@@ -308,7 +308,7 @@ public class ItemPersistenceServiceTests
             NullLogger<ItemPersistenceService>.Instance);
 
         var actualException = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.SaveImagesAsync(new Movie { Id = Guid.NewGuid() }));
+            () => service.SaveImagesAsync(new Movie { Id = Guid.NewGuid() }, TestContext.Current.CancellationToken));
 
         Assert.Same(expectedException, actualException);
         dbFactory.Verify(factory => factory.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -327,7 +327,7 @@ public class ItemPersistenceServiceTests
             Mock.Of<IServerApplicationHost>(),
             NullLogger<ItemPersistenceService>.Instance);
 
-        await placeholderLock.WaitAsync();
+        await placeholderLock.WaitAsync(TestContext.Current.CancellationToken);
         try
         {
             var cleanupTask = service.DeleteExpiredPlaceholderUserDataAsync(DateTime.UtcNow, CancellationToken.None);
@@ -395,11 +395,11 @@ public class ItemPersistenceServiceTests
             }
         });
 
-        itemLock.Wait();
+        itemLock.Wait(TestContext.Current.CancellationToken);
         try
         {
             saveThread.Start();
-            Assert.True(started.Wait(TimeSpan.FromSeconds(5)), "SaveItems worker did not start.");
+            Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "SaveItems worker did not start.");
             Assert.True(
                 SpinWait.SpinUntil(
                     () => !saveThread.IsAlive || (saveThread.ThreadState & ThreadState.WaitSleepJoin) != 0,
@@ -410,7 +410,7 @@ public class ItemPersistenceServiceTests
             dbFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
 
             itemLock.Release();
-            Assert.True(finished.Wait(TimeSpan.FromSeconds(5)), "SaveItems worker did not finish after lock release.");
+            Assert.True(finished.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "SaveItems worker did not finish after lock release.");
             // The fixture lacks BaseItem.LibraryManager, so the worker stops before opening the database.
             Assert.IsType<NullReferenceException>(saveException);
             dbFactory.Verify(factory => factory.CreateDbContext(), Times.Never);
