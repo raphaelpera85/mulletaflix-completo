@@ -3,7 +3,7 @@
 - [x] Diagnóstico de reconhecimento com bundle atual e servidor Debug publicado em scratch: **1/1 aprovado**, `MovieCount=2`, `ItemCount=3`, dois itens concretos `Movie`/`Video` com caminhos das fixtures sintéticas.
 - [x] Playback simultâneo multiusuário: **1/1 aprovado** com dois usuários descartáveis, duas sessões distintas e o mesmo filme reproduzido simultaneamente.
 - [x] A primeira tentativa do playback falhou porque os filmes sintéticos tinham **12 s** e terminavam antes da segunda sessão; a reexecução com mídia de **180 s** passou. Isso era limitação da fixture, não falha confirmada do servidor.
-- [~] Esta evidência usa servidor, MariaDB e mídia descartáveis; não fecha playback no runtime instalado, catálogo persistente, transcodificação ampla, AdSense, Supabase ou produção.
+- [~] Esta evidência usa servidor, MariaDB e mídia descartáveis; não fecha playback no runtime instalado, catálogo persistente, transcodificação ampla, Supabase ou produção.
 - Sessão Obsidian: `2026-11-10 - Catálogo e playback E2E corrigidos.md`.
 
 ## TDD AdSense após intro e avanço para mídia principal — 2026-11-10
@@ -12,7 +12,8 @@
 - [x] GREEN: criado `shouldAdvanceAfterPlayback`, preservando a política de autoplay para vídeos regulares e forçando a transição de intro para a próxima mídia, inclusive quando a próxima mídia é vídeo.
 - [x] TDD focal: **4/4 aprovados**; regressão relacionada `playIntroThenMain`: **4/4 aprovados**.
 - [x] Regressão frontend posterior: **82 arquivos / 437 testes**, `tsc --noEmit`, `build:check` e `verify:build` aprovados; payload inicial **299,4 KB gzip / 420 KB**. `build:production` também passou antes da regressão final.
-- [!] O aceite Playwright AdSense ainda não foi fechado: a execução isolada ampla encontrou deadlock transitório durante a varredura concorrente das duas bibliotecas e foi encerrada; não converter essa tentativa em GREEN.
+- [x] RED do harness corrigido: o cenário aguardava uma biblioteca de séries que não usa; passou a preparar somente `MOVIES_LIBRARY`.
+- [x] Playwright AdSense focal: **2/2 aprovados em 2,7 min** — anúncio após intro e fallback quando o script falha.
 - [~] Não há aceite de runtime instalado, AdSense real, monetização, Supabase ou produção. O script Google foi apenas stub descartável quando exercitado.
 - Sessão Obsidian: `2026-11-10 - TDD AdSense após intro e avanço para mídia principal.md`.
 

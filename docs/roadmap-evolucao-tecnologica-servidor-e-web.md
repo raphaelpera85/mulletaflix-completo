@@ -10,7 +10,8 @@
 - A condição anterior só avançava para a próxima mídia de vídeo quando `EnableNextEpisodeAutoPlay=true`; isso deixava a transição intro → filme bloqueada para o padrão de autoplay desligado.
 - TDD RED/GREEN adicionou `shouldAdvanceAfterPlayback`: intros sempre avançam para a próxima mídia existente, enquanto vídeos regulares continuam respeitando autoplay.
 - TDD focal **4/4**, regressão `playIntroThenMain` **4/4**, Vitest **82 arquivos / 437 testes**, TypeScript, `build:check`, `build:production` e `verify:build` aprovados; payload **299,4 KB gzip / 420 KB**.
-- O Playwright AdSense não foi promovido a aceite: a execução descartável mais ampla encontrou deadlock durante a varredura concorrente das bibliotecas; o cenário exige nova rodada controlada após isolar esse bloqueio.
+- O Playwright AdSense focal passou **2/2 em 2,7 min** após o harness deixar de aguardar uma biblioteca de séries não utilizada pelo fluxo; anúncio após intro e fallback de script foram exercitados em stage descartável.
+- O aceite continua limitado ao stage: runtime instalado, AdSense real/monetização, Supabase e produção seguem pendentes.
 
 ## E2E administrativo com bundle e servidor corrigidos — 2026-11-10
 
