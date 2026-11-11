@@ -3285,6 +3285,23 @@
   ],
   "events": [
     {
+      "id": "stylecop-nebula-path-safety-2026-11-11",
+      "title": "Lote focal StyleCop em NebulaPathSafety",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; .NET SDK 10.0.300; teste focal Release",
+      "location": "Jellyfin.Server.Implementations/Nebula/NebulaPathSafety.cs",
+      "scope": "Corrigir somente a documentação ausente dos parâmetros sinalizados por SA1611",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-11T12:00:00-03:00",
+      "updatedAt": "2026-11-11T12:05:11-03:00",
+      "evidence": "A documentação dos parâmetros path e root de IsPathWithinRoot foi adicionada. O teste focal dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --no-restore -m:1 --filter FullyQualifiedName~NebulaPathSafetyTests terminou com 4 aprovados, 0 falhas, 0 ignorados. O log não contém mais SA1611 para NebulaPathSafety.cs.",
+      "release": "Alteração restrita a XML documentation; nenhuma lógica, contrato, dependência, runtime ou ambiente externo foi alterado. O backlog global de warnings permanece aberto.",
+      "links": []
+    },
+    {
       "id": "dotnet-build-warning-inventory-2026-11-11",
       "title": "Inventário atualizado de warnings do build .NET",
       "agent": "Hermes",

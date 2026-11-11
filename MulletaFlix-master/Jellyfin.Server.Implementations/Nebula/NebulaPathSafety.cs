@@ -13,6 +13,8 @@ internal static class NebulaPathSafety
     /// Checks lexical containment and rejects existing reparse-point components on either path.
     /// Nonexistent descendants are allowed so callers can validate future output paths.
     /// </summary>
+    /// <param name="path">The path to validate.</param>
+    /// <param name="root">The configured root that must contain the path.</param>
     internal static bool IsPathWithinRoot(string path, string root)
     {
         if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(root))
