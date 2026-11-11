@@ -3285,6 +3285,23 @@
   ],
   "events": [
     {
+      "id": "dotnet-build-warning-inventory-2026-11-11",
+      "title": "Inventário atualizado de warnings do build .NET",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; .NET SDK 10.0.300; solução Release serial",
+      "location": "MulletaFlix.sln",
+      "scope": "Medir os warnings atuais sem alterar código ou tratar a contagem como aprovação funcional",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-11T11:45:00-03:00",
+      "updatedAt": "2026-11-11T11:48:00-03:00",
+      "evidence": "O build incremental Release foi executado e o log foi capturado em C:/Users/Raphael/AppData/Local/hermes/cache/scratch/mulletaflix-warning-inventory-20261111.log. A contagem bruta de analisadores foi SA1611=440, SA1516=430, SA1615=155, SA1402=108, SA1503=71 e SA1623=52. xUnit1051 não apareceu no build; seus 386 itens históricos permanecem separados como warnings da execução de testes.",
+      "release": "Nenhuma correção automática ou alteração de produção foi aplicada. O inventário serve para priorização; warnings não anulam os testes aprovados, mas também não equivalem a homologação. Homologação global continua parcial.",
+      "links": []
+    },
+    {
       "id": "dotnet-clean-build-mimetypes-root-cause-2026-11-11",
       "title": "Causa raiz isolada do build limpo .NET em MimeTypes",
       "agent": "Hermes",

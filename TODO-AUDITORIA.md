@@ -6,6 +6,7 @@
 - [!] Build Release limpo da solução (`--no-incremental`) reproduz **2 CS0234** em `MediaBrowser.Model/Net/MimeTypes.cs`. A causa foi isolada: `CoreClean` remove `obj/Release/net10.0/NuGet/71720D7188250282/MimeTypes/2.5.2/MimeTypes.Nullable.cs` a partir do `MediaBrowser.Model.csproj.FileListAbsolute.txt`; o SDK .NET 10.0.300 então não executa `RunProduceContentAssets` porque `_CleaningWithoutRebuilding=true`, deixando apenas `_ContentFilesToPreprocess` e sem regenerar o `.cs`. O build isolado recria o arquivo e passa. É uma incompatibilidade/reprodutibilidade do caminho MSBuild/NuGet `contentFiles` com rebuild da solução, não um erro de código em `MimeTypes.cs`.
 - [x] Regressão completa .NET serial após este lote: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos em 17 projetos**; resumo reconciliado por projeto a partir da saída real.
 - [x] Diagnóstico capturado em `C:/Users/Raphael/AppData/Local/hermes/cache/scratch/mulletaflix-solution-diag-20261111.log`; nenhuma correção especulativa foi aplicada.
+- [x] Inventário atual do build incremental Release foi capturado em `C:/Users/Raphael/AppData/Local/hermes/cache/scratch/mulletaflix-warning-inventory-20261111.log`; contagem bruta de analisadores: `SA1611=440`, `SA1516=430`, `SA1615=155`, `SA1402=108`, `SA1503=71`, `SA1623=52`. `xUnit1051` não apareceu no build; permanece separado como warning emitido durante testes.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 

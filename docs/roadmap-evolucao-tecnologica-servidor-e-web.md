@@ -4,6 +4,7 @@
 - [x] Build Release incremental da solução passou com **0 erros e 631 avisos**.
 - [!] Build Release limpo (`dotnet build MulletaFlix.sln -c Release --no-restore --no-incremental -m:1`) reproduziu **2 erros CS0234** em `MediaBrowser.Model/Net/MimeTypes.cs`. `CoreClean` remove o `MimeTypes.Nullable.cs` listado no `MediaBrowser.Model.csproj.FileListAbsolute.txt`; no SDK .NET 10.0.300, `RunProduceContentAssets` é pulado quando `_CleaningWithoutRebuilding=true`, deixando apenas `_ContentFilesToPreprocess` e sem regenerar o `.cs`. O projeto isolado recria o arquivo e passa. A causa está isolada no caminho MSBuild/NuGet `contentFiles` do rebuild da solução; nenhuma correção especulativa foi aplicada.
 - [x] Teste .NET completo serial após o lote: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos em 17 projetos**; contagem somada a partir das 17 linhas de resumo reais.
+- [x] Inventário bruto do build incremental mais recente: `SA1611=440`, `SA1516=430`, `SA1615=155`, `SA1402=108`, `SA1503=71`, `SA1623=52`; `xUnit1051` não é emitido nesse build e permanece um inventário separado da execução de testes.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
