@@ -3285,6 +3285,23 @@
   ],
   "events": [
     {
+      "id": "dotnet-build-warning-inventory-full-2026-11-11",
+      "title": "Inventário completo de warnings do build Release",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; .NET SDK 10.0.300; solução Release serial",
+      "location": "MulletaFlix.sln",
+      "scope": "Reprocessar o log completo com parser corrigido e separar falha de instrumentação de falha do build",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-11T12:33:00-03:00",
+      "updatedAt": "2026-11-11T12:35:44-03:00",
+      "evidence": "O build Release da solução terminou com 0 erros e o log foi reprocessado sem a expressão regular defeituosa. Inventário bruto: 2.242 avisos; xUnit1051=762, SA1516=916, SA1611=880, SA1615=310, SA1503=260, SA1402=220, CA1416=108 e xUnit2031=80. O processo auxiliar anterior falhou no parser com re.PatternError, mas o build havia terminado com exit 0; essa falha não era do produto.",
+      "release": "Nenhum código de produção foi alterado. A contagem é inventário bruto repetido por projetos e não equivale a defeitos únicos nem a aprovação funcional. Homologação global continua parcial.",
+      "links": []
+    },
+    {
       "id": "cleanup-getavatar-http-dependency-2026-11-11",
       "title": "Remoção de dependência redundante do GetAvatar",
       "agent": "Hermes",

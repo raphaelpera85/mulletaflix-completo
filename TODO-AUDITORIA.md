@@ -10,6 +10,7 @@
 - [x] Lote focal StyleCop em `NebulaPathSafety.cs`: documentação dos parâmetros de `IsPathWithinRoot` eliminou os 2 `SA1611` daquele arquivo; `NebulaPathSafetyTests` passou **4/4**.
 - [x] Segurança NuGet: removido `Microsoft.AspNetCore.Mvc.Core` 2.3.0 do GetAvatar e substituído pelo `FrameworkReference` `Microsoft.AspNetCore.App`; auditoria da solução ficou com **0 entradas vulneráveis**. Testes Avatar: **58 aprovados, 3 ignorados, 0 falhas / 61**; build incremental: **0 erros**.
 - [x] Limpeza de dependência GetAvatar: removido `Microsoft.Extensions.Http` redundante, já fornecido pelo `Microsoft.AspNetCore.App`; build Release incremental passou com **0 erros** e sem `NU1510`; auditoria NuGet permaneceu em **0 entradas vulneráveis**.
+- [x] Inventário completo do build Release da solução reprocessado com parser corrigido: **2.242 avisos, 0 erros**; `xUnit1051=762`, `SA1516=916`, `SA1611=880`, `SA1615=310`, `SA1503=260`, `SA1402=220`, `CA1416=108`, `xUnit2031=80`. O erro anterior foi somente do parser auxiliar, não do build.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
