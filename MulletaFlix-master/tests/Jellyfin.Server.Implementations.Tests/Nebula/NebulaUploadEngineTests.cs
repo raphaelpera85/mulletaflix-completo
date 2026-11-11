@@ -71,24 +71,24 @@ public class NebulaUploadEngineTests
             deleteSourceAfterUpload: false,
             NullLogger<NebulaUploadEngine>.Instance);
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".mkv");
-        await File.WriteAllTextAsync(path, "upload lifecycle");
+        await File.WriteAllTextAsync(path, "upload lifecycle", TestContext.Current.CancellationToken);
         var semaphore = (SemaphoreSlim)typeof(NebulaUploadEngine)
             .GetField("_concurrencySemaphore", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine)!;
         var cancellation = (CancellationTokenSource)typeof(NebulaUploadEngine)
             .GetField("_cts", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine)!;
-        await semaphore.WaitAsync();
+        await semaphore.WaitAsync(TestContext.Current.CancellationToken);
         using var releaseHeldSlot = cancellation.Token.Register(() => semaphore.Release());
 
         try
         {
-            var upload = engine.ProcessFileUploadAsync(path, Path.GetFileName(path));
+            var upload = engine.ProcessFileUploadAsync(path, Path.GetFileName(path), cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(SpinWait.SpinUntil(
                 () => (int)typeof(NebulaUploadEngine)
                     .GetField("_activeOperations", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine)! == 1,
                 TimeSpan.FromSeconds(5)));
 
             var disposal = engine.DisposeAsync().AsTask();
-            Assert.False(await engine.ProcessFileUploadAsync(path, Path.GetFileName(path)));
+            Assert.False(await engine.ProcessFileUploadAsync(path, Path.GetFileName(path), cancellationToken: TestContext.Current.CancellationToken));
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upload);
             await disposal.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         }
@@ -155,7 +155,7 @@ public class NebulaUploadEngineTests
             NullLogger<NebulaUploadEngine>.Instance);
 
         var missingPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "private-title.mkv");
-        var result = await engine.ProcessFileUploadAsync(missingPath, "private-title.mkv", "private-parent");
+        var result = await engine.ProcessFileUploadAsync(missingPath, "private-title.mkv", "private-parent", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result);
         Assert.NotNull(recordedActivity);
@@ -826,7 +826,7 @@ public class NebulaUploadEngineTests
     public async Task StagingWatcher_DoesNotKeepDirectoriesThatCannotBeMonitored()
     {
         var invalidDirectory = Path.Combine(Path.GetTempPath(), $"mulletaflix-staging-file-{Guid.NewGuid():N}");
-        await File.WriteAllTextAsync(invalidDirectory, "not a directory");
+        await File.WriteAllTextAsync(invalidDirectory, "not a directory", TestContext.Current.CancellationToken);
 
         try
         {

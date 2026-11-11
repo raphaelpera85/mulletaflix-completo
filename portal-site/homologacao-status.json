@@ -3285,6 +3285,23 @@
   ],
   "events": [
     {
+      "id": "xunit1051-nebula-upload-engine-2026-11-11",
+      "title": "Lote xUnit1051 em NebulaUploadEngineTests",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; .NET SDK 10.0.300; teste focal Release",
+      "location": "tests/Jellyfin.Server.Implementations.Tests/Nebula/NebulaUploadEngineTests.cs",
+      "scope": "Propagar o token de cancelamento do xUnit nas seis chamadas sinalizadas, sem alterar código de produção",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-11T12:40:00-03:00",
+      "updatedAt": "2026-11-11T12:44:30-03:00",
+      "evidence": "File.WriteAllTextAsync, SemaphoreSlim.WaitAsync e ProcessFileUploadAsync passaram a receber TestContext.Current.CancellationToken. O teste focal terminou com 226 aprovados, 0 falhas, 0 ignorados / 226; o log não contém xUnit1051 para NebulaUploadEngineTests.cs.",
+      "release": "Somente testes foram alterados; nenhum código de produção, contrato, runtime, banco ou ambiente externo foi alterado. O inventário global xUnit1051 permanece aberto.",
+      "links": []
+    },
+    {
       "id": "dotnet-build-warning-inventory-full-2026-11-11",
       "title": "Inventário completo de warnings do build Release",
       "agent": "Hermes",
