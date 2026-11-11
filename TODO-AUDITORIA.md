@@ -9,6 +9,7 @@
 - [x] Inventário atual do build incremental Release foi capturado em `C:/Users/Raphael/AppData/Local/hermes/cache/scratch/mulletaflix-warning-inventory-20261111.log`; contagem bruta de analisadores: `SA1611=440`, `SA1516=430`, `SA1615=155`, `SA1402=108`, `SA1503=71`, `SA1623=52`. `xUnit1051` não apareceu no build; permanece separado como warning emitido durante testes.
 - [x] Lote focal StyleCop em `NebulaPathSafety.cs`: documentação dos parâmetros de `IsPathWithinRoot` eliminou os 2 `SA1611` daquele arquivo; `NebulaPathSafetyTests` passou **4/4**.
 - [x] Segurança NuGet: removido `Microsoft.AspNetCore.Mvc.Core` 2.3.0 do GetAvatar e substituído pelo `FrameworkReference` `Microsoft.AspNetCore.App`; auditoria da solução ficou com **0 entradas vulneráveis**. Testes Avatar: **58 aprovados, 3 ignorados, 0 falhas / 61**; build incremental: **0 erros**.
+- [x] Limpeza de dependência GetAvatar: removido `Microsoft.Extensions.Http` redundante, já fornecido pelo `Microsoft.AspNetCore.App`; build Release incremental passou com **0 erros** e sem `NU1510`; auditoria NuGet permaneceu em **0 entradas vulneráveis**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 

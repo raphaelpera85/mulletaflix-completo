@@ -3285,6 +3285,23 @@
   ],
   "events": [
     {
+      "id": "cleanup-getavatar-http-dependency-2026-11-11",
+      "title": "Remoção de dependência redundante do GetAvatar",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; .NET SDK 10.0.300; solução Release",
+      "location": "MulletaFlix.Plugin.GetAvatar/MulletaFlix.Plugin.GetAvatar.csproj",
+      "scope": "Remover Microsoft.Extensions.Http redundante sem alterar o comportamento do plugin",
+      "status": "completed",
+      "progressPercent": 100,
+      "startedAt": "2026-11-11T12:29:00-03:00",
+      "updatedAt": "2026-11-11T12:32:21-03:00",
+      "evidence": "Microsoft.Extensions.Http.dll está presente no Microsoft.AspNetCore.App net10.0. Após remover o PackageReference, os testes Avatar permaneceram em 58 aprovados, 3 ignorados, 0 falhas / 61; o build Release da solução terminou com exit 0 e 0 erros, sem NU1510. A auditoria NuGet final da solução retornou VULNERABLE_ENTRIES 0.",
+      "release": "Alteração restrita ao arquivo de projeto; nenhuma lógica, instalação, runtime, banco ou ambiente externo foi alterado. Os 3 testes ignorados permanecem sem crédito.",
+      "links": []
+    },
+    {
       "id": "security-getavatar-webutilities-2026-11-11",
       "title": "Remoção da vulnerabilidade transitiva WebUtilities do GetAvatar",
       "agent": "Hermes",

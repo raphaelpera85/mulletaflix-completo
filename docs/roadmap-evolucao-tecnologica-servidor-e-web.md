@@ -7,6 +7,7 @@
 - [x] Inventário bruto do build incremental mais recente: `SA1611=440`, `SA1516=430`, `SA1615=155`, `SA1402=108`, `SA1503=71`, `SA1623=52`; `xUnit1051` não é emitido nesse build e permanece um inventário separado da execução de testes.
 - [x] Lote focal StyleCop em `NebulaPathSafety.cs`: documentação dos parâmetros de `IsPathWithinRoot` eliminou os 2 `SA1611` do arquivo; `NebulaPathSafetyTests` passou **4/4**.
 - [x] Segurança NuGet: removido `Microsoft.AspNetCore.Mvc.Core` 2.3.0 do GetAvatar e usado `FrameworkReference` `Microsoft.AspNetCore.App`; `dotnet list package --vulnerable --include-transitive` retornou **0 entradas vulneráveis**. Testes Avatar passaram **58/61**, com 3 ignorados; build incremental passou com **0 erros**.
+- [x] Limpeza de dependência GetAvatar: removido `Microsoft.Extensions.Http` redundante, já fornecido pelo `Microsoft.AspNetCore.App`; build Release incremental passou com **0 erros**, sem `NU1510`, e a auditoria NuGet permaneceu em **0 entradas vulneráveis**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
