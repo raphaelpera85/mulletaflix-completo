@@ -6,6 +6,7 @@
 - [x] Teste .NET completo serial após o lote: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos em 17 projetos**; contagem somada a partir das 17 linhas de resumo reais.
 - [x] Inventário bruto do build incremental mais recente: `SA1611=440`, `SA1516=430`, `SA1615=155`, `SA1402=108`, `SA1503=71`, `SA1623=52`; `xUnit1051` não é emitido nesse build e permanece um inventário separado da execução de testes.
 - [x] Lote focal StyleCop em `NebulaPathSafety.cs`: documentação dos parâmetros de `IsPathWithinRoot` eliminou os 2 `SA1611` do arquivo; `NebulaPathSafetyTests` passou **4/4**.
+- [x] Segurança NuGet: removido `Microsoft.AspNetCore.Mvc.Core` 2.3.0 do GetAvatar e usado `FrameworkReference` `Microsoft.AspNetCore.App`; `dotnet list package --vulnerable --include-transitive` retornou **0 entradas vulneráveis**. Testes Avatar passaram **58/61**, com 3 ignorados; build incremental passou com **0 erros**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
