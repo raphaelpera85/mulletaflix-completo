@@ -2,7 +2,7 @@
 
 - [x] `ItemRepositoryTransientRetryTests.cs` recebeu a correção focal de cancelamento cooperativo com `TestContext.Current.CancellationToken`; teste focal e `git diff --check` passaram.
 - [x] Build Release incremental da solução passou com **0 erros e 631 avisos**.
-- [!] Build Release limpo (`dotnet build MulletaFlix.sln -c Release --no-restore --no-incremental -m:1`) reproduziu **2 erros CS0234** em `MediaBrowser.Model/Net/MimeTypes.cs`. O diagnóstico detalhado mostrou `CoreClean` removendo o `MimeTypes.Nullable.cs` listado no `MediaBrowser.Model.csproj.FileListAbsolute.txt`; `ResolvePackageAssets` repassa o `.pp` como `_ContentFilesToPreprocess`, mas o `.cs` não é regenerado antes do compilador. O projeto isolado recria o arquivo e passa. A causa está isolada no caminho MSBuild/NuGet `contentFiles` do build limpo da solução; nenhuma correção especulativa foi aplicada.
+- [!] Build Release limpo (`dotnet build MulletaFlix.sln -c Release --no-restore --no-incremental -m:1`) reproduziu **2 erros CS0234** em `MediaBrowser.Model/Net/MimeTypes.cs`. `CoreClean` remove o `MimeTypes.Nullable.cs` listado no `MediaBrowser.Model.csproj.FileListAbsolute.txt`; no SDK .NET 10.0.300, `RunProduceContentAssets` é pulado quando `_CleaningWithoutRebuilding=true`, deixando apenas `_ContentFilesToPreprocess` e sem regenerar o `.cs`. O projeto isolado recria o arquivo e passa. A causa está isolada no caminho MSBuild/NuGet `contentFiles` do rebuild da solução; nenhuma correção especulativa foi aplicada.
 - [x] Teste .NET completo serial após o lote: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos em 17 projetos**; contagem somada a partir das 17 linhas de resumo reais.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11

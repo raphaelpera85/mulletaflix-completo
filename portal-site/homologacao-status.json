@@ -3297,7 +3297,7 @@
       "progressPercent": 100,
       "startedAt": "2026-11-11T11:20:00-03:00",
       "updatedAt": "2026-11-11T11:37:30-03:00",
-      "evidence": "O build da solução com --no-incremental reproduziu 2 CS0234 em MimeTypes.cs. O log diagnóstico mostrou CoreClean removendo obj/Release/net10.0/NuGet/71720D7188250282/MimeTypes/2.5.2/MimeTypes.Nullable.cs conforme o MediaBrowser.Model.csproj.FileListAbsolute.txt; depois ResolvePackageAssets apenas produziu _ContentFilesToPreprocess para o .pp e o .cs não foi regenerado antes da compilação. O build isolado de MediaBrowser.Model recria o arquivo e passa com 0 erros. dotnet restore da solução não fechou o problema.",
+      "evidence": "O build da solução com --no-incremental reproduziu 2 CS0234 em MimeTypes.cs. O log diagnóstico mostrou CoreClean removendo obj/Release/net10.0/NuGet/71720D7188250282/MimeTypes/2.5.2/MimeTypes.Nullable.cs conforme o MediaBrowser.Model.csproj.FileListAbsolute.txt; no SDK .NET 10.0.300, RunProduceContentAssets é pulado quando _CleaningWithoutRebuilding=true, deixando apenas _ContentFilesToPreprocess e sem regenerar o .cs. O build isolado de MediaBrowser.Model recria o arquivo e passa com 0 erros. dotnet restore da solução não fechou o problema.",
       "release": "Causa isolada como incompatibilidade/reprodutibilidade do caminho MSBuild/NuGet contentFiles em rebuild da solução; nenhuma correção especulativa, alteração de SDK, dependência ou runtime foi aplicada. Homologação global continua parcial.",
       "links": []
     },
