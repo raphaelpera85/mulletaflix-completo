@@ -3285,6 +3285,23 @@
   ],
   "events": [
     {
+      "id": "dotnet-clean-build-mimetypes-root-cause-2026-11-11",
+      "title": "Causa raiz isolada do build limpo .NET em MimeTypes",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; .NET SDK 10.0.300; solução Release serial",
+      "location": "MediaBrowser.Model/Net/MimeTypes.cs e pacote MimeTypes 2.5.2",
+      "scope": "Diagnosticar o erro CS0234 no build limpo sem alterar código ou contornar a falha",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-11T11:20:00-03:00",
+      "updatedAt": "2026-11-11T11:37:30-03:00",
+      "evidence": "O build da solução com --no-incremental reproduziu 2 CS0234 em MimeTypes.cs. O log diagnóstico mostrou CoreClean removendo obj/Release/net10.0/NuGet/71720D7188250282/MimeTypes/2.5.2/MimeTypes.Nullable.cs conforme o MediaBrowser.Model.csproj.FileListAbsolute.txt; depois ResolvePackageAssets apenas produziu _ContentFilesToPreprocess para o .pp e o .cs não foi regenerado antes da compilação. O build isolado de MediaBrowser.Model recria o arquivo e passa com 0 erros. dotnet restore da solução não fechou o problema.",
+      "release": "Causa isolada como incompatibilidade/reprodutibilidade do caminho MSBuild/NuGet contentFiles em rebuild da solução; nenhuma correção especulativa, alteração de SDK, dependência ou runtime foi aplicada. Homologação global continua parcial.",
+      "links": []
+    },
+    {
       "id": "dotnet-clean-build-xunit1051-2026-11-11",
       "title": "Lote xUnit1051 e investigação do build limpo .NET",
       "agent": "Hermes",

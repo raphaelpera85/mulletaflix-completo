@@ -3,8 +3,9 @@
 - [x] Lote focal em `ItemRepositoryTransientRetryTests.cs`: chamadas EF assíncronas e métodos de repositório passaram a usar `TestContext.Current.CancellationToken`.
 - [x] RED/GREEN focal: `ItemRepositoryTransientRetryTests` passou; `git diff --check` passou.
 - [x] Build Release incremental da solução passou; build completo incremental posterior passou com **0 erros e 631 avisos**.
-- [!] Build Release limpo da solução (`--no-incremental`) ainda falha com **2 CS0234** em `MediaBrowser.Model/Net/MimeTypes.cs`: o `MimeTypes.Nullable.cs` gerado pelo pacote `MimeTypes` não é incluído no grafo da solução, embora o projeto `MediaBrowser.Model` isolado passe. O bloqueio é de integração MSBuild/NuGet do build limpo, não foi mascarado.
+- [!] Build Release limpo da solução (`--no-incremental`) reproduz **2 CS0234** em `MediaBrowser.Model/Net/MimeTypes.cs`. A causa foi isolada: o caminho de `Rebuild/CoreClean` remove `obj/Release/net10.0/NuGet/71720D7188250282/MimeTypes/2.5.2/MimeTypes.Nullable.cs` a partir do `MediaBrowser.Model.csproj.FileListAbsolute.txt`; em seguida `ResolvePackageAssets` apenas expõe `_ContentFilesToPreprocess` e o arquivo não é regenerado antes da compilação. O build isolado do projeto recria o `.cs` e passa. É uma incompatibilidade/reprodutibilidade do caminho MSBuild/NuGet `contentFiles` com build limpo da solução, não um erro de código em `MimeTypes.cs`.
 - [x] Regressão completa .NET serial após este lote: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos em 17 projetos**; resumo reconciliado por projeto a partir da saída real.
+- [x] Diagnóstico capturado em `C:/Users/Raphael/AppData/Local/hermes/cache/scratch/mulletaflix-solution-diag-20261111.log`; nenhuma correção especulativa foi aplicada.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
