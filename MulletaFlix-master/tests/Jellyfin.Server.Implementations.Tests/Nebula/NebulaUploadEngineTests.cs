@@ -885,6 +885,16 @@ public class NebulaUploadEngineTests
         Assert.Contains("CREATE POLICY nebula_backups_service_role_all", sql, System.StringComparison.Ordinal);
         Assert.Contains("CREATE POLICY nebula_bot_tokens_service_role_all", sql, System.StringComparison.Ordinal);
 
+        // O Data API exige grants explícitos para tabelas novas; RLS/policies não substituem grants.
+        Assert.Contains("GRANT USAGE ON SCHEMA public TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE nebula_files TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE nebula_users TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mulletaflix_users TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE nebula_backups TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE nebula_bot_tokens TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT USAGE, SELECT, UPDATE ON SEQUENCE nebula_bot_tokens_id_seq TO service_role", sql, System.StringComparison.Ordinal);
+        Assert.Contains("GRANT USAGE, SELECT, UPDATE ON SEQUENCE nebula_backups_id_seq TO service_role", sql, System.StringComparison.Ordinal);
+
         // Deve incluir DROP POLICY IF EXISTS para idempotência
         Assert.Contains("DROP POLICY IF EXISTS nebula_files_service_role_all", sql, System.StringComparison.Ordinal);
 
@@ -922,6 +932,8 @@ public class NebulaUploadEngineTests
 
     [Theory]
     [InlineData("https://example.supabase.co", true, "https://example.supabase.co")]
+    [InlineData("https://example.supabase.co/rest/v1/", true, "https://example.supabase.co")]
+    [InlineData("https://example.supabase.co/rest/v1", true, "https://example.supabase.co")]
     [InlineData("http://example.supabase.co", false, "")]
     [InlineData("https://user:password@example.supabase.co", false, "")]
     [InlineData("not-a-url", false, "")]

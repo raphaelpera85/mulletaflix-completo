@@ -1,3 +1,269 @@
+## Lote xUnit1051 e reprodutibilidade do build limpo — 2026-11-11
+
+- [x] Lote focal em `ItemRepositoryTransientRetryTests.cs`: chamadas EF assíncronas e métodos de repositório passaram a usar `TestContext.Current.CancellationToken`.
+- [x] RED/GREEN focal: `ItemRepositoryTransientRetryTests` passou; `git diff --check` passou.
+- [x] Build Release incremental da solução passou; build completo incremental posterior passou com **0 erros e 631 avisos**.
+- [!] Build Release limpo da solução (`--no-incremental`) ainda falha com **2 CS0234** em `MediaBrowser.Model/Net/MimeTypes.cs`: o `MimeTypes.Nullable.cs` gerado pelo pacote `MimeTypes` não é incluído no grafo da solução, embora o projeto `MediaBrowser.Model` isolado passe. O bloqueio é de integração MSBuild/NuGet do build limpo, não foi mascarado.
+- [x] Regressão completa .NET serial após este lote: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos em 17 projetos**; resumo reconciliado por projeto a partir da saída real.
+
+## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
+
+- [x] RED: `StrmInputResolverTests` não compilava antes da implementação porque o plugin passava o caminho `.strm` diretamente ao fluxo FFmpeg.
+- [x] GREEN: `.strm` é resolvido para a URL de mídia antes de `ffprobe`/`ffmpeg`; fingerprint e seleção de áudio usam o alvo resolvido.
+- [x] Logs de argumentos do FFmpeg removem query string e credenciais embutidas em URLs.
+- [x] TDD focal **4/4**; suíte `IntroSkipper.Integration.Tests` **43 aprovados, 57 ignorados, 0 falhas / 100 casos**.
+- [x] Build Release do plugin **0 avisos, 0 erros**.
+- [x] Repro sintético HTTP com **2 streams simultâneos**, ambos exit 0 e 560 bytes Chromaprint; processo encerrado e porta 18967 fechada.
+- [~] Runtime instalado, mídia real, persistência real e limite global do scheduler permanecem sem aceite; nenhum ambiente produtivo foi alterado.
+
+## Mapa inicial de correções do build Release — 2026-11-11
+
+- [~] Build GREEN funcional: **0 erros / 643 avisos**.
+- [ ] Prioridade 1 — `xUnit1051`: **386 ocorrências únicas**; passar `TestContext.Current.CancellationToken` aos métodos assíncronos dos testes.
+- [ ] Prioridade 2 — `CA1416`: **53 ocorrências únicas**; proteger APIs dependentes de plataforma com guards/atributos e separar validação Windows/Linux.
+- [ ] Prioridade 3 — `xUnit2031`: **40 ocorrências únicas**; substituir `Where(...)+Assert.Single` por overload com predicado.
+- [ ] Prioridade 4 — `CS0618`: **28 ocorrências únicas**; migrar chamadas de APIs obsoletas sem remover compatibilidade antes de revisar callers.
+- [ ] Prioridade 5 — StyleCop (`SA1516`, `SA1508`, `SA1116`, `SA1124`): **50 ocorrências únicas combinadas**; corrigir em lotes pequenos e reexecutar o build.
+- [~] A contagem do compilador inclui avisos repetidos entre projetos; os números acima são agrupados por arquivo/linha/código e servem como backlog, não como redução automática.
+
+
+- [x] Portas 3306/MariaDB e 27017/MongoDB estão ouvindo; permanecem protegidas e não foram tocadas.
+- [x] Porta 8096 está fechada agora; `/health` e `/System/Info/Public` não puderam ser consultados.
+- [x] `MulletaFlix.exe` instalado, `rclone.exe` e `mongod.exe` existem; `mongod` e `rclone` estão em execução.
+- [x] ADB existe, mas `adb devices -l` não listou dispositivos; WSL não listou distribuições; Docker/Podman não estão disponíveis; nenhuma variável `OTEL_*` está definida.
+- [~] Runtime instalado, Android instrumentado, Linux/POSIX, containers/CI hospedada, telemetria e integrações reais continuam bloqueados; não iniciar nem alterar serviços protegidos sem procedimento autorizado.
+
+## Regressão cruzada atual de servidor, web e NebulaPython — 2026-11-11
+
+- [x] .NET Release: build da solução com **0 erros e 643 avisos**; suíte em 17 projetos com **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos** após a correção do IntroSkipper.
+- [x] Web: Vitest **83 arquivos / 441 testes**; `tsc --noEmit` e ESLint focal aprovados; `build:production` e `verify:build` aprovados com **1.928 artefatos** e **299,4 KB gzip** inicial.
+- [x] NebulaPython: **212 aprovados, 1 ignorado, 0 falhas** em **41,00 s**; skip em `tests/test_upload_pipeline.py:272` não conta como aprovação.
+- [x] Ruff recontado no checkout atual: **2.019 findings em 59 regras**; `F401=47`; `I001=103`.
+- [~] A regressão continua evidência Windows/source; CI hospedada, Linux/POSIX, Android instrumentado, integrações reais, runtime instalado, produção e aceite formal permanecem pendentes.
+- [x] Evento `cross-surface-regression-server-web-nebula-2026-11-11` publicado no portal; commit `495a5b27f69a1407da620c9aaa024cd736a598de` verificado em `main` e deployment público respondeu HTTP 200.
+
+## Sincronização da documentação pública e portal — 2026-11-11
+
+- [x] Inventariadas as fontes: notas/releases e auditoria permanecem no repositório `mulletaflix-completo`; documentação pública, downloads, atualizações e homologação são publicados no repositório separado `Mulletaflix-Portal`.
+- [x] Sincronizados os arquivos públicos de `portal-site/` que estavam adiantados no checkout principal, preservando o arquivo remoto adicional `homologacao-servidor.html`.
+- [x] Portal publicado em `Mulletaflix-Portal:main` no commit `3a047fa`; atualização posterior do evento Ruff publicada no commit `22c3aa1`.
+- [x] Contrato do portal no checkout publicável: **379/379**; JSON, JavaScript e `git diff --check` passaram.
+- [x] Endpoint público `/homologacao-status.json` respondeu HTTP 200 após a publicação, com `generatedAt=2026-11-11T09:07:41-03:00`, **827 eventos** e **438 features**; o novo evento `nebula-python-ruff-f401-i001-comprehensive-cleanup-2026-11-11` está visível.
+- [~] Portal público não substitui GitHub Releases: releases oficiais continuam sendo criadas/atualizadas no repositório `mulletaflix-completo`; o portal aponta para as notas e artefatos oficiais. Homologação global, CI hospedada, Linux/POSIX, runtime e integrações reais continuam parciais.
+
+## Lote Ruff F401/I001 em `comprehensive_cleanup.py` — 2026-11-11
+
+- [x] RED focal: Ruff encontrou `json` sem uso e I001.
+- [x] Removido somente o import sem uso e normalizada a ordem dos imports; o script não foi executado porque possui efeitos MongoDB no carregamento.
+- [x] GREEN focal: Ruff F401/I001 e `py_compile` passaram.
+- [x] Regressão NebulaPython: **212 aprovados, 1 ignorado, 0 falhas** em **79,76 s**.
+- [x] Ruff global: **2.019 findings em 59 regras**; `F401=47`; `I001=103`.
+- [~] Sem execução do script com MongoDB, build completo, CI hospedada, Linux/POSIX ou runtime instalado.
+
+## Lote Ruff F401/I001 em `quarantine_garbage_copies.py` — 2026-11-11
+
+- [x] RED focal: Ruff encontrou `re` e `json` sem uso e I001 no bloco de imports.
+- [x] Removidos somente os dois imports sem uso e normalizada a separação/ordem dos imports; não foi executado o script, que possui efeitos colaterais MongoDB no carregamento.
+- [x] GREEN focal: Ruff F401/I001 passou; `py_compile` passou.
+- [x] Regressão final após recheck do timeout passou **212 aprovados, 1 ignorado, 0 falhas**, em **41,55 s**.
+- [!] Uma execução anterior reproduziu o timeout de `accounts_manager.py --help`: **1 falha, 211 aprovados, 1 ignorado**; o teste isolado passou **1/1 em 6,94 s** e a regressão seguinte passou. A flakiness permanece aberta.
+- [x] Ruff global atual: **2.021 findings em 59 regras**; `F401=48`, `I001=104`.
+- [~] O script de quarentena não foi executado para evitar tocar MongoDB; FTP/MongoDB reais, CI hospedada, Linux/POSIX, build e runtime continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff F401 I001 quarantine garbage copies.md`.
+
+## Lote Ruff F401/I001 em `tools/feed_ftp.py` — 2026-11-11
+
+- [x] RED focal: Ruff encontrou `hashlib` e `tempfile` sem uso e I001 no bloco de imports.
+- [x] Removidos somente os dois imports sem uso e normalizada a ordem; nenhuma lógica do feeder FTP foi alterada.
+- [x] GREEN focal: Ruff F401/I001 passou; testes do feeder passaram **28/28**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **68,70 s**.
+- [x] Ruff global caiu de **2.027 para 2.024 findings**; `F401` caiu de **52 para 50**, `I001` de **106 para 105**, mantendo **59 regras**.
+- [~] Não houve execução contra FTP/MongoDB reais, build completo, CI hospedada, Linux/POSIX ou runtime.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff F401 I001 feed ftp.md`.
+
+## Lote Ruff F401/I001 em `tools/supabase_sync.py` — 2026-11-11
+
+- [x] RED focal: Ruff encontrou `Union`, `Path` e `MongoClient` sem uso, imports locais redundantes e quatro blocos I001.
+- [x] Removidos somente imports sem uso/redundantes e normalizada a ordem dos blocos; o fluxo Supabase/MongoDB não foi reescrito.
+- [x] GREEN focal: Ruff F401/I001 passou; `py_compile` passou.
+- [x] Regressão NebulaPython posterior passou **212 aprovados, 1 ignorado, 0 falhas** em **60,42 s**.
+- [!] Uma regressão imediatamente anterior teve **1 timeout, 211 aprovados e 1 ignorado** em `accounts_manager.py --help`; o teste isolado passou **1/1 em 4,30 s** e a repetição completa passou. A flakiness permanece aberta.
+- [x] Ruff global atual: **2.027 findings em 59 regras**; `F401=52`, `I001=106`.
+- [~] Não houve chamada Supabase/MongoDB real, build completo, CI hospedada, Linux/POSIX ou runtime; homologação global continua parcial.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff F401 I001 supabase sync.md`.
+
+## Lote Ruff F401/I001 em `tools/strm_downloader.py` — 2026-11-11
+
+- [x] RED focal: Ruff encontrou `queue` e `PyMongoError` sem uso e I001 no bloco de imports.
+- [x] Removidos somente os imports sem uso e reposicionado `urllib.error` no bloco padrão; nenhuma lógica de download foi alterada.
+- [x] GREEN focal: Ruff F401/I001 passou; teste do downloader passou **20/20**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **51,93 s**.
+- [x] Ruff global caiu de **2.042 para 2.039 findings**; `F401` caiu de **57 para 55**, `I001` de **111 para 110**, mantendo **59 regras**.
+- [~] O arquivo continua sem build/runtime externo nesta rodada; faltam o restante do baseline, CI hospedada, Linux/POSIX e runtime.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff F401 I001 strm downloader produção.md`.
+
+## Lote Ruff F401/I001 em `ftp/pathio.py` — 2026-11-11
+
+- [x] RED focal: Ruff encontrou imports não usados `get_event_loop` e `BytesIO`, além de um bloco I001 após a remoção.
+- [x] Removidos somente os dois imports sem uso e normalizada a ordem do bloco de imports; nenhuma lógica foi alterada.
+- [x] GREEN focal: Ruff F401/I001 passou; testes relacionados a PathIO passaram **51/51**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **60,91 s**.
+- [x] Ruff global caiu de **2.045 para 2.042 findings**; `F401` caiu de **59 para 57**, `I001` de **112 para 111**, mantendo **59 regras**.
+- [~] A alteração toca código de produção apenas no bloco de imports; faltam o restante do baseline, CI hospedada, Linux/POSIX e runtime.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff F401 I001 ftp pathio.md`.
+
+## Lote Ruff E501/PL em `test_strm_downloader.py` — 2026-11-11
+
+- [x] RED focal: após tratar E402, Ruff encontrou **5 E501**, **6 PLC0415** e **1 PLR0917** no mesmo arquivo.
+- [x] Aplicada somente formatação de strings/assinatura e justificativas locais para imports GUI lazy e mock que espelha o callback de produção.
+- [x] GREEN focal: Ruff do arquivo passou; teste do arquivo passou **20/20**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **61,22 s**.
+- [x] Ruff global caiu de **2.057 para 2.045 findings**; `E501` caiu de **535 para 530**, `E402` permanece em **22** e o conjunto mantém **59 regras**.
+- [~] Os imports `gui` continuam dinâmicos por desenho; o Pyright pode reportar `reportMissingImports` apesar da execução pytest verde. O restante do baseline, CI hospedada, Linux/POSIX e runtime continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff E501 test strm downloader.md`.
+
+## Lote Ruff E402 em `test_strm_downloader.py` — 2026-11-11
+
+- [x] RED focal: Ruff reportava `E402` porque o teste precisa inserir o root no `sys.path` antes de importar `tools.strm_downloader`.
+- [x] Aplicada justificativa local `noqa` no import atrasado; mover o import quebraria o setup do teste.
+- [x] GREEN focal: Ruff E402 passou; teste do arquivo passou **20/20**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **100,04 s**.
+- [x] Ruff global caiu de **2.058 para 2.057 findings**; `E402` caiu de **23 para 22**, mantendo **59 regras**.
+- [~] O arquivo ainda possui `E501`; o restante do baseline, CI hospedada, Linux/POSIX e runtime continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff E402 test strm downloader.md`.
+
+## Lote Ruff I001 em `test_strm_downloader.py` — 2026-11-11
+
+- [x] RED focal: Ruff reportava três `I001` em imports locais de GUI e erro HTTP.
+- [x] Aplicado apenas o reordenamento/separação dos imports locais; nenhum comportamento foi alterado.
+- [x] GREEN focal: Ruff I001 passou; teste do arquivo passou **20/20**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **99,85 s**.
+- [x] Ruff global caiu de **2.061 para 2.058 findings**; `I001` caiu de **115 para 112**, mantendo **59 regras**.
+- [~] O arquivo ainda possui findings de outras regras (`E402`, `E501`); eles ficam para lotes separados. CI hospedada, Linux/POSIX e runtime continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff I001 test strm downloader.md`.
+
+## Lote Ruff F401 em `test_rclone_installer.py` — 2026-11-11
+
+- [x] RED focal: Ruff reportava `F401` para `is_winfsp_installed`, importado mas não usado no teste.
+- [x] Removido somente esse import; nenhum teste foi enfraquecido e nenhum código de produção foi alterado.
+- [x] GREEN focal: Ruff F401 passou; teste do arquivo passou **3/3**.
+- [~] A primeira regressão completa teve **1 falha, 211 aprovados e 1 ignorado**: `test_accounts_manager_supports_cli_subcommands` excedeu 15 s em `accounts_manager.py --help` e retornou `subprocess.TimeoutExpired`.
+- [x] Recheck isolado do teste: **1/1 aprovado** em **7,80 s**; reexecução completa posterior: **212 aprovados, 1 ignorado, 0 falhas** em **83,74 s**.
+- [x] Ruff global caiu de **2.062 para 2.061 findings**; `F401` caiu de **60 para 59**, mantendo **59 regras**.
+- [~] O timeout é classificado como flakiness não reproduzida, não como correção comprovada. O skip de `tests/test_upload_pipeline.py:272`, CI hospedada, Linux/POSIX e runtime continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff F401 test rclone installer.md`.
+
+## Lote Ruff I001 em `test_rclone_installer.py` — 2026-11-11
+
+- [x] RED focal: Ruff reportava dois `I001` no bloco de imports padrão e no agrupamento de símbolos locais.
+- [x] Aplicado somente o reordenamento mínimo dos imports; o `F401` preexistente de `is_winfsp_installed` ficou fora deste lote.
+- [x] GREEN focal: Ruff I001 passou; teste do arquivo passou **3/3**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **77,67 s**.
+- [x] Ruff global caiu de **2.064 para 2.062 findings**; `I001` caiu de **117 para 115**, mantendo **59 regras**.
+- [~] O baseline continua parcial; `F401` no mesmo arquivo e demais findings, CI hospedada, Linux/POSIX e runtime continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff I001 test rclone installer.md`.
+
+## Lote Ruff I001 em `test_pathio_capacity.py` — 2026-11-11
+
+- [x] RED focal: Ruff reportava `I001` no separador entre o import da biblioteca padrão e `ftp.pathio`.
+- [x] Aplicada somente a linha em branco exigida entre os grupos de imports.
+- [x] GREEN focal: Ruff I001 passou; teste do arquivo passou **2/2**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **115,38 s**.
+- [x] Ruff global caiu de **2.065 para 2.064 findings**; `I001` caiu de **118 para 117**, mantendo **59 regras**.
+- [~] O baseline continua parcial; o skip de `tests/test_upload_pipeline.py:272`, CI hospedada, Linux/POSIX e runtime continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff I001 test pathio capacity.md`.
+
+## Lote Ruff em `test_check_deps.py` — 2026-11-11
+
+- [x] RED focal observado no resultado de background: `S603`, `PLW1510` e `PLC0415` em `tests/test_check_deps.py`.
+- [x] Aplicada a menor correção: `json` foi movido para o topo, `subprocess.run` recebeu `check=False` explícito e `S603` foi justificado somente para o interpretador/script local fixo.
+- [x] GREEN focal: Ruff do arquivo passou; testes do arquivo passaram **9/9**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **100,24 s**.
+- [x] Ruff global caiu de **2.068 para 2.065 findings**, mantendo **59 regras**; os três findings corrigidos não aparecem mais no arquivo.
+- [x] Validação YAML da CI: parser disponível via `uvx --with pyyaml`; job detectado: `lint-and-test`.
+- [~] A tentativa de usar PyYAML no `.venv` local reportou `yaml_parser=unavailable`; a validação isolada via `uvx` passou. O skip de `tests/test_upload_pipeline.py:272`, CI hospedada, Linux/POSIX e runtime continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff test check deps.md`.
+
+## Lote Ruff I001 em `test_generate_strm.py` — 2026-11-11
+
+- [x] RED focal: Ruff reportava `I001` no bloco de imports de `nebula/tests/test_generate_strm.py`.
+- [x] Aplicado somente o reordenamento mínimo: `pytest` ficou no grupo externo e `generate_strm` no grupo local.
+- [x] GREEN focal: `uvx ruff check tests/test_generate_strm.py --select I001` passou; teste do arquivo passou **20/20**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **94,55 s**.
+- [x] Ruff global caiu de **2.069 para 2.068 findings**; `I001` caiu de **119 para 118**. Nenhum autofix global foi aplicado.
+- [~] O baseline continua parcial: ainda há **2.068 findings em 59 regras**, com o skip de `tests/test_upload_pipeline.py:272` sem crédito.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff I001 test generate strm.md`.
+
+## Lote Ruff F401 em testes NebulaPython — 2026-11-11
+
+- [x] RED focal registrado: Ruff apontava **7 imports não usados** (`F401`) em cinco arquivos de teste.
+- [x] Corrigidos somente os imports sem uso em `test_audit_fixes.py`, `test_clean_already_sent.py`, `test_control_plane_p1.py`, `test_pathio_capacity.py` e `test_strm_downloader.py`.
+- [x] GREEN focal: `uvx ruff check ... --select F401` passou; regressão focal passou **67/67**.
+- [x] Regressão NebulaPython completa passou **212 aprovados, 1 ignorado, 0 falhas**, em **118,13 s**.
+- [x] Ruff global caiu de **2.076 para 2.069 findings**; `F401` caiu de **67 para 60**. Nenhum autofix em massa foi aplicado.
+- [~] O baseline continua parcial: ainda há **2.069 findings em 59 regras**, e o skip de `tests/test_upload_pipeline.py:272` permanece sem crédito.
+- Sessão Obsidian: `2026-11-11 - Lote Ruff F401 testes NebulaPython.md`.
+
+## Configuração explícita do loop assíncrono pytest — 2026-11-11
+
+- [x] `pytest.ini` passou a definir `asyncio_default_fixture_loop_scope = function`, eliminando o aviso de depreciação do `pytest-asyncio` sem alterar código de produção.
+- [x] Regressão completa via `uv run --with-requirements requirements-test.txt`: **212 aprovados, 1 ignorado, 0 falhas**, em **100,17 s**; a saída não emitiu mais o aviso de loop assíncrono.
+- [x] Rechecado o teste que teve timeout transitório na primeira execução (`test_accounts_manager_supports_cli_subcommands`): **1/1 aprovado** em **37,32 s**; duas reexecuções completas posteriores também passaram.
+- [~] O primeiro run após a configuração teve uma falha transitória `TimeoutExpired` em `accounts_manager.py --help`; a falha não reproduziu no teste isolado nem nas reexecuções completas. CI hospedada e Linux/POSIX continuam pendentes.
+- Sessão Obsidian: `2026-11-11 - Configuração pytest asyncio.md`.
+
+## TDD de ambiente de testes NebulaPython e CI reproduzível — 2026-11-11
+
+- [x] RED reproduzido em `test_check_deps.py`: o teste de composição falhou porque `nebula/requirements-test.txt` não existia.
+- [x] GREEN: criado `requirements-test.txt` como composição de `requirements.txt` + `pytest`, `pytest-asyncio`, `ruff` e `mypy`; CI passou a instalar esse único arquivo, removendo duplicação e o `|| true` da instalação.
+- [x] TDD focal: **1/1 aprovado** via `uv run --with-requirements requirements-test.txt`.
+- [x] Regressão NebulaPython via o caminho agora reproduzível: **212 aprovados, 1 ignorado, 0 falhas**, em **112,97 s**.
+- [x] Ruff recontado após a mudança: **2.076 findings em 59 regras**, sem aumento; os 3 findings focais existentes em `test_check_deps.py` estão nas linhas 117 e 130, fora do novo teste.
+- [~] `pytest-asyncio` ainda emite aviso porque `asyncio_default_fixture_loop_scope` não está definido; isso fica como melhoria de configuração separada. CI hospedada não foi executada nesta rodada.
+- Sessão Obsidian: `2026-11-11 - TDD ambiente de testes NebulaPython.md`.
+
+## Regressão NebulaPython e baseline Ruff revalidado — 2026-11-11 00:20 BRT
+
+- [x] Suíte completa executada no ambiente isolado existente `nebula/.venv` com `python -m pytest -q -rs`: **211 aprovados, 1 ignorado, 0 falhas**, em **61,84 s**.
+- [~] O único skip é `tests/test_upload_pipeline.py:272`: `select_media_bots` foi substituído por rotação nativa durante `upload_part_with_retries`; não conta como aprovação.
+- [x] Ruff executado de forma somente leitura via `uvx ruff check . --output-format=json`: **2.076 findings em 59 regras**. Maiores grupos: `E501` 535, `W293` 336, `E701` 175, `E702` 140, `I001` 119 e `F401` 67.
+- [~] O resultado atual não é comparável ao baseline histórico de 309 findings sem reconciliar escopo e checkout; não foi aplicado autofix. `requirements-test.txt` não existe em `nebula/`, então a execução usou o `.venv` já presente e a origem reprodutível das dependências de teste precisa ser documentada/corrigida.
+- [~] Processos Python do checkout independente `D:/Users/Raphael/Documents/Projetos/nebula` foram detectados e preservados; eles não usam o diretório `mulletaflix/nebula` testado. A suíte local Windows não fecha MongoDB/FTP/Supabase reais, Linux/POSIX, runtime instalado, CI hospedada ou produção. O skip e os findings Ruff permanecem separados de aprovação funcional.
+- Sessão Obsidian: `2026-11-11 - Regressão NebulaPython e baseline Ruff.md`.
+
+## Revalidação ampla server/web após correções Supabase e Item Details — 2026-11-11
+
+- [x] `Jellyfin.Server.Implementations.Tests` Release serial: **1.764 aprovados, 95 ignorados, 0 falhas / 1.859 casos**; os ignorados permanecem separados por dependências/ambiente e não recebem crédito.
+- [x] Vitest web completo: **83 arquivos / 441 testes aprovados**.
+- [x] `tsc --noEmit`, `npm run lint:changed`, `npm run build:production` e `npm run verify:build` passaram; artefatos **1.928**, payload inicial **299,4 KB gzip / budget 420 KB**.
+- [x] Corrigidos somente problemas de lint no spec Playwright Item Details e newline do TDD Supabase; sem mudança de comportamento de produção.
+- [~] Linux/POSIX, CI hospedada, Android instrumentado, runtime instalado, Supabase real e produção continuam sem aceite. Processos Python ativos no repositório `nebula` foram preservados e não tocados.
+
+## Supabase Data API como caminho de sincronização — 2026-11-10
+
+- [x] Confirmado no código: o backup/sync já usa a Data API REST em `/rest/v1/`, com `apikey` e `Authorization: Bearer` usando a chave configurada no backend.
+- [x] A URL copiada da tela com o sufixo `/rest/v1/` agora é normalizada para a URL base antes de o servidor acrescentar o caminho REST; copiar a URL completa não duplica mais `/rest/v1/`.
+- [x] Confirmado no código: a Data API não substitui o provisionamento do schema; criação/alteração de tabelas continua dependendo da Management API ou execução manual do SQL.
+- [x] TDD RED/GREEN: o schema SQL passou a emitir grants explícitos para `service_role` em schema, tabelas e sequências, necessários para projetos com exposição automática desabilitada.
+- [x] TDD focal `NebulaUploadEngineTests`: **226/226 aprovados**, incluindo o contrato de grants e normalização da URL Data API.
+- [~] Não executado contra o projeto Supabase real; não foram usados nem registrados tokens. Runtime instalado ainda não recebeu o SQL/bundle atualizado.
+
+## Item Details E2E — revalidação GREEN em stage — 2026-11-10
+
+- [x] Reexecutado `33 - Item Details E2E` com servidor Debug, bundle `dist`, MariaDB e mídia sintéticos isolados.
+- [x] Playwright serial: **3/3 aprovados**; primeiro teste **55,1 s**, segundo **13,3 s**, terceiro **16,0 s**; duração total **3,2 min**.
+- [x] A redução controlada de `settleMs` para **5 s** eliminou o timeout falso da preparação de biblioteca movie-only.
+- [~] Evidência fecha somente este slice em stage descartável; runtime instalado, catálogo persistente, Supabase, E2E amplo e produção continuam pendentes.
+- Sessão Obsidian: `2026-11-10 - Revalidação Item Details E2E GREEN.md`.
+
+## Diagnóstico do erro de provisionamento Supabase — 2026-11-10
+
+- [x] Log do runtime instalado confirmou HTTP 400 em `POST /NebulaFtp/Supabase/Provision`; conexão com o servidor local ocorre, mas a mensagem upstream não é registrada com detalhe suficiente.
+- [x] Corrigido o source web para extrair mensagens de `responseJSON`, `response.data`, `response.body`, `responseText` e JSON serializado, eliminando o toast genérico `erro desconhecido`.
+- [x] TDD focal do extrator: **4/4**; `tsc --noEmit`, build web de produção, `verify:build` e build Release .NET passaram.
+- [~] Runtime instalado 12.1.51 ainda não recebeu o bundle corrigido; causa upstream exata e provisionamento real continuam pendentes. Nenhum token foi lido ou registrado.
+- Sessão Obsidian: `2026-11-10 - Diagnóstico erro Supabase provisionamento.md`.
+
 ## Catálogo e playback multiusuário em stage descartável — 2026-11-10
 
 - [x] Diagnóstico de reconhecimento com bundle atual e servidor Debug publicado em scratch: **1/1 aprovado**, `MovieCount=2`, `ItemCount=3`, dois itens concretos `Movie`/`Video` com caminhos das fixtures sintéticas.

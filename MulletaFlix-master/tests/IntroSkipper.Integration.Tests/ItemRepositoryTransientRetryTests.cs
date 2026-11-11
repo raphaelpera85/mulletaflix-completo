@@ -59,7 +59,7 @@ public sealed class ItemRepositoryTransientRetryTests
         Assert.Equal(2, fixture.CommitCount);
         Assert.Equal(before + 2, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal("new-role", await context.PeopleBaseItemMap.Where(map => map.ItemId == itemId).Select(map => map.Role).SingleAsync());
+        Assert.Equal("new-role", await context.PeopleBaseItemMap.Where(map => map.ItemId == itemId).Select(map => map.Role).SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public sealed class ItemRepositoryTransientRetryTests
         Assert.Equal(3, fixture.CommitCount);
         Assert.Equal(before + 3, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal("old-role", await context.PeopleBaseItemMap.Where(map => map.ItemId == itemId).Select(map => map.Role).SingleAsync());
+        Assert.Equal("old-role", await context.PeopleBaseItemMap.Where(map => map.ItemId == itemId).Select(map => map.Role).SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public sealed class ItemRepositoryTransientRetryTests
         Assert.Equal(1, fixture.CommitCount);
         Assert.Equal(before + 1, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal("old-role", await context.PeopleBaseItemMap.Where(map => map.ItemId == itemId).Select(map => map.Role).SingleAsync());
+        Assert.Equal("old-role", await context.PeopleBaseItemMap.Where(map => map.ItemId == itemId).Select(map => map.Role).SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -106,12 +106,12 @@ public sealed class ItemRepositoryTransientRetryTests
         var before = fixture.Factory.CreatedCount;
         var repository = new ChapterRepository(fixture.Factory, Mock.Of<IImageProcessor>());
 
-        await repository.SaveChaptersAsync(itemId, [new ChapterInfo { Name = "new", StartPositionTicks = 20 }], CancellationToken.None);
+        await repository.SaveChaptersAsync(itemId, [new ChapterInfo { Name = "new", StartPositionTicks = 20 }], TestContext.Current.CancellationToken);
 
         Assert.Equal(2, fixture.CommitCount);
         Assert.Equal(before + 2, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal(["new"], await context.Chapters.Where(chapter => chapter.ItemId == itemId).Select(chapter => chapter.Name).ToArrayAsync());
+        Assert.Equal(["new"], await context.Chapters.Where(chapter => chapter.ItemId == itemId).Select(chapter => chapter.Name).ToArrayAsync(TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -129,7 +129,7 @@ public sealed class ItemRepositoryTransientRetryTests
         Assert.Equal(2, fixture.CommitCount);
         Assert.Equal(before + 2, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal(["new"], await context.Chapters.Where(chapter => chapter.ItemId == itemId).Select(chapter => chapter.Name).ToArrayAsync());
+        Assert.Equal(["new"], await context.Chapters.Where(chapter => chapter.ItemId == itemId).Select(chapter => chapter.Name).ToArrayAsync(TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -144,12 +144,12 @@ public sealed class ItemRepositoryTransientRetryTests
         appHost.Setup(host => host.ReverseVirtualPath(It.IsAny<string>())).Returns((string value) => value);
         var repository = new MediaStreamRepository(fixture.Factory, appHost.Object, Mock.Of<MediaBrowser.Model.Globalization.ILocalizationManager>());
 
-        await repository.SaveMediaStreamsAsync(itemId, [new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "aac" }], CancellationToken.None);
+        await repository.SaveMediaStreamsAsync(itemId, [new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "aac" }], TestContext.Current.CancellationToken);
 
         Assert.Equal(2, fixture.CommitCount);
         Assert.Equal(before + 2, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal("aac", await context.MediaStreamInfos.Where(stream => stream.ItemId == itemId).Select(stream => stream.Codec).SingleAsync());
+        Assert.Equal("aac", await context.MediaStreamInfos.Where(stream => stream.ItemId == itemId).Select(stream => stream.Codec).SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -164,12 +164,12 @@ public sealed class ItemRepositoryTransientRetryTests
         appHost.Setup(host => host.ReverseVirtualPath(It.IsAny<string>())).Returns((string value) => value);
         var repository = new MediaStreamRepository(fixture.Factory, appHost.Object, Mock.Of<MediaBrowser.Model.Globalization.ILocalizationManager>());
 
-        repository.SaveMediaStreams(itemId, [new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "aac" }], CancellationToken.None);
+        repository.SaveMediaStreams(itemId, [new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "aac" }], TestContext.Current.CancellationToken);
 
         Assert.Equal(2, fixture.CommitCount);
         Assert.Equal(before + 2, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal("aac", await context.MediaStreamInfos.Where(stream => stream.ItemId == itemId).Select(stream => stream.Codec).SingleAsync());
+        Assert.Equal("aac", await context.MediaStreamInfos.Where(stream => stream.ItemId == itemId).Select(stream => stream.Codec).SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -181,12 +181,12 @@ public sealed class ItemRepositoryTransientRetryTests
         var repository = new ChapterRepository(fixture.Factory, Mock.Of<IImageProcessor>());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            repository.SaveChaptersAsync(itemId, [new ChapterInfo { Name = "new", StartPositionTicks = 20 }], CancellationToken.None));
+            repository.SaveChaptersAsync(itemId, [new ChapterInfo { Name = "new", StartPositionTicks = 20 }], TestContext.Current.CancellationToken));
 
         Assert.Equal(3, fixture.CommitCount);
         Assert.Equal(before + 3, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal(["old"], await context.Chapters.Where(chapter => chapter.ItemId == itemId).Select(chapter => chapter.Name).ToArrayAsync());
+        Assert.Equal(["old"], await context.Chapters.Where(chapter => chapter.ItemId == itemId).Select(chapter => chapter.Name).ToArrayAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -200,12 +200,12 @@ public sealed class ItemRepositoryTransientRetryTests
         var repository = new MediaStreamRepository(fixture.Factory, appHost.Object, Mock.Of<MediaBrowser.Model.Globalization.ILocalizationManager>());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            repository.SaveMediaStreamsAsync(itemId, [new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "aac" }], CancellationToken.None));
+            repository.SaveMediaStreamsAsync(itemId, [new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "aac" }], TestContext.Current.CancellationToken));
 
         Assert.Equal(1, fixture.CommitCount);
         Assert.Equal(before + 1, fixture.Factory.CreatedCount);
         await using var context = fixture.Factory.CreateDbContext();
-        Assert.Equal("old", await context.MediaStreamInfos.Where(stream => stream.ItemId == itemId).Select(stream => stream.Codec).SingleAsync());
+        Assert.Equal("old", await context.MediaStreamInfos.Where(stream => stream.ItemId == itemId).Select(stream => stream.Codec).SingleAsync(TestContext.Current.CancellationToken));
     }
 
     private sealed class Fixture : IAsyncDisposable

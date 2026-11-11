@@ -19,6 +19,7 @@ import type { ApiClient } from 'jellyfin-apiclient';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { queryClient } from 'utils/query/queryClient';
 import { useSupabaseBackupStatus } from 'apps/dashboard/features/backups/api/useSupabaseBackupStatus';
+import { getBackupErrorMessage } from './backupError';
 
 type SupabaseConfig = {
     SupabaseUrl?: string;
@@ -38,15 +39,6 @@ const getApiClient = (): ApiClient => {
     const apiClient = ServerConnections.currentApiClient();
     if (!apiClient) throw new Error('Cliente de API indisponível.');
     return apiClient as unknown as ApiClient;
-};
-
-const getErrorMessage = (error: unknown): string => {
-    const requestError = error as { message?: string; responseJSON?: { message?: string; Message?: string }; responseText?: string };
-    return requestError.responseJSON?.message
-        || requestError.responseJSON?.Message
-        || requestError.responseText
-        || requestError.message
-        || 'erro desconhecido';
 };
 
 const postAction = async (path: string): Promise<OperationResult> => {
@@ -97,7 +89,7 @@ const BackupRestorePage = () => {
             void queryClient.invalidateQueries({ queryKey: CONFIG_QUERY_KEY });
             void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
         },
-        onError: error => toast(`Erro ao provisionar Supabase: ${getErrorMessage(error)}`)
+        onError: error => toast(`Erro ao provisionar Supabase: ${getBackupErrorMessage(error)}`)
     });
     const backupMutation = useMutation({
         mutationFn: () => postAction('NebulaFtp/Supabase/Users/Backup'),
@@ -105,7 +97,7 @@ const BackupRestorePage = () => {
             toast(result.Message || 'Backup delta iniciado.');
             void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
         },
-        onError: error => toast(`Erro ao iniciar backup: ${getErrorMessage(error)}`)
+        onError: error => toast(`Erro ao iniciar backup: ${getBackupErrorMessage(error)}`)
     });
     const restoreMutation = useMutation({
         mutationFn: () => postAction('NebulaFtp/Supabase/Users/Restore'),
@@ -113,7 +105,7 @@ const BackupRestorePage = () => {
             toast(result.Success === false ? `Restore não concluído: ${result.Message || 'erro desconhecido'}` : result.Message || 'Restore concluído.');
             void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
         },
-        onError: error => toast(`Erro ao restaurar: ${getErrorMessage(error)}`)
+        onError: error => toast(`Erro ao restaurar: ${getBackupErrorMessage(error)}`)
     });
     const openRestoreDialog = useCallback(() => setIsRestoreDialogOpen(true), []);
     const closeRestoreDialog = useCallback(() => setIsRestoreDialogOpen(false), []);
@@ -136,7 +128,7 @@ const BackupRestorePage = () => {
                     <Typography color='text.secondary'>Backup somente dos usuários para restauração manual após uma reinstalação. Mídias, NFOs, imagens e cache não são incluídos.</Typography>
                 </Box>
 
-                {statusQuery.isError && <Alert severity='error'>Não foi possível consultar o status: {getErrorMessage(statusQuery.error)}</Alert>}
+                {statusQuery.isError && <Alert severity='error'>Não foi possível consultar o status: {getBackupErrorMessage(statusQuery.error)}</Alert>}
                 {!status?.IsConfigured && <Alert severity='warning'>Configure a URL e a chave do Supabase na configuração do Nebula antes de executar o backup ou o restore.</Alert>}
 
                 <Paper variant='outlined' sx={{ p: 2.5 }}>

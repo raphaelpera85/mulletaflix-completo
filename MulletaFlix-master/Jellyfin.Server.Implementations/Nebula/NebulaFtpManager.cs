@@ -3999,7 +3999,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             return false;
         }
 
-        normalizedUrl = uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
+        var path = uri.AbsolutePath.TrimEnd('/');
+        normalizedUrl = path.Equals("/rest/v1", StringComparison.OrdinalIgnoreCase)
+            ? uri.GetLeftPart(UriPartial.Authority)
+            : uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
         return true;
     }
 
@@ -4557,6 +4560,17 @@ CREATE POLICY nebula_backups_service_role_all
 
 CREATE POLICY nebula_bot_tokens_service_role_all
     ON nebula_bot_tokens FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Grants explícitos para a Data API/PostgREST.
+-- RLS e policies controlam as linhas, mas não substituem privilégios de tabela/sequência.
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE nebula_files TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE nebula_users TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mulletaflix_users TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE nebula_backups TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE nebula_bot_tokens TO service_role;
+GRANT USAGE, SELECT, UPDATE ON SEQUENCE nebula_bot_tokens_id_seq TO service_role;
+GRANT USAGE, SELECT, UPDATE ON SEQUENCE nebula_backups_id_seq TO service_role;
 ";
     }
 
