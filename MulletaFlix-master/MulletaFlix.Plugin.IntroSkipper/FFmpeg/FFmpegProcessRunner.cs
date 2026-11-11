@@ -52,7 +52,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
-            _logger.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", string.Join(" ", info.ArgumentList));
+            _logger.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", string.Join(" ", info.ArgumentList.Select(RedactArgument)));
         }
 
         using var process = new Process { StartInfo = info };
@@ -131,6 +131,18 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
                 await destination.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
             }
         }
+    }
+
+    private static string RedactArgument(string argument)
+    {
+        if (!Uri.TryCreate(argument, UriKind.Absolute, out var uri)
+            || string.IsNullOrEmpty(uri.Scheme)
+            || uri.Scheme.Equals(Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
+        {
+            return argument;
+        }
+
+        return uri.GetLeftPart(UriPartial.Path);
     }
 
     private void KillProcessTree(Process process)

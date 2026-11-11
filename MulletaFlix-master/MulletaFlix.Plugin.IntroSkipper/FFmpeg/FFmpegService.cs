@@ -411,7 +411,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 "-select_streams", "a:0",
                 "-show_entries", "stream=duration:stream_tags=DURATION",
                 "-of", "csv=p=0",
-                filePath,
+                StrmInputResolver.Resolve(filePath),
             ];
 
             var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(ffprobePath, args, stderr: false, timeout: 10 * 1000, cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
@@ -473,7 +473,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         processArgs.Add("-loglevel");
         processArgs.Add(stderr ? "info" : "warning");
-        processArgs.AddRange(args);
+        processArgs.AddRange(StrmInputResolver.ResolveArguments(args));
 
         return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
     }
@@ -520,13 +520,14 @@ internal sealed partial class FFmpegService : IFFmpegService
         // replaced at the same path with a different stream layout must not keep a stale index.
         try
         {
+            var resolvedFilePath = StrmInputResolver.Resolve(filePath);
             string[] args =
             [
                 "-v", "error",
                 "-select_streams", "a",
                 "-show_entries", "stream=index,channels:stream_tags=language",
                 "-of", "json",
-                filePath,
+                resolvedFilePath,
             ];
 
             var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
@@ -599,12 +600,22 @@ internal sealed partial class FFmpegService : IFFmpegService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        string resolvedPath;
+        try
+        {
+            resolvedPath = StrmInputResolver.Resolve(episode.Path);
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new FingerprintException($"Unable to resolve STRM input \"{episode.Path}\"", ex);
+        }
+
         var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
         var (start, end) = episode.GetFingerprintRange(cacheMode);
         var configuration = Plugin.Instance?.Configuration;
         var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration?.PreferredAudioLanguage);
         var streamSelection = await FindAudioStreamSelectionAsync(
-            episode.Path,
+            resolvedPath,
             preferredLanguage,
             configuration?.PreferAudioStreamWithMostChannels ?? true,
             cancellationToken).ConfigureAwait(false);
@@ -639,7 +650,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var args = new List<string>
         {
             "-ss", start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
+            "-i", resolvedPath,
             "-to", (end - start).ToString(CultureInfo.InvariantCulture),
         };
 
