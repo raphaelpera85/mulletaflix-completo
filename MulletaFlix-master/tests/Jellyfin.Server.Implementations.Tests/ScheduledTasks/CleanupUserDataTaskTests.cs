@@ -110,8 +110,8 @@ public sealed class CleanupUserDataTaskTests
 
         await using var verifyContext = CreateContext();
         Assert.Equal(1, await verifyContext.UserData.CountAsync(TestContext.Current.CancellationToken));
-        Assert.False(await verifyContext.UserData.AnyAsync(entry => entry.CustomDataKey == expired.CustomDataKey));
-        Assert.True(await verifyContext.UserData.AnyAsync(entry => entry.CustomDataKey == retained.CustomDataKey));
+        Assert.False(await verifyContext.UserData.AnyAsync(entry => entry.CustomDataKey == expired.CustomDataKey, TestContext.Current.CancellationToken));
+        Assert.True(await verifyContext.UserData.AnyAsync(entry => entry.CustomDataKey == retained.CustomDataKey, TestContext.Current.CancellationToken));
         Assert.Contains(measurements.Single(item => item.Name == "mulletaflix.user_data_cleanup.runs").Tags,
             tag => tag.Key == "result" && Equals(tag.Value, "success"));
         Assert.Contains(measurements, item => item.Name == "mulletaflix.user_data_cleanup.entries.detached_per_run" && Equals(item.Value, 2L));

@@ -25,6 +25,7 @@
 - [x] Build Release incremental pós-correção da flakiness: **0 erros**.
 - [x] Lote xUnit1051 focal em `TrickplayManagerAdmissionTests.cs`: `WaitAsync` do bloqueio de criação de contexto passou a usar `TestContext.Current.CancellationToken`; teste focal passou **3/3** e não emitiu xUnit1051 para o arquivo.
 - [x] Lote xUnit1051 focal em `NebulaMediaSuggestionCatalogTests.cs`: `ManualResetEventSlim.Wait` e `RefreshAsync` passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **3/3**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **696 ocorrências brutas em 21 arquivos**.
+- [x] Lote xUnit1051 focal em `CleanupUserDataTaskTests.cs`: duas consultas `AnyAsync` da verificação final passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **3/3**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **692 ocorrências brutas em 20 arquivos**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
