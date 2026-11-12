@@ -28,7 +28,7 @@ public sealed class NebulaMediaSuggestionCatalogTests
             NullLogger.Instance);
 
         Assert.Empty(catalog.GetItems());
-        Assert.True(scanStarted.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(scanStarted.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
         Assert.True(catalog.GetStatus().IsIndexing);
 
         finishScan.Set();
@@ -83,7 +83,7 @@ public sealed class NebulaMediaSuggestionCatalogTests
         _ = catalog.GetItems();
         Assert.True(SpinWait.SpinUntil(() => catalog.GetStatus().State == "Ready", TimeSpan.FromSeconds(5)));
 
-        await catalog.RefreshAsync();
+        await catalog.RefreshAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal("Mounted Series", Assert.Single(catalog.GetItems()).Title);
         Assert.Equal(2, scanCount);

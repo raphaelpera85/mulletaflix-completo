@@ -26,6 +26,7 @@
 - [x] Corrigida flakiness em `NebulaPlaybackCacheTests.StartPrefetch_LimitsConcurrentMediaDownloadsWithoutDroppingQueuedMedia`: a regressão completa reproduziu uma janela entre `PendingPrefetchCount == 0` e a remoção de estados ativo/queued; o teste agora aguarda os três contadores zerarem. Focal repetido **10/10** e regressão completa posterior **6.087/314/0/6.401**.
 - [x] Build Release incremental pós-correção da flakiness: **0 erros**.
 - [x] Lote xUnit1051 focal em `TrickplayManagerAdmissionTests.cs`: `WaitAsync` do bloqueio de criação de contexto passou a usar `TestContext.Current.CancellationToken`; teste focal passou **3/3** e o log não contém xUnit1051 para esse arquivo.
+- [x] Lote xUnit1051 focal em `NebulaMediaSuggestionCatalogTests.cs`: `ManualResetEventSlim.Wait` e `RefreshAsync` passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **3/3**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **696 ocorrências brutas em 21 arquivos**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
