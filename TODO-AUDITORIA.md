@@ -34,6 +34,7 @@
 - [x] Lote xUnit1051 focal em `CatalogAuditServiceTests.cs`: três chamadas assíncronas de aplicação/rollback de correções passaram a propagar `TestContext.Current.CancellationToken`; teste focal passou **7/7**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **670 ocorrências brutas em 16 arquivos**.
 - [x] Lote xUnit1051 focal em `LibraryManagerImageConversionTests.cs`: três chamadas `ConvertImageToLocal` passaram a propagar `TestContext.Current.CancellationToken`; teste focal passou **6/6**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **664 ocorrências brutas em 15 arquivos**.
 - [x] Lote xUnit1051 focal em `NativeIntroProviderTests.cs`: sete operações assíncronas de fixture, timeout e sincronização passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **6/6**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **650 ocorrências brutas em 14 arquivos**.
+- [x] Lote xUnit1051 focal em `UserLicenseManagerTests.cs`: sete consultas e persistências assíncronas do cenário de licenças passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **6/6**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **636 ocorrências brutas em 13 arquivos**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 

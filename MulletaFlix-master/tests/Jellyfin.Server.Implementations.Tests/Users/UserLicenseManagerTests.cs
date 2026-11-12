@@ -64,7 +64,7 @@ public sealed class UserLicenseManagerTests : IDisposable
         Assert.Equal(DateTime.MaxValue, dto.ExpirationDate);
 
         using var context = CreateDbContext();
-        var license = await context.UserLicenses.AsNoTracking().SingleAsync(l => l.UserId == user.Id);
+        var license = await context.UserLicenses.AsNoTracking().SingleAsync(l => l.UserId == user.Id, TestContext.Current.CancellationToken);
         Assert.True(license.IsUnlimited);
         Assert.Null(license.DurationHours);
         Assert.Null(license.ExpirationDate);
@@ -90,7 +90,7 @@ public sealed class UserLicenseManagerTests : IDisposable
                 UpdatedAt = now.AddDays(-3)
             });
 
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var dto = await _licenseManager.SetLicenseAsync(user.Id, 24, "renew", Guid.NewGuid());
@@ -100,7 +100,7 @@ public sealed class UserLicenseManagerTests : IDisposable
         Assert.Equal(originalExpiration.AddHours(24), dto.ExpirationDate);
 
         using var verificationContext = CreateDbContext();
-        var renewed = await verificationContext.UserLicenses.AsNoTracking().SingleAsync(l => l.UserId == user.Id);
+        var renewed = await verificationContext.UserLicenses.AsNoTracking().SingleAsync(l => l.UserId == user.Id, TestContext.Current.CancellationToken);
         Assert.Equal(originalExpiration, renewed.StartDate);
         Assert.Equal(originalExpiration.AddHours(24), renewed.ExpirationDate);
     }
@@ -125,7 +125,7 @@ public sealed class UserLicenseManagerTests : IDisposable
                 UpdatedAt = now.AddDays(-5)
             });
 
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var before = DateTime.UtcNow;
@@ -201,7 +201,7 @@ public sealed class UserLicenseManagerTests : IDisposable
                     UpdatedAt = now.AddDays(-2)
                 });
 
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var disabledCount = await _licenseManager.ExpireOutdatedLicensesAsync(TestContext.Current.CancellationToken);
@@ -211,10 +211,10 @@ public sealed class UserLicenseManagerTests : IDisposable
         using var verificationContext = CreateDbContext();
         var expiredUserPermissions = await verificationContext.Users
             .Include(u => u.Permissions)
-            .SingleAsync(u => u.Id == expiredUser.Id);
+            .SingleAsync(u => u.Id == expiredUser.Id, TestContext.Current.CancellationToken);
         var adminPermissions = await verificationContext.Users
             .Include(u => u.Permissions)
-            .SingleAsync(u => u.Id == adminUser.Id);
+            .SingleAsync(u => u.Id == adminUser.Id, TestContext.Current.CancellationToken);
 
         Assert.True(expiredUserPermissions.HasPermission(PermissionKind.IsDisabled));
         Assert.False(adminPermissions.HasPermission(PermissionKind.IsDisabled));

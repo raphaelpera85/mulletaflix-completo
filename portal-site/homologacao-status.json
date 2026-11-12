@@ -3642,6 +3642,23 @@
       "links": []
     },
     {
+      "id": "xunit1051-user-license-manager-2026-11-12",
+      "title": "Lote xUnit1051: UserLicenseManagerTests",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; Release; -m:1",
+      "location": "tests/Jellyfin.Server.Implementations.Tests/Users/UserLicenseManagerTests.cs:67,93,103,128,204,212,215",
+      "scope": "Propagar TestContext.Current.CancellationToken em consultas e persistências de licença",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-12T06:40:00-03:00",
+      "updatedAt": "2026-11-12T07:00:00-03:00",
+      "evidence": "Teste focal: 6 aprovados, 0 falhas, 0 ignorados. Build Release: 0 erros. Regressão .NET: 6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos. Inventário: 636 ocorrências brutas em 13 arquivos.",
+      "release": "Alteração somente em teste; a contagem de warnings é bruta e pode duplicar diagnósticos emitidos por mais de um projeto.",
+      "links": []
+    },
+    {
       "id": "xunit1051-native-intro-provider-2026-11-12",
       "title": "Lote xUnit1051: NativeIntroProviderTests",
       "agent": "Hermes",
