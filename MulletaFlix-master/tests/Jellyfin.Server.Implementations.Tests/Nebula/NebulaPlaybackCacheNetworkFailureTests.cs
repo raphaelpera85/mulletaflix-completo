@@ -138,7 +138,7 @@ public class NebulaPlaybackCacheNetworkFailureTests
                 });
 
             var buffer = new byte[completePayload.Length];
-            Assert.Equal(completePayload.Length, await stream.ReadAsync(buffer.AsMemory()));
+            Assert.Equal(completePayload.Length, await stream.ReadAsync(buffer.AsMemory(), TestContext.Current.CancellationToken));
             Assert.True(fetchCount >= 2);
             Assert.Equal(1, cache.TelegramFetchFailures);
             Assert.Equal(completePayload, buffer);
@@ -240,7 +240,7 @@ public class NebulaPlaybackCacheNetworkFailureTests
                 0,
                 128,
                 _ => Task.FromResult(new byte[128]),
-                CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+                CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
             Assert.Equal(128, recovered.Length);
         }
@@ -263,7 +263,7 @@ public class NebulaPlaybackCacheNetworkFailureTests
             // de ACL, root ou disco físico cheio. A identidade da mídia é hash, por
             // isso bloquear a raiz cobre qualquer subdiretório derivado da chave.
             Directory.Delete(cache.CachePath, recursive: true);
-            await File.WriteAllTextAsync(cache.CachePath, "not a directory");
+            await File.WriteAllTextAsync(cache.CachePath, "not a directory", TestContext.Current.CancellationToken);
 
             var payload = new byte[1024];
             payload[0] = 7;
