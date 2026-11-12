@@ -3642,6 +3642,23 @@
       "links": []
     },
     {
+      "id": "xunit1051-user-manager-normalized-username-2026-11-12",
+      "title": "Lote xUnit1051: UserManagerNormalizedUsernameTests",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; Release; -m:1",
+      "location": "tests/Jellyfin.Server.Implementations.Tests/Users/UserManagerNormalizedUsernameTests.cs:179,185,200,214,215",
+      "scope": "Propagar TestContext.Current.CancellationToken em conexões e consultas SQL do cenário MariaDB",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-12T07:20:00-03:00",
+      "updatedAt": "2026-11-12T07:40:00-03:00",
+      "evidence": "Filtro focal: 0 aprovados, 27 ignorados, 0 falhas; MariaDB descartável indisponível. Build Release: 0 erros. Regressão .NET: 6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos. Inventário: 626 ocorrências brutas em 12 arquivos.",
+      "release": "Warning cleanup validado; os 27 testes ignorados não recebem crédito funcional.",
+      "links": []
+    },
+    {
       "id": "xunit1051-user-license-manager-2026-11-12",
       "title": "Lote xUnit1051: UserLicenseManagerTests",
       "agent": "Hermes",

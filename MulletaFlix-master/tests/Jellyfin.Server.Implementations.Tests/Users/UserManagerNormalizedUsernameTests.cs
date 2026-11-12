@@ -176,13 +176,13 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
         {
             await using (var environmentContext = CreateDbContext())
             {
-                await environmentContext.Database.OpenConnectionAsync();
+                await environmentContext.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
                 try
                 {
                     var environmentCommand = environmentContext.Database.GetDbConnection().CreateCommand();
                     environmentCommand.CommandText = "SELECT @@lower_case_table_names;";
                     var lowerCaseTableNames = Convert.ToInt32(
-                        await environmentCommand.ExecuteScalarAsync(),
+                        await environmentCommand.ExecuteScalarAsync(TestContext.Current.CancellationToken),
                         System.Globalization.CultureInfo.InvariantCulture);
                     Assert.SkipUnless(
                         lowerCaseTableNames == 0,
@@ -197,7 +197,7 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
             await _userManager.CreateUserAsync("no\u00F1o");
 
             await using var context = CreateDbContext();
-            await context.Database.OpenConnectionAsync();
+            await context.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
             try
             {
                 var connection = context.Database.GetDbConnection();
@@ -211,8 +211,8 @@ namespace MulletaFlix.Server.Implementations.Tests.Users
                     """;
 
                 var collations = new System.Collections.Generic.Dictionary<string, string>(StringComparer.Ordinal);
-                await using var reader = await command.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
+                await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+                while (await reader.ReadAsync(TestContext.Current.CancellationToken))
                 {
                     collations.Add(reader.GetString(0), reader.GetString(1));
                 }
