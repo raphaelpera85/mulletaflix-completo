@@ -276,7 +276,7 @@ public sealed class TrickplayManagerAdmissionTests
         try
         {
             firstRefresh = manager.RefreshTrickplayDataAsync(video, false, libraryOptions, firstCancellation.Token);
-            await factory.WaitForCallAsync(1).WaitAsync(TimeSpan.FromSeconds(5));
+            await factory.WaitForCallAsync(1).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
             secondRefresh = manager.RefreshTrickplayDataAsync(video, false, libraryOptions, secondCancellation.Token);
 
