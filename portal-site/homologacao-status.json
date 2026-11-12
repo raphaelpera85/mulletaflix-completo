@@ -3642,6 +3642,23 @@
       "links": []
     },
     {
+      "id": "xunit1051-native-intro-provider-2026-11-12",
+      "title": "Lote xUnit1051: NativeIntroProviderTests",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; Release; -m:1",
+      "location": "tests/Jellyfin.Server.Implementations.Tests/Library/NativeIntroProviderTests.cs:25,69,113,160,189,193,206",
+      "scope": "Propagar TestContext.Current.CancellationToken em fixtures, timeout e sincronização de prebuffer",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-12T06:00:00-03:00",
+      "updatedAt": "2026-11-12T06:20:00-03:00",
+      "evidence": "Teste focal: 6 aprovados, 0 falhas, 0 ignorados. Build Release: 0 erros. Regressão .NET: 6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos. Inventário: 650 ocorrências brutas em 14 arquivos.",
+      "release": "Alteração somente em teste; a contagem de warnings é bruta e pode duplicar diagnósticos emitidos por mais de um projeto.",
+      "links": []
+    },
+    {
       "id": "xunit1051-library-manager-image-conversion-2026-11-12",
       "title": "Lote xUnit1051: LibraryManagerImageConversionTests",
       "agent": "Hermes",

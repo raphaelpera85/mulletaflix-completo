@@ -22,7 +22,7 @@ public class NativeIntroProviderTests
     public async Task GetIntros_ReturnsConfiguredIntro_ForStrmAndNativeVideo(string itemExtension)
     {
         var introPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
-        await File.WriteAllTextAsync(introPath, string.Empty);
+        await File.WriteAllTextAsync(introPath, string.Empty, TestContext.Current.CancellationToken);
 
         try
         {
@@ -66,7 +66,7 @@ public class NativeIntroProviderTests
     public async Task GetIntros_ReturnsConfiguredIntro_WhenLegacySettingIsDisabled()
     {
         var introPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
-        await File.WriteAllTextAsync(introPath, "intro video");
+        await File.WriteAllTextAsync(introPath, "intro video", TestContext.Current.CancellationToken);
 
         try
         {
@@ -110,7 +110,7 @@ public class NativeIntroProviderTests
         var mediaDir = Path.Combine(tempDir, "media");
         Directory.CreateDirectory(mediaDir);
         var introFile = Path.Combine(mediaDir, "mulletaflix_intro.mp4");
-        await File.WriteAllTextAsync(introFile, "dummy video content");
+        await File.WriteAllTextAsync(introFile, "dummy video content", TestContext.Current.CancellationToken);
 
         try
         {
@@ -157,7 +157,7 @@ public class NativeIntroProviderTests
     public async Task GetIntros_ReturnsIntroWithoutWaitingForMainMediaPrebuffer()
     {
         var introPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
-        await File.WriteAllTextAsync(introPath, "intro video");
+        await File.WriteAllTextAsync(introPath, "intro video", TestContext.Current.CancellationToken);
         var prebufferStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finishPrebuffer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -186,11 +186,11 @@ public class NativeIntroProviderTests
             var user = new User("test", "test", "test") { Id = Guid.NewGuid() };
 
             var introsTask = provider.GetIntros(item, user);
-            var completedBeforePrebuffer = await Task.WhenAny(introsTask, Task.Delay(TimeSpan.FromSeconds(2)));
+            var completedBeforePrebuffer = await Task.WhenAny(introsTask, Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
 
             Assert.Same(introsTask, completedBeforePrebuffer);
             Assert.Single(await introsTask);
-            await prebufferStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await prebufferStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -203,7 +203,7 @@ public class NativeIntroProviderTests
     public async Task GetIntros_PreventsRecursion_WhenItemIsTheIntroItself()
     {
         var introPath = Path.Combine(Path.GetTempPath(), "mulletaflix_intro.mp4");
-        await File.WriteAllTextAsync(introPath, "dummy video");
+        await File.WriteAllTextAsync(introPath, "dummy video", TestContext.Current.CancellationToken);
 
         try
         {
