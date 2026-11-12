@@ -133,17 +133,19 @@ public class CatalogAuditServiceTests
             PreserveLockedFields = true
         };
 
-        var history = await service.ApplyFixAsync(fixRequest, "adminUser");
+        var history = await service.ApplyFixAsync(fixRequest, "adminUser", TestContext.Current.CancellationToken);
 
         Assert.Equal("2003", history.PreviousValue);
         Assert.Equal("1999", history.AppliedValue);
         Assert.Equal(1999, movie.ProductionYear);
 
         // Rollback fix
-        var rollbackSuccess = await service.RollbackFixAsync(new CatalogAuditRollbackRequest
-        {
-            HistoryEntryId = history.Id
-        });
+        var rollbackSuccess = await service.RollbackFixAsync(
+            new CatalogAuditRollbackRequest
+            {
+                HistoryEntryId = history.Id
+            },
+            TestContext.Current.CancellationToken);
 
         Assert.True(rollbackSuccess);
         Assert.Equal(2003, movie.ProductionYear);
@@ -173,7 +175,7 @@ public class CatalogAuditServiceTests
             PreserveLockedFields = true
         };
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyFixAsync(fixRequest, "adminUser"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyFixAsync(fixRequest, "adminUser", TestContext.Current.CancellationToken));
     }
 
     [Fact]
