@@ -74,7 +74,12 @@ public sealed class LibraryManagerImageConversionTests
 
         try
         {
-            var converted = await subject.ConvertImageToLocal(item, remoteImage, 0, removeOnFailure: false);
+            var converted = await subject.ConvertImageToLocal(
+                item,
+                remoteImage,
+                0,
+                removeOnFailure: false,
+                cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(localPath, converted.Path);
             Assert.Equal("ExampleProvider", converted.ProviderName);
@@ -195,7 +200,12 @@ public sealed class LibraryManagerImageConversionTests
 
         try
         {
-            var converted = await subject.ConvertImageToLocal(item, remoteImage, 0, removeOnFailure: true);
+            var converted = await subject.ConvertImageToLocal(
+                item,
+                remoteImage,
+                0,
+                removeOnFailure: true,
+                cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(localPath, converted.Path);
             Assert.Equal("ExampleProvider", converted.ProviderName);
@@ -241,7 +251,12 @@ public sealed class LibraryManagerImageConversionTests
         try
         {
             await Assert.ThrowsAsync<HttpRequestException>(() =>
-                subject.ConvertImageToLocal(item, remoteImage, 0, removeOnFailure: true));
+                subject.ConvertImageToLocal(
+                    item,
+                    remoteImage,
+                    0,
+                    removeOnFailure: true,
+                    cancellationToken: TestContext.Current.CancellationToken));
 
             Assert.True(item.HasImage(ImageType.Primary));
             providerManager.VerifyAll();
