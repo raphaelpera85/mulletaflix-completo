@@ -164,7 +164,7 @@ public sealed class HttpsDomainControllerAuthorizationTests
         using var response = await client.GetAsync("/System/Https/Status", TestContext.Current.CancellationToken);
 
         Assert.Equal(200, (int)response.StatusCode);
-        var content = await response.Content.ReadAsStringAsync();
+        var content = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         // Verify sentinel token is NOT in response
         Assert.DoesNotContain(SentinelToken, content, StringComparison.Ordinal);
@@ -353,7 +353,7 @@ public sealed class HttpsDomainControllerAuthorizationTests
         using var response = await client.PostAsync("/System/Https/Configure", httpContent, TestContext.Current.CancellationToken);
 
         Assert.Equal(200, (int)response.StatusCode);
-        var responseBody = await response.Content.ReadAsStringAsync();
+        var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         // Verify sentinel token is NOT in response body
         Assert.DoesNotContain(SentinelToken, responseBody, StringComparison.Ordinal);
@@ -418,7 +418,7 @@ public sealed class HttpsDomainControllerAuthorizationTests
         using var response = await client.PostAsync("/System/Https/Configure", httpContent, TestContext.Current.CancellationToken);
 
         Assert.Equal(400, (int)response.StatusCode);
-        var errorResponseBody = await response.Content.ReadAsStringAsync();
+        var errorResponseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         // Verify sentinel token is NOT in error response body
         Assert.DoesNotContain(SentinelToken, errorResponseBody, StringComparison.Ordinal);
