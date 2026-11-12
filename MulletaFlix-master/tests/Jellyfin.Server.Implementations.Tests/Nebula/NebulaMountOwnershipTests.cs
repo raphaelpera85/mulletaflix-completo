@@ -80,7 +80,7 @@ public sealed class NebulaMountOwnershipTests
         SetField(manager, "_rcloneStdoutTask", DrainOutput(process.StandardOutput));
         SetField(manager, "_rcloneStderrTask", DrainOutput(process.StandardError));
 
-        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         Assert.True(observer.HasExited);
         Assert.Null(GetProcess(manager));
@@ -98,7 +98,7 @@ public sealed class NebulaMountOwnershipTests
         SetField(manager, "_rcloneStdoutTask", Task.FromException(new IOException("simulated reader failure")));
         SetField(manager, "_rcloneStderrTask", Task.CompletedTask);
 
-        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        await manager.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         Assert.True(observer.HasExited);
         Assert.Null(GetProcess(manager));
