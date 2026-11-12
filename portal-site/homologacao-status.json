@@ -3642,6 +3642,23 @@
       "links": []
     },
     {
+      "id": "xunit1051-session-manager-2026-11-12",
+      "title": "Lote xUnit1051: SessionManagerTests",
+      "agent": "Hermes",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows local; Release; -m:1",
+      "location": "tests/Jellyfin.Server.Implementations.Tests/SessionManager/SessionManagerTests.cs:219,302,361",
+      "scope": "Propagar TestContext.Current.CancellationToken nas esperas de sincronização de playback",
+      "status": "partial",
+      "progressPercent": 100,
+      "startedAt": "2026-11-12T04:40:00-03:00",
+      "updatedAt": "2026-11-12T04:55:00-03:00",
+      "evidence": "Teste focal: 14 aprovados, 0 falhas, 0 ignorados. Build Release: 0 erros. Regressão .NET: 6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos. Inventário pós-build: 676 ocorrências brutas em 17 arquivos.",
+      "release": "Alteração somente em teste; a contagem de warnings é bruta e pode duplicar diagnósticos emitidos por mais de um projeto.",
+      "links": []
+    },
+    {
       "id": "dotnet-build-warning-inventory-full-2026-11-11",
       "title": "Inventário completo de warnings do build Release",
       "agent": "Hermes",

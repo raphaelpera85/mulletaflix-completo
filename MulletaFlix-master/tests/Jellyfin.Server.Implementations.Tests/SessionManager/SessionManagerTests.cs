@@ -216,7 +216,7 @@ public class SessionManagerTests
             PositionTicks = TimeSpan.FromMinutes(5).Ticks
         });
 
-        await saveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await saveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.False(progressTask.IsCompleted);
 
         completeSave.SetResult();
@@ -299,7 +299,7 @@ public class SessionManagerTests
             ItemId = item.Id
         });
 
-        await dtoStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await dtoStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.False(startTask.IsCompleted);
 
         completeDto.SetResult(new BaseItemDto { Id = item.Id });
@@ -358,7 +358,7 @@ public class SessionManagerTests
         var session = await sessionManager.LogSessionActivity("test-app", "1.0", "test-device", "Test Device", "127.0.0.1", user);
         var reportTask = sessionManager.ReportNowViewingItemAsync(session.Id, item.Id.ToString("N"));
 
-        await dtoStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await dtoStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.False(reportTask.IsCompleted);
 
         completeDto.SetResult(new BaseItemDto { Id = item.Id });
