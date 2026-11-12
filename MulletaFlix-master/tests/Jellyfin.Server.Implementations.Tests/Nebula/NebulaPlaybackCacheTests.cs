@@ -500,7 +500,9 @@ public sealed class NebulaPlaybackCacheTests
             releaseDownloads.TrySetResult();
             await allAdmittedStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
             await allAdmittedCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
-            await WaitUntilAsync(() => cache.PendingPrefetchCount == 0);
+            await WaitUntilAsync(() => cache.PendingPrefetchCount == 0
+                && cache.ActivePrefetchCount == 0
+                && cache.QueuedPrefetchCount == 0);
 
             Assert.Equal(6, startedMedia.Count);
             Assert.Equal(0, cache.PendingPrefetchCount);

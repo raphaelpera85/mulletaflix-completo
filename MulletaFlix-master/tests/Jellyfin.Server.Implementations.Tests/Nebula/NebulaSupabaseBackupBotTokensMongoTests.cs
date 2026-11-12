@@ -154,7 +154,7 @@ public sealed class NebulaSupabaseBackupBotTokensMongoTests : IDisposable
         var restoredEnabledTokens = await restoreMongoContext.GetBotTokensAsync(collectionName, TestContext.Current.CancellationToken);
         Assert.Equal(["backup-token-enabled"], restoredEnabledTokens);
 
-        _mongoClient!.DropDatabase(restoreDatabaseName);
+        _mongoClient!.DropDatabase(restoreDatabaseName, TestContext.Current.CancellationToken);
     }
 
     public void Dispose()

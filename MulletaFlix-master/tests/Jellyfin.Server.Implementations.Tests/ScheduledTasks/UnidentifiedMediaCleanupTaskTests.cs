@@ -172,7 +172,7 @@ public sealed class UnidentifiedMediaCleanupTaskTests
                 }
             }
 
-            await Task.Delay(10).ConfigureAwait(false);
+            await Task.Delay(10, TestContext.Current.CancellationToken).ConfigureAwait(false);
         }
 
         lock (queuedIds)

@@ -19,6 +19,10 @@
 - [x] Lote xUnit1051 focal em `TrickplayProviderTests.cs`: `WaitAsync` de backpressure passou a usar `TestContext.Current.CancellationToken`; teste focal passou **3/3** e não emitiu xUnit1051 para o arquivo.
 - [x] Lote xUnit1051 focal em `NebulaTelegramNotifierTests.cs`: `SendMessageAsync` passou a receber `TestContext.Current.CancellationToken`; teste focal passou **13/13** e não emitiu xUnit1051 para o arquivo.
 - [x] Regressão .NET completa final pós-`TrickplayProviderTests.cs` e `NebulaTelegramNotifierTests.cs`: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos** em 17 projetos, com `-m:1`; os testes ignorados não receberam crédito.
+- [x] Lote xUnit1051 focal em `NebulaSupabaseBackupBotTokensMongoTests.cs`: `DropDatabase` passou a usar `TestContext.Current.CancellationToken`; execução focal terminou com **0 aprovados, 2 ignorados, 0 falhas / 2**, pois Mongo de teste não estava disponível; não houve crédito de homologação.
+- [x] Lote xUnit1051 focal em `UnidentifiedMediaCleanupTaskTests.cs`: `Task.Delay` do polling passou a usar `TestContext.Current.CancellationToken`; teste focal passou **3/3** e não emitiu xUnit1051 para o arquivo.
+- [x] Corrigida flakiness em `NebulaPlaybackCacheTests.StartPrefetch_LimitsConcurrentMediaDownloadsWithoutDroppingQueuedMedia`: a regressão completa reproduziu uma janela entre `PendingPrefetchCount == 0` e a remoção de estados ativo/queued; o teste agora aguarda os três contadores zerarem. Focal repetido **10/10** e regressão completa posterior **6.087/314/0/6.401**.
+- [x] Build Release incremental pós-correção da flakiness: **0 erros**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
