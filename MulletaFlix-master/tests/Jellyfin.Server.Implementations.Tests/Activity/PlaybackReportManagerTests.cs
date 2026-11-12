@@ -70,7 +70,7 @@ public class PlaybackReportManagerTests
 
         // Assert - use a new context to verify since the manager disposes the context
         await using var verifyContext = CreateContext();
-        var saved = await verifyContext.PlaybackReports.FirstOrDefaultAsync(r => r.Id == report.Id);
+        var saved = await verifyContext.PlaybackReports.FirstOrDefaultAsync(r => r.Id == report.Id, TestContext.Current.CancellationToken);
         Assert.NotNull(saved);
         Assert.Equal("Test Movie", saved!.ItemName);
         Assert.Equal(3600, saved.DurationSeconds);
@@ -91,7 +91,7 @@ public class PlaybackReportManagerTests
         var report2 = new PlaybackReport(userId2, Guid.NewGuid(), "Movie 2", "Movie", "d2", "Device", "Client", "s2", "sid");
 
         context.PlaybackReports.AddRange(report1, report2);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         // Act
         var query = new PlaybackReportQuery { UserId = userId1, Limit = 10 };
@@ -116,7 +116,7 @@ public class PlaybackReportManagerTests
         var report2 = new PlaybackReport(Guid.NewGuid(), itemId2, "Movie 2", "Movie", "d2", "Device", "Client", "s2", "sid");
 
         context.PlaybackReports.AddRange(report1, report2);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         // Act
         var query = new PlaybackReportQuery { ItemId = itemId1, Limit = 10 };
@@ -144,7 +144,7 @@ public class PlaybackReportManagerTests
         };
 
         context.PlaybackReports.AddRange(report1, report2);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         // Act
         var query = new PlaybackReportQuery { PlayedToCompletion = true, Limit = 10 };
@@ -173,7 +173,7 @@ public class PlaybackReportManagerTests
         };
 
         context.PlaybackReports.AddRange(report1, report2);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         // Act
         var query = new PlaybackReportQuery
@@ -220,7 +220,7 @@ public class PlaybackReportManagerTests
         };
 
         context.PlaybackReports.AddRange(report1, report2, report3);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         // Act
         var query = new PlaybackReportQuery { Limit = 100 };

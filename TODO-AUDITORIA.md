@@ -37,6 +37,7 @@
 - [x] Lote xUnit1051 focal em `UserLicenseManagerTests.cs`: sete consultas e persistências assíncronas do cenário de licenças passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **6/6**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **636 ocorrências brutas em 13 arquivos**.
 - [x] Lote xUnit1051 focal em `UserManagerNormalizedUsernameTests.cs`: cinco operações de conexão/consulta SQL passaram a usar `TestContext.Current.CancellationToken`; o filtro focal executou **0/27 e ignorou 27** por depender de MariaDB descartável, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **626 ocorrências brutas em 12 arquivos**. Sem crédito funcional para os 27 casos ignorados.
 - [x] Lote xUnit1051 focal em `NebulaBackupStatusTests.cs`: cinco chamadas de status/backup passaram a propagar `TestContext.Current.CancellationToken`; teste focal passou **7/7**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **616 ocorrências brutas em 11 arquivos**.
+- [x] Lote xUnit1051 focal em `PlaybackReportManagerTests.cs`: seis operações assíncronas de persistência/consulta passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **6/6**, regressão completa **6.087/314/0/6.401**, build **0 erros**, e o inventário atual caiu para **604 ocorrências brutas em 10 arquivos**.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 
