@@ -110,7 +110,7 @@ public sealed class TrickplayProviderTests
         Assert.Equal(8, trickplayManager.Invocations.Count);
 
         refreshGate.SetResult();
-        await ninthRefresh.WaitAsync(TimeSpan.FromSeconds(5));
+        await ninthRefresh.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.Equal(9, trickplayManager.Invocations.Count);
     }

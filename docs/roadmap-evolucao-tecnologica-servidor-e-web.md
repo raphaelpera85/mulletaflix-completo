@@ -16,6 +16,9 @@
 - [x] Lote xUnit1051 focal em `StrmPrebufferManagerTests.cs`: gravação do fixture `.strm` e duas leituras do prebuffer passaram a usar `TestContext.Current.CancellationToken`; teste focal passou **1/1** e não emitiu xUnit1051 para o arquivo.
 - [x] Regressão .NET completa final pós-`ItemPersistenceServiceTests.cs`, `MidiaStorageOnlineLinkValidatorTests.cs` e `StrmPrebufferManagerTests.cs`: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos** em 17 projetos, com `-m:1`; os testes ignorados não receberam crédito.
 - [x] Build Release incremental final após os dois últimos lotes: **0 erros**.
+- [x] Lote xUnit1051 focal em `TrickplayProviderTests.cs`: `WaitAsync` de backpressure passou a usar `TestContext.Current.CancellationToken`; teste focal passou **3/3** e não emitiu xUnit1051 para o arquivo.
+- [x] Lote xUnit1051 focal em `NebulaTelegramNotifierTests.cs`: `SendMessageAsync` passou a receber `TestContext.Current.CancellationToken`; teste focal passou **13/13** e não emitiu xUnit1051 para o arquivo.
+- [x] Regressão .NET completa final pós-`TrickplayProviderTests.cs` e `NebulaTelegramNotifierTests.cs`: **6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos** em 17 projetos, com `-m:1`; os testes ignorados não receberam crédito.
 
 ## Correção do IntroSkipper para STRM e stream concorrente — 2026-11-11
 

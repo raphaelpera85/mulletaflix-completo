@@ -34,7 +34,7 @@ public class NebulaTelegramNotifierTests
             logger,
             client);
 
-        Assert.False(await pool.SendMessageAsync("test message"));
+        Assert.False(await pool.SendMessageAsync("test message", cancellationToken: TestContext.Current.CancellationToken));
         Assert.NotEmpty(logger.Entries);
         Assert.All(logger.Entries, entry =>
         {
