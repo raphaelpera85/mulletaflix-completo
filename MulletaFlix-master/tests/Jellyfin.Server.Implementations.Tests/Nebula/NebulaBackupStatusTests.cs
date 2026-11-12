@@ -78,13 +78,13 @@ public sealed class NebulaBackupStatusTests
         configManager.Setup(manager => manager.GetConfiguration("nebulaftp")).Returns(config);
         await using var manager = new NebulaFtpManager(configManager.Object, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
 
-        var legacy = await manager.GetSupabaseStatusAsync();
+        var legacy = await manager.GetSupabaseStatusAsync(TestContext.Current.CancellationToken);
         Assert.Null(legacy.LastBackupFailed);
         Assert.Null(legacy.LastUsersBackupFailed);
         Assert.Null(legacy.LastBackupProcessedFilesCount);
 
         NebulaFtpManager.ApplyMongoBackupResult(config, new NebulaSupabaseBackupResultDto { Success = true });
-        var current = await manager.GetSupabaseStatusAsync();
+        var current = await manager.GetSupabaseStatusAsync(TestContext.Current.CancellationToken);
         Assert.False(current.LastBackupFailed);
         Assert.Equal(0, current.LastBackupProcessedFilesCount);
         Assert.Equal(0, current.LastBackupProcessedUsersCount);
@@ -102,7 +102,7 @@ public sealed class NebulaBackupStatusTests
 
         manager.RecordMongoRestoreResult(true, "restored", 12, 3, 2, 1);
 
-        var status = await manager.GetSupabaseStatusAsync();
+        var status = await manager.GetSupabaseStatusAsync(TestContext.Current.CancellationToken);
         Assert.Equal(12, status.LastRestoreFilesRestored);
         Assert.Equal(3, status.LastRestoreUsersRestored);
         Assert.Equal(2, status.LastRestoreFtpUsersRestored);
@@ -126,7 +126,7 @@ public sealed class NebulaBackupStatusTests
 
         manager.RecordMongoRestoreResult(false, "failed before counters", null, null, null, null);
 
-        var status = await manager.GetSupabaseStatusAsync();
+        var status = await manager.GetSupabaseStatusAsync(TestContext.Current.CancellationToken);
         Assert.Null(status.LastRestoreFilesRestored);
         Assert.Null(status.LastRestoreUsersRestored);
         Assert.Null(status.LastRestoreFtpUsersRestored);
@@ -150,7 +150,7 @@ public sealed class NebulaBackupStatusTests
             });
         await using var manager = new NebulaFtpManager(configManager.Object, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
 
-        var result = await manager.BackupUsersToSupabaseAsync();
+        var result = await manager.BackupUsersToSupabaseAsync(TestContext.Current.CancellationToken);
 
         Assert.False(result.Success);
         Assert.True(config.SupabaseLastUsersBackupFailed);
