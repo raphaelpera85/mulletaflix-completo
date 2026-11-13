@@ -89,7 +89,7 @@ public partial class BaseItemAnalyzerTask(
 
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Math.Max(1, Config.MaxParallelism),
+            MaxDegreeOfParallelism = Config.EffectiveMaxParallelism,
             CancellationToken = cancellationToken
         };
 
@@ -164,6 +164,10 @@ public partial class BaseItemAnalyzerTask(
         var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
         foreach (var episode in season.Episodes)
         {
+            episode.Duration = await ResolveDurationAsync(
+                episode.Duration,
+                () => _ffmpegService.ProbeAudioDurationAsync(episode.Path, cancellationToken)).ConfigureAwait(false);
+
             episode.AnalysisPercentOverride = overrides.AnalysisPercent;
             episode.AnalysisLengthLimitOverride = overrides.AnalysisLengthLimit;
             episode.PreviewFromCreditsEndOverride = overrides.PreviewFromCreditsEnd;
@@ -289,6 +293,17 @@ public partial class BaseItemAnalyzerTask(
         {
             await _database.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    internal static async Task<double> ResolveDurationAsync(double duration, Func<Task<double?>> probeAudioDurationAsync)
+    {
+        if (duration > 0)
+        {
+            return duration;
+        }
+
+        var probedDuration = await probeAudioDurationAsync().ConfigureAwait(false);
+        return probedDuration is > 0 ? probedDuration.Value : duration;
     }
 
     /// <summary>

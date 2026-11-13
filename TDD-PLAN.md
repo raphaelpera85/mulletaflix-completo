@@ -99,3 +99,24 @@ O legado recebe cobertura incremental, sem selo retroativo de TDD. Priorizar mud
 Uma mudança só é concluída quando o RED esperado foi observado, GREEN e suíte da frente passaram, builds/lint aplicáveis passaram e não há falhas ocultas como testes ignorados. Para evitar artefato stale, valide diretório de saída limpo/identificado, timestamp de geração, versão e hash/metadados do artefato comparados ao build recém-executado; para APK valide também assinatura esperada. Registre relatório e ambiente. Não inferir homologação total, cobertura percentual ou validação ponta-a-ponta de uma suíte parcial.
 
 Uma release não faz parte automaticamente de cada execução de TDD: seguir autorização, escopo e fluxo de release vigente da frente. APK, servidor e portal continuam releases independentes quando a alteração é exclusiva de um deles.
+
+## Regressões da release 12.1.52 — 2026-11-12
+
+- `tests/IntroSkipper.Integration.Tests/StrmInputResolverTests.cs`: cobertura de URI `file:` com espaço no caminho, além de preservação de URI de rede.
+- `ChromaprintAnalyzerTests.cs`, `FFmpegAudioDurationTests.cs` e `PluginRuntimeConfigurationTests.cs`: regressões para fingerprint/offset, duração reportada pelo FFprobe e configuração corrente do FFmpeg.
+- `IntroSkipperMediaAnalysisE2ETests.cs`: fluxo completo com quatro arquivos `.strm` sintéticos, FFmpeg real, MariaDB descartável, segmentos persistidos e concorrência limitada a duas análises.
+- `MulletaFlix-web-master/src/components/UserAvatar.test.tsx`: contrato de URL autenticada e imagem primária, 2/2.
+- `MulletaFlix-packaging-master/scripts/tests/InstallerLocalization.Tests.ps1` e `tools/release/tests/windows-duckdns-token-transport.test.mjs`: localização/controles do instalador aprovados e transporte do token DuckDNS 16/16.
+- Gates observados: solução .NET 5.713 aprovados/305 ignorados/0 falhas; IntroSkipper com banco descartável 109 aprovados/1 ignorado/0 falhas; web 427/427; build Windows e NSIS passaram. O ciclo RED não foi reexecutado nesta worktree de release, então estes resultados comprovam regressão GREEN, não um RED-GREEN novo nesta base.
+- Relatório e limites: [`MulletaFlix-master/docs/homologacao-release-12.1.52.md`](MulletaFlix-master/docs/homologacao-release-12.1.52.md). Instalação/upgrade em VM, CI hospedada e Android/iOS permanecem pendentes.
+
+### Correções da revisão adversarial — 2026-11-12
+
+- `tests/IntroSkipper.Integration.Tests/FFmpegProcessRunnerTests.cs`: 4/4 casos garantem que URLs com userinfo, query e fragmento sejam removidas dos logs Debug, sem alterar argumentos não URI nem caminhos `file:`. Ambos os caminhos de log usam o redator.
+- `OnlinePackService` mantém limites de download ZIP em 1 GiB e expansão de imagens em 2 GiB para não rejeitar de imediato o asset oficial Steam.zip de 958.257.135 bytes. O asset não foi baixado/importado, então seu tamanho expandido segue pendente.
+- Regressão final atualizada: solução **5.717/305/0/6.022**; IntroSkipper com MariaDB **113 aprovados/1 ignorado/0 falhas**. Stage refeito e íntegro; NSIS recompilado, artefato atualizado registrado no relatório fonte.
+- A revisão também identificou que URI `file:` não está confinada às raízes de biblioteca; controlar a origem dos `.strm` até validar/implementar esse limite.
+
+### Revalidação do port para `main` — 2026-11-13
+
+Decisão posterior do usuário: manter a `main` atual como base e portar somente as correções 12.1.52, sem migrar os 103 commits de `v12.1.51`. Na árvore portável, a solução .NET passou **6.103/315/0/6.418** em 17 projetos; IntroSkipper com MariaDB descartável passou **116/1/0/117**, incluindo E2E de quatro STRM, persistência e concorrência 2; Vitest passou **443/443**; build/typecheck web, produção, verify:build, auditoria de produção, localização NSIS, transporte DuckDNS e build do instalador passaram. A auditoria geral mantém oito vulnerabilidades moderadas apenas em ferramentas dev. Instalação em VM e CI hospedada seguem pendentes.

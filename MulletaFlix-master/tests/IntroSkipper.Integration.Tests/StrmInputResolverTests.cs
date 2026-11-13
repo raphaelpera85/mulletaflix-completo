@@ -75,4 +75,24 @@ public sealed class StrmInputResolverTests
 
         Assert.Equal(mediaPath, StrmInputResolver.Resolve(mediaPath));
     }
+
+    [Fact]
+    public void Resolve_ConvertsFileUriToNativePathForFfmpeg()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "mfx-introskipper-strm", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var strmPath = Path.Combine(directory, "episode.strm");
+        var mediaPath = Path.Combine(directory, "media with spaces.wav");
+
+        try
+        {
+            File.WriteAllText(strmPath, new Uri(mediaPath).AbsoluteUri);
+
+            Assert.Equal(mediaPath, StrmInputResolver.Resolve(strmPath));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

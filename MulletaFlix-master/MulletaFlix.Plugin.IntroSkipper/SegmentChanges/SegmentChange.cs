@@ -127,7 +127,7 @@ public sealed partial class SegmentChange : BackgroundService
         var applied = 0;
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Math.Max(1, Plugin.Instance?.Configuration.MaxParallelism ?? 1),
+            MaxDegreeOfParallelism = Plugin.Instance?.Configuration.EffectiveMaxParallelism ?? 1,
             CancellationToken = cancellationToken
         };
         await Parallel.ForEachAsync(ids, options, async (itemId, token) =>

@@ -149,7 +149,7 @@ describe('getPostersPerRow', () => {
     describe('banner', () => {
         const postersPerRowForBanner = (screenWidth: number) => (getPostersPerRow('banner', screenWidth, false, false));
 
-        test('screen width less than 800px', () => expect(postersPerRowForBanner(799)).toBeCloseTo(1), 10);
+        test('screen width less than 800px', () => expect(postersPerRowForBanner(799)).toBeCloseTo(1, 10));
 
         test('screen width greater than or equal to 800px', () => {
             expect(postersPerRowForBanner(800)).toBeCloseTo(2, 10);

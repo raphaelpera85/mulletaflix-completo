@@ -46,7 +46,7 @@ public sealed class OnlinePackServiceTests
         var imageData = new byte[5 * 1024 * 1024];
         await AssertPackRejectedAsync(archive =>
         {
-            for (var index = 0; index < 52; index++)
+            for (var index = 0; index < 410; index++)
             {
                 using var image = archive.CreateEntry($"image-{index}.png", CompressionLevel.Optimal).Open();
                 image.Write(imageData);
@@ -67,7 +67,7 @@ public sealed class OnlinePackServiceTests
                 Assert.False(result.PackResults.Single().Success);
                 Assert.Empty(Directory.GetFiles(avatarDirectory));
             },
-            declaredContentLength: (256L * 1024L * 1024L) + 1);
+            declaredContentLength: (1024L * 1024L * 1024L) + 1);
     }
 
     [Theory]

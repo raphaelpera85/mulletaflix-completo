@@ -108,7 +108,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             // visible in the log before any caller starts treating an exit code as a failure.
             if (process.ExitCode != 0 && _logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug("ffmpeg exited with code {ExitCode}: {Arguments}", process.ExitCode, string.Join(" ", info.ArgumentList));
+                _logger.LogDebug("ffmpeg exited with code {ExitCode}: {Arguments}", process.ExitCode, string.Join(" ", info.ArgumentList.Select(RedactArgument)));
             }
 
             return ms.ToArray();
@@ -133,7 +133,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         }
     }
 
-    private static string RedactArgument(string argument)
+    internal static string RedactArgument(string argument)
     {
         if (!Uri.TryCreate(argument, UriKind.Absolute, out var uri)
             || string.IsNullOrEmpty(uri.Scheme)
@@ -142,7 +142,15 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             return argument;
         }
 
-        return uri.GetLeftPart(UriPartial.Path);
+        var redactedUri = new UriBuilder(uri)
+        {
+            UserName = string.Empty,
+            Password = string.Empty,
+            Query = string.Empty,
+            Fragment = string.Empty,
+        };
+
+        return redactedUri.Uri.GetLeftPart(UriPartial.Path);
     }
 
     private void KillProcessTree(Process process)

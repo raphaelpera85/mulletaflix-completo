@@ -20,9 +20,9 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
     {
         private const string GitHubReleaseApiUrl = "https://api.github.com/repos/cedev-1/jellyfin-avatars/releases/latest";
         internal const string PackDownloadHttpClientName = "GetAvatar.PackDownload";
-        private const long MaxZipSizeBytes = 256L * 1024L * 1024L;
+        private const long MaxZipSizeBytes = 1024L * 1024L * 1024L;
         private const long MaxImageSizeBytes = 5L * 1024L * 1024L;
-        private const long MaxPackImageBytes = 256L * 1024L * 1024L;
+        private const long MaxPackImageBytes = 2L * 1024L * 1024L * 1024L;
         private const int MaxPackEntries = 10000;
         private const int MaxDownloadRedirects = 5;
         private static readonly TimeSpan PackCacheDuration = TimeSpan.FromMinutes(15);

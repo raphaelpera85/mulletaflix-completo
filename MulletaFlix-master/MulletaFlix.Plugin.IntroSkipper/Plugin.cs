@@ -37,6 +37,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
+    private readonly IServerConfigurationManager _serverConfiguration;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -62,7 +63,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _chapterRepository = chapterRepository;
         _pluginManager = pluginManager;
 
-        FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
+        _serverConfiguration = serverConfiguration;
 
         Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
@@ -72,7 +73,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Gets the full path to FFmpeg.
     /// </summary>
-    internal string FFmpegPath { get; }
+    internal string FFmpegPath => _serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
     /// <inheritdoc />
     public override string Name => ProviderName;

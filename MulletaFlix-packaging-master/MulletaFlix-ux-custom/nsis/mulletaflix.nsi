@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 !verbose 3
 ;SetCompressor /SOLID bzip2 TODO Review if this is best option
 ShowInstDetails show
@@ -45,6 +46,7 @@ Unicode True
     Var hCtl_duckdns_Enable
     Var hCtl_duckdns_Subdomain
     Var hCtl_duckdns_Token
+    Var hCtl_duckdns_Create
 
 
 
@@ -854,26 +856,33 @@ Function ShowHttpsPage
     ${NSD_CreateCheckbox} 8u 8u 280u 15u "Configure HTTPS automatically (recommended)"
     Pop $hCtl_https_Enable
     ${NSD_Check} $hCtl_https_Enable
-    ${NSD_CreateLabel} 8u 34u 280u 16u "Public hostname (DNS must point to this server):"
+    ${NSD_CreateLabel} 8u 28u 280u 16u "Public hostname (DNS must point to this server):"
     Pop $0
-    ${NSD_CreateText} 8u 50u 280u 14u $_HTTPSHOST_
+    ${NSD_CreateText} 8u 42u 280u 14u $_HTTPSHOST_
     Pop $hCtl_https_Host
-    ${NSD_CreateLabel} 8u 70u 280u 16u "Let's Encrypt notification email:"
+    ${NSD_CreateLabel} 8u 58u 280u 16u "Let's Encrypt notification email:"
     Pop $0
-    ${NSD_CreateText} 8u 86u 280u 14u $_HTTPEMAIL_
+    ${NSD_CreateText} 8u 72u 280u 14u $_HTTPEMAIL_
     Pop $hCtl_https_Email
-    ${NSD_CreateCheckbox} 8u 108u 280u 15u "Atualizar endereço DuckDNS automaticamente"
+    ${NSD_CreateCheckbox} 8u 92u 280u 15u "Atualizar endereço DuckDNS automaticamente"
     Pop $hCtl_duckdns_Enable
     ${NSD_Check} $hCtl_duckdns_Enable
-    ${NSD_CreateLabel} 8u 130u 130u 16u "Subdomínio DuckDNS:"
+    ${NSD_CreateLabel} 8u 111u 130u 16u "Subdomínio DuckDNS:"
     Pop $0
-    ${NSD_CreateText} 142u 128u 146u 14u $_DUCKDNSSUBDOMAIN_
+    ${NSD_CreateText} 142u 109u 60u 14u $_DUCKDNSSUBDOMAIN_
     Pop $hCtl_duckdns_Subdomain
-    ${NSD_CreateLabel} 8u 152u 130u 16u "Token DuckDNS:"
+    ${NSD_CreateButton} 208u 109u 80u 14u "Abrir DuckDNS"
+    Pop $hCtl_duckdns_Create
+    ${NSD_OnClick} $hCtl_duckdns_Create OpenDuckDnsPage
+    ${NSD_CreateLabel} 8u 131u 130u 16u "Token DuckDNS:"
     Pop $0
-    ${NSD_CreatePassword} 142u 150u 146u 14u $_DUCKDNSTOKEN_
+    ${NSD_CreatePassword} 142u 129u 146u 14u $_DUCKDNSTOKEN_
     Pop $hCtl_duckdns_Token
     nsDialogs::Show
+FunctionEnd
+
+Function OpenDuckDnsPage
+    ExecShell "open" "https://www.duckdns.org/"
 FunctionEnd
 
 Function LeaveHttpsPage
