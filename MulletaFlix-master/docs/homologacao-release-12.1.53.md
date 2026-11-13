@@ -39,3 +39,11 @@ Não foram exercitados uma origem de streaming externa real, instalação visual
 em VM Windows, CI hospedada, primeiro boot de produção, Android instrumentado ou
 iOS. A release inclui artefatos Windows; não foi construído pacote Linux nesta
 homologação local. A assinatura Authenticode não está configurada.
+
+## Publicação remota
+
+A release pública `v12.1.53` foi confirmada como a mais recente em
+https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.53. A
+tag aponta para `2d8b0ab0b22e333dae770edcdfbab4ac76194a17`, que também estava em
+`origin/main` após o push. GitHub confirmou os dois assets como enviados e
+publicou os mesmos tamanhos/digests SHA-256 listados acima.
