@@ -6,6 +6,25 @@ namespace IntroSkipper.Integration.Tests;
 
 public sealed class FFmpegAudioDurationTests
 {
+    [Theory]
+    [InlineData(300, true, 900_000)]
+    [InlineData(1_200, true, 1_200_000)]
+    [InlineData(0, true, -1)]
+    [InlineData(300, false, 300_000)]
+    public void ScanTimeoutMilliseconds_ExtendsOnlyStrmTimeouts(int seconds, bool isStrm, int expected)
+    {
+        Assert.Equal(expected, FFmpegService.ScanTimeoutMilliseconds(seconds, isStrm));
+    }
+
+    [Theory]
+    [InlineData(300, true, 900_000)]
+    [InlineData(0, true, -1)]
+    [InlineData(300, false, 10_000)]
+    public void ProbeTimeoutMilliseconds_PreservesLocalTimeout(int scanTimeoutSeconds, bool isStrm, int expected)
+    {
+        Assert.Equal(expected, FFmpegService.ProbeTimeoutMilliseconds(scanTimeoutSeconds, isStrm));
+    }
+
     [Fact]
     public void ParseAudioDuration_UsesContainerDurationWhenStreamDurationIsUnavailable()
     {

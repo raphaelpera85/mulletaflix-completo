@@ -17,6 +17,7 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 internal sealed partial class FFmpegService : IFFmpegService
 {
+    private const int MinimumStrmScanTimeoutSeconds = 15 * 60;
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
@@ -389,7 +390,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         LogDetectionScan(_logger, entryType, start, end, episode.Path, episode.EpisodeId);
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: ScanTimeout(episode.Path), cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
@@ -414,7 +415,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 StrmInputResolver.Resolve(filePath),
             ];
 
-            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(ffprobePath, args, stderr: false, timeout: 10 * 1000, cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
+            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(ffprobePath, args, stderr: false, timeout: ProbeTimeout(filePath), cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
             return ParseAudioDuration(output);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
@@ -490,14 +491,41 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     /// <summary>
     /// Converts <see cref="Configuration.PluginConfiguration.ScanTimeoutSeconds"/> into the millisecond budget a
-    /// fingerprint or detection scan gets. Zero or negative means no limit.
+    /// media probe or scan gets. Remote STRM inputs have a 15-minute minimum. Zero or negative means no limit.
     /// </summary>
     /// <param name="seconds">The configured timeout in seconds.</param>
     /// <returns>Milliseconds, or <see cref="Timeout.Infinite"/> when unlimited.</returns>
-    internal static int ScanTimeoutMilliseconds(int seconds) =>
-        seconds > 0 ? (int)Math.Min(seconds * 1000L, int.MaxValue) : Timeout.Infinite;
+    internal static int ScanTimeoutMilliseconds(int seconds) => ScanTimeoutMilliseconds(seconds, isStrm: false);
 
-    private static int ScanTimeout() => ScanTimeoutMilliseconds(Plugin.Instance?.Configuration.ScanTimeoutSeconds ?? 300);
+    /// <summary>
+    /// Applies the configured timeout, allowing remote STRM media enough time to respond.
+    /// </summary>
+    /// <param name="seconds">The configured timeout in seconds.</param>
+    /// <param name="isStrm">Whether the media input came from a STRM file.</param>
+    /// <returns>Milliseconds, or <see cref="Timeout.Infinite"/> when unlimited.</returns>
+    internal static int ScanTimeoutMilliseconds(int seconds, bool isStrm)
+    {
+        if (seconds <= 0)
+        {
+            return Timeout.Infinite;
+        }
+
+        var effectiveSeconds = isStrm ? Math.Max(seconds, MinimumStrmScanTimeoutSeconds) : seconds;
+        return (int)Math.Min(effectiveSeconds * 1000L, int.MaxValue);
+    }
+
+    internal static int ProbeTimeoutMilliseconds(int scanTimeoutSeconds, bool isStrm) =>
+        isStrm ? ScanTimeoutMilliseconds(scanTimeoutSeconds, isStrm: true) : 10 * 1000;
+
+    private static int ScanTimeout(string mediaPath) => ScanTimeoutMilliseconds(
+        Plugin.Instance?.Configuration.ScanTimeoutSeconds ?? 300,
+        IsStrm(mediaPath));
+
+    private static int ProbeTimeout(string mediaPath) => ProbeTimeoutMilliseconds(
+        Plugin.Instance?.Configuration.ScanTimeoutSeconds ?? 300,
+        IsStrm(mediaPath));
+
+    private static bool IsStrm(string mediaPath) => mediaPath.EndsWith(".strm", StringComparison.OrdinalIgnoreCase);
 
     private static string GetFFprobePath()
     {
@@ -544,7 +572,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 GetFFprobePath(),
                 args,
                 stderr: false,
-                timeout: 10 * 1000,
+                timeout: ProbeTimeout(filePath),
                 cancellationToken: cancellationToken).ConfigureAwait(false));
 
             using var document = JsonDocument.Parse(output);
@@ -625,7 +653,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var configuration = Plugin.Instance?.Configuration;
         var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration?.PreferredAudioLanguage);
         var streamSelection = await FindAudioStreamSelectionAsync(
-            resolvedPath,
+            episode.Path,
             preferredLanguage,
             configuration?.PreferAudioStreamWithMostChannels ?? true,
             cancellationToken).ConfigureAwait(false);
@@ -682,7 +710,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         byte[] rawPoints;
         try
         {
-            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: ScanTimeout(episode.Path), cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {
