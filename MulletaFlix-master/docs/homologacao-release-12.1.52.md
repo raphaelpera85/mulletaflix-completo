@@ -63,3 +63,9 @@ Decisão posterior do usuário: usar a `main` atual e portar apenas as correçõ
 - Build `win-x64`, tray `net472`, stage e NSIS concluíram; `Assert-StageIntegrity` passou. Instalador 12.1.52.0: 444.387.312 bytes, SHA-256 `797564D54434F875330BC890D35AF84429C03AC430DB47D6EE22A47DB131C4ED`, Authenticode `NotSigned`. Artefato em `.build/integrated-main-12.1.52/build/installer-output/`.
 
 O instalador não foi executado em VM descartável; instalação/upgrade, primeiro boot e scan em Windows continuam pendentes. CI hospedada não foi executada. O submódulo de tray permanece não pinado pela fonte principal e foi compilado do checkout limpo f882f5f2ca7d84322f90b647114667273ee08b21.
+
+### Resultado remoto e limite da validação visual — 2026-11-13
+
+- O commit `b89224cb4fc4ed3ce66a36ceb2deb1fd1f28bf27` foi confirmado em `origin/main` (fast-forward a partir de `8438271f8d9b99e0b80e047eff23c375668eaa8c`). O workflow GitHub Actions run `43356247471` terminou com `failure`; a API do GitHub retornou zero jobs e zero check-runs. A causa não foi identificada; portanto, CI hospedada não está aprovada.
+- A inspeção visual do instalador em Windows não foi executada: abrir/executar este binário local exige confirmação no momento da ação. Os testes `InstallerLocalization.Tests.ps1`, transporte DuckDNS 16/16 e a compilação NSIS passaram, mas não demonstram a renderização da tela em runtime.
+- Nenhuma instalação, atualização ou alteração no serviço deste computador foi realizada. Permanecem pendentes a confirmação para executar o instalador em ambiente isolado, homologação visual/fluxo do instalador, CI hospedada e verificação independente do deploy de produção.
