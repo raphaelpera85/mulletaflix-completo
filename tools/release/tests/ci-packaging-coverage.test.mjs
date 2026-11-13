@@ -90,6 +90,13 @@ test('Nebula packaging installs and stages the hash-locked runtime dependencies'
     assert.match(stageIntegrity, /sourceCheckpointHash.*stagedCheckpointHash/s);
 });
 
+test('release workflow loads release notes from the source documentation directory', async () => {
+    const match = releaseWorkflow.match(/-NotesPath\s+"([^"]+)"/);
+    assert.ok(match, 'Release workflow must pass a release notes path');
+    assert.equal(match[1], 'MulletaFlix-master/docs/releases/$tagVersion.md');
+    await readFile(resolve(repositoryRoot, 'MulletaFlix-master/docs/releases/12.1.52.md'), 'utf8');
+});
+
 test('Nebula startup dependency guard never repairs a global Python interpreter', async () => {
     const guard = await readFile(resolve(repositoryRoot, 'MulletaFlix-master/Tools/NebulaPython/tools/check_deps.py'), 'utf8');
     assert.match(guard, /def _require_isolated_environment\(\)/);
