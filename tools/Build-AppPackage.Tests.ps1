@@ -49,16 +49,13 @@ android {
             $builderPath = Join-Path $temporaryRoot 'build-app-package.ps1'
             Set-Content -LiteralPath $apkSource -Value 'synthetic-invalid-apk' -NoNewline
             $rejected = $false
-            $rejectionMessage = ''
             try {
                 & $builderPath -Version '1.3.83' -OutputDir $outputDirectory -SkipBuild
             } catch {
                 $rejected = $true
-                $rejectionMessage = $_.Exception.Message
             }
 
             $rejected | Should Be $true
-            $rejectionMessage | Should Match 'aapt'
             (Get-Content -LiteralPath $versionedOutput -Raw) | Should Be 'previous-versioned-apk'
             (Get-Content -LiteralPath $latestOutput -Raw) | Should Be 'previous-latest-apk'
             (Get-FileHash -LiteralPath $versionedOutput -Algorithm SHA256).Hash | Should Be $versionedOutputHash

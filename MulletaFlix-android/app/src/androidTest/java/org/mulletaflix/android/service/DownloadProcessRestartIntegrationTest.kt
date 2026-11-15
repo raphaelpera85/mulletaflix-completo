@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -90,6 +91,7 @@ class DownloadProcessRestartIntegrationTest {
 
     @Test
     fun failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested() {
+        assumeHostHarness()
         assertDebugApplication()
         val requested = InstrumentationRegistry.getArguments()
             .getString("downloadRestartFailureEvidenceCanary")
@@ -138,6 +140,7 @@ class DownloadProcessRestartIntegrationTest {
 
     @Test
     fun preparePartialDownloadForHostProcessRestart() {
+        assumeHostHarness()
         assertDebugApplication()
         assertNoExistingActiveDownloads()
         assertQueueIsNotUserPaused()
@@ -185,6 +188,7 @@ class DownloadProcessRestartIntegrationTest {
 
     @Test
     fun verifyPartialDownloadResumedByFreshApplicationProcess() {
+        assumeHostHarness()
         assertDebugApplication()
         val arguments = InstrumentationRegistry.getArguments()
         val testId = requireNotNull(arguments.getString("downloadRestartTestId"))
@@ -356,6 +360,7 @@ class DownloadProcessRestartIntegrationTest {
 
     @Test
     fun cleanupIsolatedHostProcessFixture() {
+        assumeHostHarness()
         assertDebugApplication()
         val testId = requireNotNull(InstrumentationRegistry.getArguments().getString("downloadRestartTestId"))
         require(testId.matches(Regex("[a-f0-9-]{36}"))) { "Expected a UUID test id" }
@@ -369,6 +374,11 @@ class DownloadProcessRestartIntegrationTest {
         runBlocking { isolatedSessionRepository(testId).clearSession() }
         isolatedDataDirectory(testId).deleteRecursively()
     }
+
+    private fun assumeHostHarness() = assumeTrue(
+        "Run this phase through Test-AndroidDownloadProcessRestart.ps1",
+        InstrumentationRegistry.getArguments().getString("downloadRestartHostHarness") == "true",
+    )
 
     private fun assertDebugApplication() {
         assertTrue("This test must never use the production package", context.packageName.endsWith(".debug"))

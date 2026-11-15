@@ -409,38 +409,48 @@ internal sealed partial class FFmpegService : IFFmpegService
             [
                 "-v", "error",
                 "-select_streams", "a:0",
-                "-show_entries", "stream=duration:stream_tags=DURATION",
+                "-show_entries", "stream=duration:stream_tags=DURATION:format=duration",
                 "-of", "csv=p=0",
                 StrmInputResolver.Resolve(filePath),
             ];
 
             var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(ffprobePath, args, stderr: false, timeout: 10 * 1000, cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
-            if (string.IsNullOrWhiteSpace(output))
-            {
-                return null;
-            }
-
-            foreach (var value in output.Split('\n')[0].Split(',').Select(static f => f.Trim()))
-            {
-                if (string.IsNullOrWhiteSpace(value) || string.Equals(value, "N/A", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (double.TryParse(value, CultureInfo.InvariantCulture, out var seconds) && seconds > 0)
-                {
-                    return seconds;
-                }
-
-                if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var duration) && duration.TotalSeconds > 0)
-                {
-                    return duration.TotalSeconds;
-                }
-            }
+            return ParseAudioDuration(output);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
             LogAudioDurationProbeFailed(_logger, ex, filePath);
+        }
+
+        return null;
+    }
+
+    internal static double? ParseAudioDuration(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return null;
+        }
+
+        foreach (var value in output
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .SelectMany(static line => line.Split(','))
+            .Select(static field => field.Trim()))
+        {
+            if (string.IsNullOrWhiteSpace(value) || string.Equals(value, "N/A", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (double.TryParse(value, CultureInfo.InvariantCulture, out var seconds) && seconds > 0)
+            {
+                return seconds;
+            }
+
+            if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var duration) && duration.TotalSeconds > 0)
+            {
+                return duration.TotalSeconds;
+            }
         }
 
         return null;
@@ -681,7 +691,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
-            LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);
+            LogChromaprintReturnedPoints(_logger, rawPoints.Length / sizeof(uint), cacheMode, start, end, episode.Path);
             throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
         }
 
@@ -719,8 +729,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
-    private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for {Mode} window [{Start}, {End}] in \"{Path}\"")]
+    private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, AnalysisMode mode, double start, double end, string path);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
     private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception ex, string file);

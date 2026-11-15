@@ -37,7 +37,7 @@ internal static class StrmInputResolver
         if (Uri.TryCreate(target, UriKind.Absolute, out var uri)
             && SupportedSchemes.Contains(uri.Scheme, StringComparer.OrdinalIgnoreCase))
         {
-            return uri.AbsoluteUri;
+            return uri.IsFile ? uri.LocalPath : uri.AbsoluteUri;
         }
 
         throw new InvalidDataException($"STRM file '{mediaPath}' does not contain a supported absolute media URI.");

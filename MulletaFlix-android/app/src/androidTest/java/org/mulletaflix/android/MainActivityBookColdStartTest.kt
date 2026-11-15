@@ -39,8 +39,14 @@ class MainActivityBookColdStartTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
     private val sessionRepository = SessionRepositoryImpl(context)
 
+    private fun assumeHostHarness() = assumeTrue(
+        "Run this phase through Test-AndroidBookMainProcessColdStart.ps1",
+        InstrumentationRegistry.getArguments().getString("bookColdStartHostHarness") == "true",
+    )
+
     @Test
     fun captureOriginalSessionSnapshotForColdStart() = runBlocking {
+        assumeHostHarness()
         val existing = readSession()
         assumeTrue("Cannot safely restore the current partial session", existing.isSafelyRestorable)
         val snapshot = Base64.encodeToString(
@@ -56,6 +62,7 @@ class MainActivityBookColdStartTest {
 
     @Test
     fun prepareAuthenticatedSessionForColdStart() = runBlocking {
+        assumeHostHarness()
         val existing = readSession()
         val arguments = InstrumentationRegistry.getArguments()
         sessionRepository.saveSession(
@@ -70,6 +77,7 @@ class MainActivityBookColdStartTest {
 
     @Test
     fun authenticatedBookDeepLinkRendersAfterMainProcessRestart() = runBlocking {
+        assumeHostHarness()
         val arguments = InstrumentationRegistry.getArguments()
         val sessionSnapshot = requireArgument(
             arguments.getString(ARG_SESSION_SNAPSHOT),
@@ -112,6 +120,7 @@ class MainActivityBookColdStartTest {
 
     @Test
     fun enterMediaRequestDraftBeforeMainProcessRestart() = runBlocking {
+        assumeHostHarness()
         val serverUrl = requireArgument(
             InstrumentationRegistry.getArguments().getString(ARG_SERVER_URL),
             ARG_SERVER_URL,
@@ -135,6 +144,7 @@ class MainActivityBookColdStartTest {
 
     @Test
     fun mediaRequestDraftIsRestoredAfterMainProcessRestart() = runBlocking {
+        assumeHostHarness()
         val expectedDraft = MediaRequestDraft(
             title = REQUEST_DRAFT_TITLE,
             mediaType = "Filme",
@@ -174,6 +184,7 @@ class MainActivityBookColdStartTest {
 
     @Test
     fun cleanupOnlyTheHostProcessRestartDraft() = runBlocking {
+        assumeHostHarness()
         val serverUrl = requireArgument(
             InstrumentationRegistry.getArguments().getString(ARG_SERVER_URL),
             ARG_SERVER_URL,
@@ -191,6 +202,7 @@ class MainActivityBookColdStartTest {
 
     @Test
     fun restoreOriginalSessionAfterColdStartFixture() = runBlocking {
+        assumeHostHarness()
         val snapshot = requireArgument(
             InstrumentationRegistry.getArguments().getString(ARG_SESSION_SNAPSHOT),
             ARG_SESSION_SNAPSHOT,

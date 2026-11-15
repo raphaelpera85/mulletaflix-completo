@@ -28,4 +28,10 @@ Describe 'Android download failure-evidence canary wiring' {
         $harness | Should Match '@\(\$fixtureSnapshot\.requests\)\.Count -ne 0'
         $harness | Should Match 'unexpectedly issued media fixture requests'
     }
+
+    It 'opts host-only restart phases out of the unconfigured full app suite' {
+        $harness | Should Match "'-e', 'downloadRestartHostHarness', 'true'"
+        $androidTest | Should Match 'downloadRestartHostHarness'
+        $androidTest | Should Match 'assumeTrue\('
+    }
 }

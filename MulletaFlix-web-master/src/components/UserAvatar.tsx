@@ -14,19 +14,20 @@ const UserAvatar: FC<UserAvatarProps> = ({
     user,
     size
 }) => {
-    const { api } = useApi();
+    const { __legacyApiClient__ } = useApi();
+    const imageUrl = __legacyApiClient__ && user?.Id && user.PrimaryImageTag ?
+        __legacyApiClient__.getUserImageUrl(user.Id, {
+            tag: user.PrimaryImageTag,
+            type: 'Primary'
+        }) : undefined;
 
     return user ? (
         <Avatar
             alt={user.Name ?? undefined}
-            src={
-                api && user.Id && user.PrimaryImageTag ?
-                    `${api.basePath}/Users/${user.Id}/Images/Primary?tag=${user.PrimaryImageTag}` :
-                    undefined
-            }
+            src={imageUrl}
             // eslint-disable-next-line react/jsx-no-bind
             sx={(theme) => ({
-                bgcolor: api && user.Id && user.PrimaryImageTag ?
+                bgcolor: imageUrl ?
                     theme.vars.palette.background.paper :
                     theme.vars.palette.primary.dark,
                 color: 'inherit',

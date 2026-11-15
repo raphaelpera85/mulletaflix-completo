@@ -38,8 +38,9 @@ Describe 'Emulator process tree lifecycle helpers' {
 
             Stop-EmulatorProcessTree -ProcessHandles $handles
 
-            (Get-Process -Id $ownedProcess.Id -ErrorAction SilentlyContinue) | Should Be $null
-            (Get-Process -Id $otherProcess.Id -ErrorAction SilentlyContinue) | Should Not Be $null
+            $ownedProcess.WaitForExit(5000) | Should Be $true
+            ($null -eq (Get-Process -Id $ownedProcess.Id -ErrorAction SilentlyContinue)) | Should Be $true
+            ($null -ne (Get-Process -Id $otherProcess.Id -ErrorAction SilentlyContinue)) | Should Be $true
         } finally {
             Stop-Process -Id $ownedProcess.Id,$otherProcess.Id -Force -ErrorAction SilentlyContinue
         }

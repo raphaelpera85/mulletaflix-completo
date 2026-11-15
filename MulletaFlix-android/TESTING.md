@@ -674,3 +674,13 @@ Comando: `tools/with-emulator.ps1 -AvdName MulletaflixCodexTvApi34_20261015 -Por
 - A tentativa via `tools/with-emulator.ps1` não chegou ao runner: dispositivo `emulator-5560` ficou `offline`, depois desapareceu após reiniciar ADB; nenhum processo Gradle/test runner permaneceu e não houve relatório JUnit novo. O processo do emulador recém-criado foi encerrado; dispositivo órfão desconectado do ADB.
 - Resultado: infraestrutura inconclusiva, **zero testes executados**; não contar como falha do aplicativo nem aprovação. Nenhuma evidência de execução local foi promovida.
 - Próximo passo: investigar log de inicialização/QEMU e compatibilidade Play Store API 37 antes de nova tentativa. Não repetir com AVD enquanto não houver `device` online e boot completo.
+
+### Android host process restart — Windows/API 35 — 2026-11-12
+
+Os scripts `Test-AndroidBookMainProcessColdStart.ps1` (cenários BookReader e MediaRequestDraft) e `Test-AndroidDownloadProcessRestart.ps1` exercitam o processo real por fases AndroidJUnit com marcador opt-in, synthetic fixtures, proteção de sessão e cleanup. BookReader passou 4 fases (PID 3496→3572); MediaRequestDraft passou 6 (PID 3592→3671); download retomou a faixa em 1.041.632 e concluiu os 3.846.023 bytes restantes. Evidência de download em `validation-evidence/2026-11-12/download-process-restart-diagnostics/2a400f17-91c5-444c-a509-c748f3ec504e`.
+
+A suíte ampla `:app:connectedDebugAndroidTest` ainda falhou 11/75: 64 passaram e as 11 fases dos dois cenários host foram descobertas sem os argumentos exigidos. O filtro `notAnnotation` do wrapper não retirou essas fases nem as jornadas `AndroidTvOnly`; corrigir a seleção/encaminhamento antes de declarar a suíte conectada verde. O wrapper confirmou o AVD PHONE/API 35 e encerrou somente o emulador criado; o ADB ficou vazio. Não promove a matriz formal.
+
+O canário opt-in `Test-AndroidDownloadProcessRestart.ps1 -ExerciseFailureEvidenceCanary` também foi validado: runner registrou exatamente uma falha intencional; fixture registrou zero requests; runner, fixture e logcat foram preservados e o cleanup executou. Artefatos em `validation-evidence/2026-11-12/download-process-restart-diagnostics/584b012f-4d14-4e43-bec8-8ce3eecdd691`. Esse resultado valida apenas o mecanismo de evidência.
+
+Sondas do runner: um selector `class=AppSmokeTest` pelo Gradle passou 1/1; uma string com classes separadas por vírgula executou apenas a primeira classe (AndroidCleartextPolicyIntegrationTest, 3/3). Não usar a lista como filtro amplo. Uma tentativa de `testFile` temporário foi bloqueada pelo executor antes da execução; nenhum dado do AVD foi alterado.

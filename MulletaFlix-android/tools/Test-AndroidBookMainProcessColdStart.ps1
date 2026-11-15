@@ -32,7 +32,8 @@ function Invoke-TestPhase {
     $arguments = @(
         '-s', $serial, 'shell', 'am', 'instrument', '-w',
         '-e', 'class', "$testClass#$Method",
-        '-e', 'expectedDeviceProfile', 'PHONE'
+        '-e', 'expectedDeviceProfile', 'PHONE',
+        '-e', 'bookColdStartHostHarness', 'true'
     )
     if ($Method -eq 'prepareAuthenticatedSessionForColdStart') {
         $arguments += @(

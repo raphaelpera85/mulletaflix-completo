@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-11T11:19:46-03:00",
+  "generatedAt": "2026-11-12T16:48:41-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -17678,6 +17678,84 @@
       "evidence": "dotnet test Release --no-build --no-restore -m:1 terminou com exit 0 em 17 projetos: 6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos. IntroSkipper.Integration.Tests ficou em 43/57/0; nenhum caso ignorado recebeu crédito de aprovação.",
       "release": "Regressão local/source GREEN; build validado com 0 erros e 643 avisos. Runtime instalado, mídia real, persistência real, CI hospedada, Linux/POSIX, Android instrumentado, integrações externas e produção permanecem sem aceite.",
       "links": ["docs/roadmap-evolucao-tecnologica-servidor-e-web.md"]
+    },
+    {
+      "id": "android-quality-gate-2026-11-12",
+      "title": "Android: regressão JVM, lint e build Debug",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "Windows; Gradle 9.6; execução fresca com --rerun-tasks",
+      "location": "MulletaFlix-android",
+      "scope": "Executar testDebugUnitTest, lintDebug, assembleDebug e compileDebugAndroidTestKotlin sem iniciar AVD.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-12T14:41:08-03:00",
+      "updatedAt": "2026-11-12T14:51:08-03:00",
+      "evidence": "Gate terminou BUILD SUCCESSFUL, 871 tarefas executadas: 1.788 testes JVM em 256 XML, 0 falhas/erros/ignorados; lint Debug concluiu e relatório SARIF contém 143 resultados classificados como warning; app-debug.apk foi gerado com 82.239.452 bytes; compileDebugAndroidTestKotlin passou. Nenhum AVD/dispositivo foi iniciado, logo instrumentação não executou.",
+      "release": "Evidência local do checkout; matriz formal permanece 10/21 concluídas, 2 em validação, 9 pendentes e formalSignoff=pending. Não certifica runtime, mídia/servidor real nem release.",
+      "links": [
+        "MulletaFlix-android/HOMOLOGACAO-APK.md"
+      ]
+    },
+    {
+      "id": "android-process-restart-windows-2026-11-12",
+      "title": "Android: cold start e retomada de download no AVD PHONE",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "Windows; Android API 35 AVD; Gradle 9.6; PowerShell 5.1",
+      "location": "MulletaFlix-android",
+      "scope": "Executar harnesses host-orquestrados de sessão, rascunho e retomada de download após morte do processo real.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-12T16:29:36-03:00",
+      "updatedAt": "2026-11-12T16:29:36-03:00",
+      "evidence": "Harness BookReader passou em 4 fases, incluindo PID 3496→3572, sessão sintética e rotas de item/conteúdo; harness MediaRequestDraft passou em 6 fases, PID 3592→3671, restauração e cleanup; retomada de download e cleanup passaram: Range iniciou no byte 1.041.632 e concluiu 3.846.023 bytes. Evidência do download em MulletaFlix-android/validation-evidence/2026-11-12/download-process-restart-diagnostics/2a400f17-91c5-444c-a509-c748f3ec504e. A suíte ampla app conectada terminou build de sucesso, mas relatório contém 75 testes, 11 falhas em fases host sem argumentos (64 passaram); status não é verde.",
+      "release": "Evidência local sintética no AVD PHONE/API 35; sem servidor/dispositivo real, mudança de matriz ou formalSignoff; a suíte ampla segue aberta até o wrapper filtrar/selecionar fases host-orquestradas corretamente.",
+      "links": [
+        "MulletaFlix-android/TESTING.md",
+        "MulletaFlix-android/HOMOLOGACAO-APK.md"
+      ]
+    },
+    {
+      "id": "android-download-canary-windows-2026-11-12",
+      "title": "Android: canário opt-in de evidência de falha",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "Windows; Android API 35 AVD; runner AndroidJUnit",
+      "location": "MulletaFlix-android",
+      "scope": "Confirmar que uma falha intencional sintética é preservada com fixture sem requests.",
+      "status": "complete",
+      "progressPercent": 100,
+      "startedAt": "2026-11-12T16:37:40-03:00",
+      "updatedAt": "2026-11-12T16:37:40-03:00",
+      "evidence": "Canário opt-in terminou com exatamente 1 teste executado e 1 falha intencional, mensagem esperada preservada, snapshot do fixture com zero requests de mídia e logcat filtrado. Artefatos em MulletaFlix-android/validation-evidence/2026-11-12/download-process-restart-diagnostics/584b012f-4d14-4e43-bec8-8ce3eecdd691. O resultado prova o contrato do canário, não comportamento de produção.",
+      "release": "Falha esperada e isolada; nenhum pedido foi feito à fixture e a limpeza foi executada. Não muda o resultado vermelho da suíte app ampla nem o formalSignoff.",
+      "links": [
+        "MulletaFlix-android/TESTING.md"
+      ]
+    },
+    {
+      "id": "android-runner-selector-probe-windows-2026-11-12",
+      "title": "Android: sonda de seleção de classes pelo runner",
+      "agent": "Codex",
+      "front": "android",
+      "featureIds": [],
+      "local": "Windows; AVD PHONE/API 35; Gradle 9.6",
+      "location": "MulletaFlix-android",
+      "scope": "Confirmar se AndroidJUnitRunner aceita selector class pelo Gradle para isolar fases host.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-12T16:48:41-03:00",
+      "updatedAt": "2026-11-12T16:48:41-03:00",
+      "evidence": "Selector class único AppSmokeTest passou 1/1. Uma lista class separada por vírgulas executou apenas a primeira classe AndroidCleartextPolicyIntegrationTest (3/3); portanto não resolveu a exclusão em lote. O filtro negativo notAnnotation também não excluiu classes/fases no run amplo. Não contar esta sonda como regressão completa.",
+      "release": "Sem mudança de produto ou matriz formal; a suíte ampla conectada continua 64/75 com 11 falhas nas fases host-orquestradas sem args.",
+      "links": [
+        "MulletaFlix-android/HOMOLOGACAO-APK.md",
+        "docs/homologacao-integral-2026-11-12.md"
+      ]
     }
   ]
 }

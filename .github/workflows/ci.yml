@@ -38,17 +38,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for project in \
-            Compatibility/Jellyfin.Extensions/Jellyfin.Extensions.csproj \
-            Compatibility/Jellyfin.Database.Implementations/Jellyfin.Database.Implementations.csproj \
-            Compatibility/Jellyfin.Data/Jellyfin.Data.csproj \
-            fuzz/Jellyfin.Api.Fuzz/Jellyfin.Api.Fuzz.csproj \
-            fuzz/Emby.Server.Implementations.Fuzz/Emby.Server.Implementations.Fuzz.csproj \
-            tests/Jellyfin.Server.StartupRecoveryProbe/Jellyfin.Server.StartupRecoveryProbe.csproj
-          do
-            dotnet restore "$project" '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
-            dotnet list "$project" package --vulnerable --include-transitive --no-restore
-          done
+          solution_projects=$(sed 's#\\#/#g' MulletaFlix.sln)
+          while IFS= read -r -d '' project; do
+            normalized=${project#./}
+            normalized=${normalized//\\//}
+            if ! grep -Fqi "\"$normalized\"" <<< "$solution_projects"; then
+              dotnet restore "$project" '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
+              dotnet list "$project" package --vulnerable --include-transitive --no-restore
+            fi
+          done < <(find . -type f -name '*.csproj' ! -path '*/bin/*' ! -path '*/obj/*' -print0)
 
       - name: Run unit tests (exclude integration)
         run: >
@@ -253,7 +251,6 @@ jobs:
           --health-retries 10
     env:
       MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING: mongodb://127.0.0.1:27099/?directConnection=true
-      NEBULA_TEST_PYTHON: ${{ runner.temp }}/nebula-venv/bin/python
     defaults:
       run:
         working-directory: MulletaFlix-master
@@ -279,8 +276,10 @@ jobs:
         run: dotnet restore MulletaFlix.sln
 
       - name: Test every Mongo-backed scenario
+        shell: bash
         run: >
-          dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+          NEBULA_TEST_PYTHON="$RUNNER_TEMP/nebula-venv/bin/python" dotnet test
+          tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
           --configuration Release
           --no-restore
           --filter "Category=RequiresMongo"

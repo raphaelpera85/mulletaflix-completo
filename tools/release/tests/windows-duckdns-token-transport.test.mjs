@@ -12,7 +12,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../.
 const installerPath = resolve(repositoryRoot, 'MulletaFlix-packaging-master/MulletaFlix-ux-custom/nsis/mulletaflix.nsi');
 const configuratorPath = resolve(repositoryRoot, 'tools/release/configure-https.ps1');
 const updaterPath = resolve(repositoryRoot, 'tools/release/duckdns-update.ps1');
-const updaterSecurityTestPath = resolve(repositoryRoot, 'tools/release/tests/windows-duckdns-config-security.tests.ps1');
+const updaterSecurityTestPath = resolve(repositoryRoot, 'tools/release/windows-duckdns-config-security.helper.ps1');
 
 function quotePowerShell(value) {
     return `'${String(value).replaceAll("'", "''")}'`;

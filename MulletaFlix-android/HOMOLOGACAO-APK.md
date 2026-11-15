@@ -288,3 +288,13 @@ A repetição de `LocalServerDiscoveryPermissionTest` em AVD Android 17/API 37 i
 
 Foi adicionado um teste instrumentado com `SessionRepositoryImpl` e `AuthRepositoryImpl` reais, apontando o DataStore para um caminho temporário que não pode ser diretório. A suíte JVM solicitada terminou `BUILD SUCCESSFUL`, mas todas as 470 tarefas ficaram `UP-TO-DATE`, portanto não há execução JVM fresca para contabilizar. O wrapper de emulador ficou sem saída antes de iniciar um AVD/AndroidJUnit; foi interrompido e `adb devices` ficou vazio. Resultado instrumentado: zero testes; evidência pendente, não aprovada nem reprovada. APK-H02 permanece aberto, sem alterar a matriz formal 10/21, 2 em validação, 9 pendentes ou `formalSignoff=pending`.
 
+### Cold start e retomada de download em AVD Windows — 2026-11-12
+
+No AVD PHONE/API 35, BookReader cold start passou 4 fases e restaurou a sessão sintética; MediaRequestDraft passou 6 fases e restaurou o formulário depois da morte real do processo. O harness de download concluiu retomada e cleanup, com Range a partir de 1.041.632 bytes e 3.846.023 bytes concluídos. Isso comprova apenas as jornadas sintéticas desses harnesses locais.
+
+A suíte ampla de app foi executada, mas ficou **vermelha**: 64/75 passaram; 11 falharam ao chamar fases host-orquestradas sem os argumentos fornecidos pelos scripts próprios. `notAnnotation` não filtrou os métodos. Não promover esta tentativa como aceite amplo nem alterar a matriz 10/21, 2 em validação, 9 pendentes ou `formalSignoff=pending`. Corrigir encaminhamento de argumentos/filtros e repetir uma execução ampla fresca. Evidências e limites: `docs/homologacao-integral-2026-11-12.md` e `validation-evidence/2026-11-12/download-process-restart-diagnostics/2a400f17-91c5-444c-a509-c748f3ec504e`.
+
+O canário opt-in de evidência de falha concluiu o contrato esperado: 1 teste/1 falha deliberada, fixture com zero requests e artefatos preservados em `validation-evidence/2026-11-12/download-process-restart-diagnostics/584b012f-4d14-4e43-bec8-8ce3eecdd691`. Não é falha funcional do produto nem corrige o resultado da suíte ampla.
+
+Uma sonda de selector Gradle `class=AppSmokeTest` passou 1/1. Valor com várias classes separadas por vírgula executou somente a primeira classe (3/3); não serve para retirar em lote os métodos host. A tentativa posterior com `testFile` foi rejeitada pela política automática antes de iniciar e não mudou o AVD. Requer solução validada para seleção de testes antes da suíte ampla ser aceita.
+

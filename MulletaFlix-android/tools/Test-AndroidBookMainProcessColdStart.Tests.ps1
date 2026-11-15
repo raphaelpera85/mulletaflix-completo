@@ -1,4 +1,15 @@
 Describe 'Main process book cold-start host contract' {
+    It 'opts into session snapshot and process phases only through the host harness' {
+        $scriptPath = Join-Path $PSScriptRoot 'Test-AndroidBookMainProcessColdStart.ps1'
+        $testPath = Join-Path $PSScriptRoot '..\app\src\androidTest\java\org\mulletaflix\android\MainActivityBookColdStartTest.kt'
+        $scriptText = Get-Content -LiteralPath $scriptPath -Raw
+        $testText = Get-Content -LiteralPath $testPath -Raw
+
+        $scriptText | Should Match "'-e', 'bookColdStartHostHarness', 'true'"
+        $testText | Should Match 'bookColdStartHostHarness'
+        $testText | Should Match 'assumeTrue\('
+    }
+
     It 'requires item metadata and book content but not best-effort conversion status' {
         $scriptPath = Join-Path $PSScriptRoot 'Test-AndroidBookMainProcessColdStart.ps1'
         $scriptText = Get-Content -LiteralPath $scriptPath -Raw

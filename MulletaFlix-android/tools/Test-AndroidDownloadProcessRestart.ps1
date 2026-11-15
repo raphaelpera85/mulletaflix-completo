@@ -45,6 +45,7 @@ function Invoke-GradlePhase {
         '-e', 'class', "$testClass#$Method",
         '-e', 'expectedDeviceProfile', $ExpectedProfile,
         '-e', 'deviceSerial', $serial,
+        '-e', 'downloadRestartHostHarness', 'true',
         '-e', 'downloadRestartTestId', $testId,
         '-e', 'downloadRestartMediaUrl', "http://10.0.2.2:$script:fixturePort/media",
         '-e', 'downloadRestartFixtureBytes', [string]$FixtureBytes

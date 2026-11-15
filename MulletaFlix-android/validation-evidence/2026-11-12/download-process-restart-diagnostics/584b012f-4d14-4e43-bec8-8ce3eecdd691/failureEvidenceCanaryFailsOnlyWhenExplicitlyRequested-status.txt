@@ -1,0 +1,3 @@
+﻿phase=failureEvidenceCanaryFailsOnlyWhenExplicitlyRequested
+outcome=failed
+runnerExitCode=0

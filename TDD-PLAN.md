@@ -1,5 +1,14 @@
 # Plano TDD integrado — MulletaFlix
 
+## Auditoria integrada — 2026-11-12
+
+O relatório com comandos, resultados por frente, limitações e seis contratos TDD
+para os gates com falhas/bloqueios reproduzidos está em
+[`docs/homologacao-integral-2026-11-12.md`](docs/homologacao-integral-2026-11-12.md).
+Status da rodada: **PARTIAL**. Não houve alteração de comportamento do produto;
+testes e gates de CI/harness receberam correções TDD com RED/GREEN observado. Resultados locais não substituem CI hospedada,
+instrumentação, runtime Nebula, Xcode, stage descartável ou homologação real.
+
 ## Objetivo e limite
 
 Este documento define como aplicar Test-Driven Development nas frentes mantidas neste repositório: servidor Mulletaflix/.NET e Nebula/Python, cliente web, aplicativo Android, cliente iOS, ferramentas de build/release e portal público. É um plano de adoção contínua, não uma declaração de que todo o código legado já foi desenvolvido por TDD nem de que todas as funcionalidades estão homologadas.
@@ -99,3 +108,48 @@ O legado recebe cobertura incremental, sem selo retroativo de TDD. Priorizar mud
 Uma mudança só é concluída quando o RED esperado foi observado, GREEN e suíte da frente passaram, builds/lint aplicáveis passaram e não há falhas ocultas como testes ignorados. Para evitar artefato stale, valide diretório de saída limpo/identificado, timestamp de geração, versão e hash/metadados do artefato comparados ao build recém-executado; para APK valide também assinatura esperada. Registre relatório e ambiente. Não inferir homologação total, cobertura percentual ou validação ponta-a-ponta de uma suíte parcial.
 
 Uma release não faz parte automaticamente de cada execução de TDD: seguir autorização, escopo e fluxo de release vigente da frente. APK, servidor e portal continuam releases independentes quando a alteração é exclusiva de um deles.
+
+## Evidência Android Windows — 2026-11-12
+
+As suites JVM/build/lint foram concluídas anteriormente. A continuação executou AVD PHONE/API 35: `:core:common` passou 4/4; BookReader cold start e restauração de formulário passaram nos harnesses dedicados; download retomou após a morte real do processo e limpou o fixture. A execução ampla `:app:connectedDebugAndroidTest` continua **vermelha** (64/75, 11 falhas), pois o runner executou fases host-orquestradas sem argumentos; `notAnnotation` do wrapper não as filtrou. Manter o critério de conclusão fechado até corrigir/verificar seleção e filtro em uma execução ampla fresca. Detalhes em `docs/homologacao-integral-2026-11-12.md` e `MulletaFlix-android/HOMOLOGACAO-APK.md`.
+
+## TDD-07 — URL autenticada do avatar
+
+- **Dado** usuário com `PrimaryImageTag`, **quando** `UserAvatar` renderiza, **então** carrega a imagem com `ApiClient.getUserImageUrl` para preservar a autenticação do cliente.
+- **RED observado:** o teste confirmou que o helper compartilhado não era chamado; o avatar caía na inicial do nome.
+- **GREEN:** teste do componente passou 2/2; TypeScript, suite web 443/443, Stylelint e build/verify de produção passaram. Não foi usada sessão real de conta.
+
+## TDD-08 — Localização e configuração DuckDNS no instalador Windows
+
+- **Dado** o usuário configurar HTTPS com DuckDNS, **quando** a página NSIS é exibida, **então** os textos acentuados são decodificados em UTF-8, o campo de token fica dentro do layout e o botão abre a página oficial DuckDNS.
+- **RED observado:** as verificações estáticas falharam antes da declaração de encoding e antes da presença do botão.
+- **GREEN:** guard PowerShell de localização/layout/URL passou; `makensis` compilou instalador Windows em diretório isolado. A inspeção visual por GUI não foi executada.
+
+## TDD-09 — Streams, duração e paralelismo do IntroSkipper
+
+- **Dado** encoder resolvido após carregar o plugin, **quando** o servidor atualiza `encoding.xml`, **então** novas análises leem o caminho atualizado do FFmpeg.
+- **Dado** mídia sem `RunTimeTicks` mas com duração de contêiner, **quando** a análise prepara as janelas, **então** o IntroSkipper consulta o FFprobe e usa a duração positiva; a sonda percorre duração da faixa e do contêiner.
+- **Dado** configuração de paralelismo fora da faixa 1–2, **quando** qualquer laço de análise roda, **então** o teto efetivo fica entre um e dois itens.
+- **RED observado:** o teste do caminho comparou `resolved-ffmpeg.exe` com o valor obsoleto `stale-ffmpeg.exe`; dois testes de duração falharam (parser retornou `null` e fallback retornou `0`).
+- **GREEN:** testes novos 8/8 (caminho, limites, duração/fallback); suíte `IntroSkipper.Integration.Tests` passou 51, ignorou 57 integrações externas, 0 falhas. Um `.strm` de homologação respondeu HTTP 200, reportou áudio/vídeo e FFmpeg produziu 172 bytes de fingerprint numa janela de 8 s. `dotnet publish` Windows self-contained passou.
+- **Limites:** a janela de 600 s não foi homologada ponta a ponta; os dados atuais só foram sondados por 8 s. Não foi executada análise que escreva segmentos no banco ativo.
+- **Log apresentado depois:** o episódio S01E37 citado no log foi sondado localmente sem expor a URL: FFmpeg encerrou com código 0 e gerou 43 pontos em 8 s. A configuração do processo Windows ativo mostra `AnalysisLengthLimit=10`, portanto zero não explica esse processo; o log não está correlacionado com um PID/configuração.
+- **TDD complementar:** `AnalysisLengthLimit` igual a zero/negativo podia resultar em `IntroFingerprintEnd=0` e FFmpeg sem janela para fingerprintar. RED reproduzido (0 e -1 mantidos); setter agora aplica o mínimo 1, alinhado ao validador da UI. GREEN: 2/2 casos e suíte IntroSkipper 53 aprovados, 57 ignorados, 0 falhas.
+- Aviso de saída vazia agora registra modo e janela `[Start, End]`, e a métrica conta pontos (bytes/4). Assim a execução seguinte fornece o dado ausente no log original para separar janela vazia de falha do FFmpeg.
+- Publish Windows self-contained e instalador NSIS atualizados após esses ajustes passaram; guard `InstallerLocalization.Tests.ps1` passou novamente. DLL publish/stage SHA-256 idêntico `E7FF8F9E5F88EA985091C22DDAE05491003E46260AAA11A4924F35F6A5774E80`; instalador candidato 12.1.51 SHA-256 `51F91D8BDF18F1A7E4496159301E0AC998510FDDD5B21689621CB91FCC0A5FCC`.
+- A janela real de 365,625 s no episódio S01E37 terminou com FFmpeg do servidor em 38 s e gerou 2.932 pontos (sem stderr); scheduler, detecção de região comum e persistência em banco ainda não foram validados.
+- **Causa confirmada do log ativo:** FFmpeg instalado recebe o caminho do `.strm` no plugin 12.1.51 e retorna exit `-1094995529`, zero bytes; ao resolver o URI do mesmo arquivo, termina exit 0 e gera 43 pontos em 8 s. `StrmInputResolver` no código local (`cf5b493`) corrige exatamente esse caminho, mas não está implantado.
+- **Correção de release:** os instaladores locais nomeados 12.1.51 misturaram `MulletaFlix.dll` de stage 12.1.51 com `IntroSkipper.dll` de publish 12.1.46. Invalidar ambos: não instalar nem publicar. A revisão automática bloqueou a remoção dos executáveis, que permanecem em `.build` como evidência.
+- Suite .NET completa nesta continuação terminou exit 0. Python: 727 aprovados, 2 ignorados. Gates PowerShell de packaging executados diretamente passaram; Pester 3.4 não executou casos (`Total 0`) e não deve ser citado como green de Pester.
+- Teste determinístico de `ChromaprintAnalyzer.CompareEpisodes` com abertura compartilhada em offsets diferentes: RED inicial foi erro de compilação por falta do namespace `IntroSkipper.Data`; após importá-lo, GREEN focal 1/1. Suíte `IntroSkipper.Integration.Tests`: 54 aprovados, 57 ignorados, 0 falhas (111 total).
+- Diagnóstico reproduzido contra FFmpeg/DLL ativos: `.strm` bruto → exit `-1094995529`, zero bytes/pontos; URI resolvido → exit 0, 43 pontos em 8 s. O teste sintético cobre comparação do analisador, não scheduler nem persistência.
+
+
+- Revalidação da solução Release (2026-11-12): `dotnet test MulletaFlix.sln -c Release --no-restore -m:1` terminou exit 0, sem falhas; plugin recompilado. A suíte IntroSkipper passou 54/111, 57 skips (dependências externas/plataforma). Isso não homologa o scheduler real nem a persistência de segmentos.
+
+## TDD-10 — URI local em `.strm` no FFmpeg Windows
+
+- **Dado** um `.strm` com URI `file:///...`, **quando** o pipeline passa o alvo ao FFmpeg no Windows, **então** a URI é convertida para o caminho local nativo; streams HTTP/HTTPS mantêm a URI.
+- **RED observado:** FFmpeg Windows com alvo file URI falhou ao abrir o arquivo e produziu 0 bytes/pontos; usando caminho local, 8 s produziram 172 bytes/43 pontos.
+- **GREEN:** teste unitário do resolver incluído; E2E MariaDB/FFmpeg 1/1 passou, cobrindo pipeline, fingerprints não vazios, concorrência máxima 2 e segmentos persistidos. Integrações de servidor restantes: 111 aprovadas, 1 ignorada (restart externo sem marcador), 0 falhas.
+- **Limite:** executado somente com mídias sintéticas e DB descartável. DLL ativo, biblioteca/database reais e correlação pós-release não foram validados. E2E deve rodar isolado porque probes FFmpeg têm timeout curto e falham sob concorrência extrema.

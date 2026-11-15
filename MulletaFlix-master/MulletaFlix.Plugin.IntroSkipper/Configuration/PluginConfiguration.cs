@@ -203,7 +203,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the upper limit (in minutes) on the length of each episode's audio track that will be analyzed.
     /// </summary>
-    public int AnalysisLengthLimit { get; set; } = DefaultAnalysisLengthLimit;
+    public int AnalysisLengthLimit
+    {
+        get;
+        set => field = Math.Max(1, value);
+    } = DefaultAnalysisLengthLimit;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use the minimum and maximum duration for chapters.
@@ -483,6 +487,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the max degree of parallelism used when analyzing episodes.
     /// </summary>
     public int MaxParallelism { get; set; } = 2;
+
+    /// <summary>
+    /// Gets the effective analysis concurrency, capped to two simultaneous media items.
+    /// </summary>
+    internal int EffectiveMaxParallelism => Math.Clamp(MaxParallelism, 1, 2);
 
     /// <summary>
     /// Gets or sets the number of threads for a ffmpeg process.

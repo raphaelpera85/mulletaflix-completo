@@ -43,10 +43,19 @@ test('CI audits every server csproj, including projects outside the solution', (
     const supplementalStep = job.match(/- name: Audit NuGet dependencies outside solution[\s\S]*?(?=\n      - name:|$)/)?.[0] ?? '';
     assert.notEqual(supplementalStep, '', 'out-of-solution audit step must exist');
 
-    const loopProjects = supplementalStep.match(/for project in\s*\\\n([\s\S]*?)\n\s*do/)?.[1] ?? '';
-    const loopBody = supplementalStep.match(/\n\s*do\n([\s\S]*?)\n\s*done/)?.[1] ?? '';
-    const auditedProjects = loopProjects.match(/[\w./-]+\.csproj/g) ?? [];
-    assert.deepEqual(auditedProjects.sort(), outsideSolutionProjects);
+    const loopBody = supplementalStep.match(/; do\r?\n([\s\S]*?)\r?\n\s*done/)?.[1] ?? '';
+    assert.match(supplementalStep, /find \. -type f -name ['"]\*\.csproj['"]/);
+    assert.match(supplementalStep, /solution_projects=\$\(sed .*MulletaFlix\.sln\)/);
+    assert.match(supplementalStep, /grep -Fqi .*normalized.*solution_projects/);
+    assert.match(supplementalStep, /normalized=\$\{project#\.\/\}/);
+    assert.deepEqual(outsideSolutionProjects, [
+        'Compatibility/Jellyfin.Data/Jellyfin.Data.csproj',
+        'Compatibility/Jellyfin.Database.Implementations/Jellyfin.Database.Implementations.csproj',
+        'Compatibility/Jellyfin.Extensions/Jellyfin.Extensions.csproj',
+        'fuzz/Emby.Server.Implementations.Fuzz/Emby.Server.Implementations.Fuzz.csproj',
+        'fuzz/Jellyfin.Api.Fuzz/Jellyfin.Api.Fuzz.csproj',
+        'tests/Jellyfin.Server.StartupRecoveryProbe/Jellyfin.Server.StartupRecoveryProbe.csproj'
+    ]);
     assert.match(loopBody, /dotnet restore "\$project" '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'/);
     assert.match(loopBody, /dotnet list "\$project" package --vulnerable --include-transitive --no-restore/);
 });

@@ -12,6 +12,7 @@ import {
     parseStagePid,
     resolveDotnetExecutable
 } from './stage-safety.mjs';
+import { buildStageLaunchArguments } from './run-isolated-stage-helpers.mjs';
 
 test('buildStageRemovalTargets only returns workspace stage paths', () => {
     const workspaceRoot = path.resolve('D:/workspace/mulletaflix');
@@ -83,15 +84,25 @@ test('run-suite never removes local app data or kills database processes by imag
     assert.match(source, /if \(ownsStageProcess\) \{\s*await stopTrackedStageProcess\(\)/);
 });
 
-test('run-suite starts the published dll through the platform dotnet host with visible logs', async () => {
+test('run-suite launches the default or configured stage dll through the platform host', async () => {
     const source = await readFile(new URL('./run-suite.mjs', import.meta.url), 'utf8');
 
-    assert.match(source, /const stageDll = .*MulletaFlix\.dll/);
-    assert.match(source, /spawn\(dotnetExecutable, \[ stageDll,/);
+    assert.match(source, /const defaultStageDll = path\.join\(workspaceRoot, 'stage', 'MulletaFlix\.dll'\)/);
+    assert.match(source, /const stageDll = process\.env\.MFLX_E2E_STAGE_DLL \? path\.resolve\(process\.env\.MFLX_E2E_STAGE_DLL\) : defaultStageDll/);
+    assert.match(source, /spawn\(dotnetExecutable, buildStageLaunchArguments\(stageDll,/);
     assert.match(source, /resolveDotnetExecutable\(process\.platform, process\.env\.ProgramFiles\)/);
     assert.match(source, /spawnSync\(taskkillExecutable, buildStageKillArgs\(pid\)/);
     assert.match(source, /process\.kill\(-pid, 'SIGTERM'\)/);
     assert.match(source, /stdio: \[ 'ignore', 'inherit', 'inherit' \]/);
+
+    assert.deepEqual(
+        buildStageLaunchArguments('stage/MulletaFlix.dll', 'stage-data'),
+        [ 'stage/MulletaFlix.dll', '--datadir=stage-data' ]
+    );
+    assert.deepEqual(
+        buildStageLaunchArguments('custom/MulletaFlix.dll', 'stage-data'),
+        [ 'custom/MulletaFlix.dll', '--datadir=stage-data' ]
+    );
 });
 
 test('run-suite retries locked stage removal before reporting cleanup failure', async () => {
