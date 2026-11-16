@@ -14,6 +14,7 @@ using Xunit;
 
 namespace IntroSkipper.Integration.Tests;
 
+[Collection(MariaDbCollection.Name)]
 public sealed class PluginRuntimeConfigurationTests : IDisposable
 {
     private readonly Plugin? _previousPlugin = Plugin.Instance;

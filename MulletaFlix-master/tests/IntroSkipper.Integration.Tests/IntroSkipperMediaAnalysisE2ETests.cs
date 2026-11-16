@@ -16,6 +16,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using MulletaFlix.Testing;
@@ -93,7 +94,8 @@ public sealed class IntroSkipperMediaAnalysisE2ETests : IClassFixture<MariaDbFix
             chapterManager.Setup(value => value.GetChapters(It.IsAny<Guid>())).Returns([]);
 
             var cacheService = new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, _fixture.Cache);
-            var countingFfmpeg = new CountingFfmpegService(new FFmpegService(NullLogger<FFmpegService>.Instance, cacheService));
+            var ffmpegLogger = new CapturingLogger<FFmpegService>();
+            var countingFfmpeg = new CountingFfmpegService(new FFmpegService(ffmpegLogger, cacheService));
             var resolver = new SeasonResolver(NullLogger<SeasonResolver>.Instance, libraryManager.Object, serverConfiguration.Object);
             var task = new BaseItemAnalyzerTask(NullLoggerFactory.Instance, resolver, countingFfmpeg, cacheService, _fixture.Cache, _fixture.Database);
             var episodeIds = items.Select(item => item.Episode.Id).ToArray();
@@ -113,7 +115,7 @@ public sealed class IntroSkipperMediaAnalysisE2ETests : IClassFixture<MariaDbFix
 
             var ffmpegAvailable = await countingFfmpeg.CheckFFmpegVersionAsync();
             var ffmpegCheck = countingFfmpeg.GetCheckResult();
-            Assert.True(ffmpegAvailable, $"FFmpeg capability check failed: {ffmpegCheck.Status}; probes={string.Join(',', ffmpegCheck.Outputs.Select(output => output.Name))}.");
+            Assert.True(ffmpegAvailable, $"FFmpeg capability check failed: {ffmpegCheck.Status}; probes={string.Join(',', ffmpegCheck.Outputs.Select(output => output.Name))}; error={ffmpegLogger.Exceptions.LastOrDefault()}.");
 
             foreach (var season in resolvedSeasons)
             {
@@ -247,6 +249,23 @@ public sealed class IntroSkipperMediaAnalysisE2ETests : IClassFixture<MariaDbFix
     }
 
     private sealed record MediaEpisode(Series Series, Episode Episode);
+
+    private sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+    {
+        public List<Exception> Exceptions { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (exception is not null)
+            {
+                Exceptions.Add(exception);
+            }
+        }
+    }
 
     private sealed class CountingFfmpegService(IFFmpegService inner) : IFFmpegService
     {

@@ -20,6 +20,10 @@ O redator interno de MidiaStorageOnline também é usado por NartoDramaClient, G
 ### 2026-11-02 — redação de exceções de transporte nos providers
 
 `RemoteUrlLogRedactor` é reutilizado por ShortMax, YouTube metadata/imagens, ListenBrainz Similar, TMDb Similar Movies/TV e GoodShort JSON parsing, além dos callers registrados acima. Providers focal acumulativo 152/152; formatter aprovado. A busca por `_logger.Log*(ex, ...)` nos plugins deixou dois logs com contexto local, mas não audita sinks indiretos ou outras camadas. Nenhuma dependência ou API foi adicionada. Microsoft Learn descreve pipeline classificado com `Microsoft.Extensions.Telemetry`; sua compatibilidade permanece pendente. `last_verified: 2026-11-02`.
+
+### 2026-11-16 — STRM ausente durante análise do IntroSkipper
+
+O fluxo existente `BaseItemAnalyzerTask -> FFmpegService -> StrmInputResolver` traduz exceções de leitura (`IOException`) e de conteúdo (`InvalidDataException`) de um arquivo `.strm` em `FingerprintException`. Os caminhos de fingerprint e scan FFmpeg passam pelo mesmo tratamento, mantendo erro por mídia e evitando que arquivo ausente seja marcado como sem segmentos. Sem novas classes públicas, endpoints ou dependências. Evidências e limites em `MulletaFlix-master/docs/homologacao-release-12.1.55.md`; integração com arquivos sintéticos/FFmpeg e MariaDB descartável aprovada. `last_verified: 2026-11-16`.
 ### 2026-11-02 — ampliação da redação de URLs em logs
 
 Os limites de exceção em MediaBrowser.Providers/Manager/ProviderManager.cs, MetadataService.cs, provedores OpenLibrary, letras, legendas, src/Jellyfin.LiveTv/Guide/GuideManager.cs e Schedules Direct sanitizam URLs remotas antes do logger. Schedules Direct deixou de registrar resposta HTTP bruta. Verificações: Providers 893/906 (13 ignorados), Live TV 81/81; formatter parcial por avisos de codificação CHARSET em dois arquivos legados. T6.4 parcial, restante dos logs ainda em triagem. last_verified: 2026-11-02.

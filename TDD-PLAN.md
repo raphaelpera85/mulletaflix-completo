@@ -1,5 +1,12 @@
 # Plano TDD integrado — MulletaFlix
 
+## Regressões da release 12.1.55 — 2026-11-16
+
+- `StrmInputResolverTests.FingerprintAsync_ReportsMissingStrmAsFingerprintFailure`: RED reproduzido com `DirectoryNotFoundException` escapando do resolver; GREEN após converter falhas de leitura/validação de STRM em `FingerprintException`.
+- `StrmInputResolverTests.DetectBlackFramesAsync_ReportsMissingStrmAsFingerprintFailure`: RED reproduzido no caminho compartilhado de argumentos FFmpeg; GREEN com o mesmo tratamento por item, sem encerrar o passe da biblioteca.
+- E2E MariaDB descartável + FFmpeg real: `AnalyzeStrmEpisodes_PersistsSharedIntrosAndCapsConcurrentFingerprints` passou; valida fingerprint, persistência e concorrência máxima de 2.
+- Verificação completa, builds, pacote e publicação registrados em `docs/homologacao-release-12.1.55.md` quando concluídos.
+
 ## Objetivo e limite
 
 Este documento define como aplicar Test-Driven Development nas frentes mantidas neste repositório: servidor Mulletaflix/.NET e Nebula/Python, cliente web, aplicativo Android, cliente iOS, ferramentas de build/release e portal público. É um plano de adoção contínua, não uma declaração de que todo o código legado já foi desenvolvido por TDD nem de que todas as funcionalidades estão homologadas.

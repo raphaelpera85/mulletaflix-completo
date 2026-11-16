@@ -1,12 +1,48 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Xunit;
 
 namespace IntroSkipper.Integration.Tests;
 
 public sealed class StrmInputResolverTests
 {
+    [Fact]
+    public async Task FingerprintAsync_ReportsMissingStrmAsFingerprintFailure()
+    {
+        var missingStrmPath = Path.Combine(Path.GetTempPath(), "mfx-introskipper-strm", Guid.NewGuid().ToString("N"), "episode.strm");
+        var cache = new DetectionCacheService(
+            NullLogger<DetectionCacheService>.Instance,
+            Mock.Of<IDetectionCacheDatabase>());
+        var service = new FFmpegService(NullLogger<FFmpegService>.Instance, cache);
+        var episode = new QueuedEpisode { Path = missingStrmPath };
+
+        var exception = await Assert.ThrowsAsync<FingerprintException>(
+            () => service.FingerprintAsync(episode, AnalysisMode.Introduction, TestContext.Current.CancellationToken));
+
+        Assert.IsType<DirectoryNotFoundException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task DetectBlackFramesAsync_ReportsMissingStrmAsFingerprintFailure()
+    {
+        var missingStrmPath = Path.Combine(Path.GetTempPath(), "mfx-introskipper-strm", Guid.NewGuid().ToString("N"), "episode.strm");
+        var cache = new DetectionCacheService(
+            NullLogger<DetectionCacheService>.Instance,
+            Mock.Of<IDetectionCacheDatabase>());
+        var service = new FFmpegService(NullLogger<FFmpegService>.Instance, cache);
+        var episode = new QueuedEpisode { Path = missingStrmPath };
+
+        var exception = await Assert.ThrowsAsync<FingerprintException>(
+            () => service.DetectBlackFramesAsync(episode, threshold: 20, TestContext.Current.CancellationToken));
+
+        Assert.IsType<DirectoryNotFoundException>(exception.InnerException);
+    }
+
     [Fact]
     public void Resolve_UsesAbsoluteMediaTargetFromStrmFile()
     {

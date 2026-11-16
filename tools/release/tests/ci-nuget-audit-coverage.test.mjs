@@ -6,7 +6,7 @@ import test from 'node:test';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const serverRoot = resolve(repositoryRoot, 'MulletaFlix-master');
-const workflow = readFileSync(resolve(repositoryRoot, '.github/workflows/ci.yml'), 'utf8');
+const workflow = readFileSync(resolve(repositoryRoot, '.github/workflows/ci.yml'), 'utf8').replace(/\r\n/g, '\n');
 const solution = readFileSync(resolve(serverRoot, 'MulletaFlix.sln'), 'utf8');
 
 function findProjects(directory, results = []) {

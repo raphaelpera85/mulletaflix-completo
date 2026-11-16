@@ -36,10 +36,11 @@ test('Mongo CI selects every test tagged RequiresMongo instead of a partial clas
     assert.match(job, /timeout-minutes:\s*15/);
     assert.match(job, /image:\s*mongo:7\.0/);
     assert.match(job, /MULLETAFLIX_TEST_MONGODB_CONNECTION_STRING:\s*mongodb:\/\/127\.0\.0\.1:27099/);
-    assert.match(job, /NEBULA_TEST_PYTHON:\s*\$\{\{\s*runner\.temp\s*\}\}\/nebula-venv\/bin\/python/);
+    assert.doesNotMatch(job, /NEBULA_TEST_PYTHON:/, 'runner.temp is unavailable in a job-level env block');
     assert.match(job, /python -m venv "\$RUNNER_TEMP\/nebula-venv"/);
     assert.match(job, /nebula-venv\/bin\/python" -m pip install --require-hashes -r Tools\/NebulaPython\/requirements\.lock/);
     assert.match(job, /--filter\s+"Category=RequiresMongo"/);
+    assert.match(job, /NEBULA_TEST_PYTHON="\$RUNNER_TEMP\/nebula-venv\/bin\/python" dotnet test/);
 
     const mongoSources = await Promise.all(mongoTestFiles.map(path => readFile(path, 'utf8')));
     const taggedClasses = mongoSources.flatMap(source =>

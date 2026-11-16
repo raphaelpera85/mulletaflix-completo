@@ -484,7 +484,14 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         processArgs.Add("-loglevel");
         processArgs.Add(stderr ? "info" : "warning");
-        processArgs.AddRange(StrmInputResolver.ResolveArguments(args));
+        try
+        {
+            processArgs.AddRange(StrmInputResolver.ResolveArguments(args));
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            throw new FingerprintException("Unable to resolve STRM input.", ex);
+        }
 
         return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
     }
@@ -643,7 +650,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         {
             resolvedPath = StrmInputResolver.Resolve(episode.Path);
         }
-        catch (InvalidDataException ex)
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
         {
             throw new FingerprintException($"Unable to resolve STRM input \"{episode.Path}\"", ex);
         }
