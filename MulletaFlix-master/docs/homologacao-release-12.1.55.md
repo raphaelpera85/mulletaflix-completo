@@ -22,10 +22,10 @@ Data: 2026-11-16.
 - Tarball Linux x64: 126.969.402 bytes; SHA-256 `5E5A02B172D7382E9B046776598DE996D6890188F45690C951CAE4341F73F460`. O archive foi gerado por cross-publish Windows e teve caminhos/componentes inspecionados, mas não foi executado em host Linux.
 - Publicação: release pública Latest [v12.1.55](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.55), publicada em 2026-11-16; commit `55134a5f5f4710f796485f66a00740457808165b` está em `main` e no tag `v12.1.55`.
 - Atualização de produção Windows aplicada com elevação em `C:\Program Files\MulletaFlix\Server`; `MulletaFlix.dll` tem FileVersion 12.1.55 e `IntroSkipper.dll` instalado corresponde ao pacote (SHA-256 `DF2F868D8B5D26754E600977D24458F5F98ACACC780A4B6C10B9004978D315A6`). `/health` respondeu 200 `Healthy` e `/System/Info/Public` informou versão 12.1.55. O diretório de dados não foi alterado.
-- CI hospedada não foi verificada: GitHub CLI está sem autenticação nesta sessão.
+- CI hospedada: o workflow da tag `v12.1.55` terminou em falha antes de iniciar qualquer job porque o GitHub bloqueou a conta por problema de cobrança (annotation da execução `43888239322`). Os jobs de build foram ignorados; isso não representa falha de teste/build. A execução precisa ser repetida após resolver a cobrança.
 
 ## Limitações
 
 - Nenhum scan foi executado sobre a biblioteca de produção nesta homologação.
 - A homologação de mídia usou arquivos sintéticos e FFmpeg real; a mídia remota de produção não foi exercitada.
-- O pacote Linux foi inspecionado após cross-publish, mas não executado em host Linux. Os jobs GitHub Actions também não foram consultados por falta de autenticação local no GitHub CLI.
+- O pacote Linux foi inspecionado após cross-publish, mas não executado em host Linux. A validação hospedada aguarda desbloqueio da conta GitHub e reexecução do workflow.
