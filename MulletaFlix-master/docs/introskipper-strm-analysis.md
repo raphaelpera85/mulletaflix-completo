@@ -16,3 +16,15 @@ Implementação em `MulletaFlix.Plugin.IntroSkipper/FFmpeg/FFmpegService.cs` e
 `MulletaFlix.Plugin.IntroSkipper/Configuration/introskipper.js`. Os testes de
 conversão do timeout estão em
 `tests/IntroSkipper.Integration.Tests/FFmpegAudioDurationTests.cs`.
+
+## Evidência de runtime Windows — 2026-11-16
+
+Uma probe de um `.strm` real retornou conexão recusada ao relay HTTP local em
+`127.0.0.1:2124`; não havia listener. A configuração integrada do MulletaFlix
+estava desabilitada e configurada para `HttpStreamPort=2123`, enquanto esse
+arquivo foi gerado pela ferramenta Nebula separada com porta 2124. A correção
+de timeout/concorrência não substitui a disponibilidade do relay. Não iniciar
+o launcher de produção para homologar: ele também pode iniciar manutenção e
+limpeza de arquivos. Requer relay de staging isolado antes de executar análise
+de mídia remota. A release protege falhas por item, mas não pode fingerprintar
+um endpoint indisponível.

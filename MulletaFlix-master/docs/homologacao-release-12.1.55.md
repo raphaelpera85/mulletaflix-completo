@@ -29,3 +29,11 @@ Data: 2026-11-16.
 - Nenhum scan foi executado sobre a biblioteca de produção nesta homologação.
 - A homologação de mídia usou arquivos sintéticos e FFmpeg real; a mídia remota de produção não foi exercitada.
 - O pacote Linux foi inspecionado após cross-publish, mas não executado em host Linux. A validação hospedada aguarda desbloqueio da conta GitHub e reexecução do workflow.
+
+## Rechecagem Windows — 2026-11-16
+
+- O servidor continuou saudável na 12.1.55 (`/health` 200, `System/Info/Public` 12.1.55). Login real na interface confirmou que a imagem do usuário carrega (300×300); o navegador não registrou erro de imagem.
+- Uma probe FFprobe em um `.strm` real terminou com conexão recusada em `127.0.0.1:2124`. Não havia listener nessa porta. O `nebulaftp.xml` instalado mostra `Enabled=false` e `HttpStreamPort=2123`; a URL desse arquivo usa o relay HTTP local 2124 da ferramenta Nebula separada. Isso explica a ausência de mídia nesse item, mas não confirma o estado de toda a biblioteca. Nenhum scan de produção foi executado.
+- Não foi iniciado o Nebula: o launcher normal pode iniciar tarefas de manutenção e um feed com opções `--delete-source` e `--prune-completed-strm`. A validação real depende de um relay de staging sem essas tarefas ou de uma janela operacional aprovada.
+- O teste direto `InstallerLocalization.Tests.ps1` passou. A regressão do workflow ficou coberta localmente: RED reproduziu a ausência do teste na lista Windows; GREEN, após incluir o script e sua asserção de contrato, passou Node release 34/34. A execução hospedada ainda está bloqueada pela cobrança GitHub.
+- O código-fonte do instalador declara UTF-8/Unicode e a checagem de localização passou; a tela do instalador compilado não foi reaberta visualmente nesta rechecagem.

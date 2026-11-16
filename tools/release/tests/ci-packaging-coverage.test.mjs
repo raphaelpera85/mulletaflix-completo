@@ -37,6 +37,7 @@ test('Windows CI executes every packaging integrity script', async () => {
 
     const requiredTests = [
         'Assert-StageIntegrity.Tests.ps1',
+        'InstallerLocalization.Tests.ps1',
         'RcloneBootstrap.Tests.ps1',
         'ServiceDataAcl.Tests.ps1',
         'StageBackup.Tests.ps1',
