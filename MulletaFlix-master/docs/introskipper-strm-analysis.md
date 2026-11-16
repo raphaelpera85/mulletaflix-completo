@@ -36,3 +36,20 @@ encontrou sequência compartilhada aproximada de 123 pontos (distância Hamming
 ≤4). Isso verifica o transporte HTTP e fingerprints com FFmpeg; não executa o
 comparador/persistência do IntroSkipper nem altera o catálogo de produção. O
 launcher já estava ativo quando a probe começou; não foi iniciada outra cópia.
+
+### E2E opt-in com STRM real
+
+O teste `IntroSkipperMediaAnalysisE2ETests.AnalyzeStrmEpisodes_PersistsSharedIntrosAndCapsConcurrentFingerprints`
+usa dois arquivos locais `.strm` apontados por `MULLETAFLIX_TEST_REAL_STRM_PATHS`
+quando a variável está definida. Ele usa somente o MariaDB descartável loopback
+exigido por `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` e
+`MULLETAFLIX_TEST_MARIADB_CONFIRM_DISPOSABLE`; não use conexão da instância do
+servidor. Sem a variável de STRM real, o teste conserva os fixtures sintéticos.
+
+Evidência de 2026-11-16: dois STRMs reais processados pelo caminho completo
+`BaseItemAnalyzerTask -> ChromaprintAnalyzer -> FFmpegService ->
+StrmInputResolver -> FFmpeg`; fingerprints não vazios e segmento Chromaprint
+persistido por item no banco descartável. Concorrência observada 1, dentro do
+teto 2. O cenário sintético continua exercitando duas análises simultâneas.
+Suíte completa IntroSkipper passou 125/125, sem ignorados, com capacidade do
+MariaDB de teste configurada em 512 conexões. O banco foi encerrado após o teste.

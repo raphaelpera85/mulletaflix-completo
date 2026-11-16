@@ -60,7 +60,20 @@ public sealed class IntroSkipperMediaAnalysisE2ETests : IClassFixture<MariaDbFix
                 AdjustIntroBasedOnSilence = false,
                 SnapToKeyframe = false,
             };
-            var items = await CreateMediaAsync(temp.FullName, ffmpegPath!);
+            var realStrmPaths = Environment.GetEnvironmentVariable("MULLETAFLIX_TEST_REAL_STRM_PATHS")?
+                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var usesRealStrms = realStrmPaths is { Length: > 0 };
+            if (usesRealStrms)
+            {
+                Assert.Equal(2, realStrmPaths!.Length);
+                Assert.All(realStrmPaths, path => Assert.True(
+                    File.Exists(path) && path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase),
+                    "Each real STRM input must be an existing .strm file."));
+            }
+
+            var items = usesRealStrms
+                ? CreateRealStrmEpisodes(realStrmPaths!)
+                : await CreateMediaAsync(temp.FullName, ffmpegPath!);
             var series = items.Select(item => item.Series).DistinctBy(item => item.Id).ToArray();
             var entities = series.Cast<BaseItem>().Concat(items.Select(item => item.Episode)).ToDictionary(item => item.Id);
 
@@ -128,15 +141,25 @@ public sealed class IntroSkipperMediaAnalysisE2ETests : IClassFixture<MariaDbFix
             await task.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, episodeIds);
 
             Assert.Equal(items.Length, countingFfmpeg.FingerprintCalls);
-            Assert.Equal(2, countingFfmpeg.MaximumConcurrentFingerprints);
+            if (usesRealStrms)
+            {
+                Assert.InRange(countingFfmpeg.MaximumConcurrentFingerprints, 1, 2);
+            }
+            else
+            {
+                Assert.Equal(2, countingFfmpeg.MaximumConcurrentFingerprints);
+            }
+
             Assert.Equal(0, countingFfmpeg.EmptyFingerprints);
-            Assert.InRange(countingFfmpeg.MaximumConcurrentFingerprints, 1, 2);
             foreach (var item in items)
             {
                 var segments = await _fixture.Database.GetSegmentsAsync(item.Episode.Id);
                 var intro = Assert.Single(segments.Where(segment => segment.Source == SegmentSource.Chromaprint));
                 Assert.InRange(intro.StartTicks / (double)TimeSpan.TicksPerSecond, 0, 2);
-                Assert.InRange(intro.EndTicks / (double)TimeSpan.TicksPerSecond, 12, 32);
+                Assert.InRange(
+                    intro.EndTicks / (double)TimeSpan.TicksPerSecond,
+                    usesRealStrms ? 5 : 12,
+                    usesRealStrms ? 900 : 32);
             }
         }
         finally
@@ -178,6 +201,24 @@ public sealed class IntroSkipperMediaAnalysisE2ETests : IClassFixture<MariaDbFix
         }
 
         return [.. result];
+    }
+
+    private static MediaEpisode[] CreateRealStrmEpisodes(string[] paths)
+    {
+        var series = new Series { Id = Guid.NewGuid(), Name = "External STRM smoke test" };
+        var seasonId = Guid.NewGuid();
+        return paths.Select((path, index) => new MediaEpisode(series, new Episode
+        {
+            Id = Guid.NewGuid(),
+            SeriesId = series.Id,
+            SeasonId = seasonId,
+            ParentIndexNumber = 1,
+            IndexNumber = index + 1,
+            Name = $"External episode {index + 1}",
+            Path = path,
+            RunTimeTicks = TimeSpan.FromMinutes(30).Ticks,
+            DateCreated = DateTime.UtcNow,
+        })).ToArray();
     }
 
     private static async Task GenerateSharedAudioAsync(string ffmpegPath, string outputPath)
