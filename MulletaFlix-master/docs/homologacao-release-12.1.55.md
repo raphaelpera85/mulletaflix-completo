@@ -27,13 +27,16 @@ Data: 2026-11-16.
 ## Limitações
 
 - Nenhum scan foi executado sobre a biblioteca de produção nesta homologação.
-- A homologação de mídia usou arquivos sintéticos e FFmpeg real; a mídia remota de produção não foi exercitada.
+- A homologação inicial de mídia usou arquivos sintéticos; a rechecagem posterior exercitou transporte e FFmpeg em STRMs reais, sem executar o analisador IntroSkipper nem persistir segmentos.
 - O pacote Linux foi inspecionado após cross-publish, mas não executado em host Linux. A validação hospedada aguarda desbloqueio da conta GitHub e reexecução do workflow.
 
 ## Rechecagem Windows — 2026-11-16
 
 - O servidor continuou saudável na 12.1.55 (`/health` 200, `System/Info/Public` 12.1.55). Login real na interface confirmou que a imagem do usuário carrega (300×300); o navegador não registrou erro de imagem.
 - Uma probe FFprobe em um `.strm` real terminou com conexão recusada em `127.0.0.1:2124`. Não havia listener nessa porta. O `nebulaftp.xml` instalado mostra `Enabled=false` e `HttpStreamPort=2123`; a URL desse arquivo usa o relay HTTP local 2124 da ferramenta Nebula separada. Isso explica a ausência de mídia nesse item, mas não confirma o estado de toda a biblioteca. Nenhum scan de produção foi executado.
-- Não foi iniciado o Nebula: o launcher normal pode iniciar tarefas de manutenção e um feed com opções `--delete-source` e `--prune-completed-strm`. A validação real depende de um relay de staging sem essas tarefas ou de uma janela operacional aprovada.
+- Na sondagem inicial, o Nebula não foi iniciado porque o launcher normal pode iniciar tarefas de manutenção e um feed com opções `--delete-source` e `--prune-completed-strm`. Depois, o usuário autorizou o launcher; quando a validação foi retomada, o relay já estava ativo.
 - O teste direto `InstallerLocalization.Tests.ps1` passou. A regressão do workflow ficou coberta localmente: RED reproduziu a ausência do teste na lista Windows; GREEN, após incluir o script e sua asserção de contrato, passou contrato focal 7/7 e Node release 34/34. A validação hospedada da tag e o CI da `main` (`5667e519`) falharam antes de iniciar runners; annotation informa bloqueio da conta GitHub por cobrança (run `43894940916`).
 - O código-fonte do instalador declara UTF-8/Unicode e a checagem de localização passou; a tela do instalador compilado não foi reaberta visualmente nesta rechecagem.
+- Após autorização do usuário para iniciar o Nebula de produção, o relay loopback 2124 apareceu ativo; não iniciei uma segunda instância. FFprobe leu um STRM real (duração 1462,503 s; vídeo H.264 e faixas de áudio/subtítulos). Dois episódios reais foram fingerprintados em paralelo pelo FFmpeg instalado: ambos saíram com exit 0 e 705 pontos; a comparação local encontrou uma sequência aproximada compartilhada de 123 pontos com Hamming ≤4. A execução não chamou IntroSkipper nem gravou segmentos no catálogo.
+- Ao conferir o processo ativo, não havia `feed_ftp.py` com `--delete-source`/`--prune-completed-strm`; o bot de limpeza e rclone do Nebula estavam presentes. Não foi feita auditoria de todos os efeitos de background do Nebula.
+- Rechecagem final da porta 2124: listener ainda ativo e `/health` do servidor retornou 200 `Healthy`. A CI hospedada da `main` após os commits de cobertura/documentação também foi bloqueada antes do runner pela mesma pendência de cobrança (run `43895194778`); nenhum teste remoto foi executado.

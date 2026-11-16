@@ -23,8 +23,16 @@ Uma probe de um `.strm` real retornou conexão recusada ao relay HTTP local em
 `127.0.0.1:2124`; não havia listener. A configuração integrada do MulletaFlix
 estava desabilitada e configurada para `HttpStreamPort=2123`, enquanto esse
 arquivo foi gerado pela ferramenta Nebula separada com porta 2124. A correção
-de timeout/concorrência não substitui a disponibilidade do relay. Não iniciar
-o launcher de produção para homologar: ele também pode iniciar manutenção e
-limpeza de arquivos. Requer relay de staging isolado antes de executar análise
-de mídia remota. A release protege falhas por item, mas não pode fingerprintar
-um endpoint indisponível.
+de timeout/concorrência não substitui a disponibilidade do relay. Na primeira
+sondagem, o launcher não foi iniciado porque também pode iniciar manutenção e
+limpeza de arquivos; depois, o usuário autorizou seu uso e o relay já estava
+ativo quando a validação foi retomada. A release protege falhas por item, mas
+não pode fingerprintar um endpoint indisponível.
+
+Após autorização para iniciar o Nebula de produção, o relay 2124 foi observado
+ativo. FFprobe leu um `.strm` real e dois episódios reais, fingerprintados
+simultaneamente pelo FFmpeg, retornaram 705 pontos cada; uma comparação local
+encontrou sequência compartilhada aproximada de 123 pontos (distância Hamming
+≤4). Isso verifica o transporte HTTP e fingerprints com FFmpeg; não executa o
+comparador/persistência do IntroSkipper nem altera o catálogo de produção. O
+launcher já estava ativo quando a probe começou; não foi iniciada outra cópia.
