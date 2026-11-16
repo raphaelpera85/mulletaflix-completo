@@ -7,6 +7,12 @@
 - E2E MariaDB descartável + FFmpeg real: `AnalyzeStrmEpisodes_PersistsSharedIntrosAndCapsConcurrentFingerprints` passou; valida fingerprint, persistência e concorrência máxima de 2.
 - Verificação completa, builds, pacote e publicação registrados em `docs/homologacao-release-12.1.55.md` quando concluídos.
 
+## Cobertura Windows do instalador — 2026-11-16
+
+- RED: `node --test tools/release/tests/ci-packaging-coverage.test.mjs` falhou porque `InstallerLocalization.Tests.ps1` não estava na lista do job Windows.
+- GREEN: o script foi adicionado à lista `.github/workflows/ci.yml`; teste de contrato focal passou 7/7, suíte Node de release passou 34/34 e execução direta do script imprimiu `Installer localization and DuckDNS controls passed.`
+- Limite: o runner hospedado não iniciou devido ao bloqueio de cobrança da conta GitHub; nenhuma validação remota foi creditada.
+
 ## Objetivo e limite
 
 Este documento define como aplicar Test-Driven Development nas frentes mantidas neste repositório: servidor Mulletaflix/.NET e Nebula/Python, cliente web, aplicativo Android, cliente iOS, ferramentas de build/release e portal público. É um plano de adoção contínua, não uma declaração de que todo o código legado já foi desenvolvido por TDD nem de que todas as funcionalidades estão homologadas.
