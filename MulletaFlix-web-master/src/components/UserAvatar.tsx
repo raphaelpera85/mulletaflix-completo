@@ -20,14 +20,21 @@ const UserAvatar: FC<UserAvatarProps> = ({
             tag: user.PrimaryImageTag,
             type: 'Primary'
         }) : undefined;
+    const accessToken = __legacyApiClient__?.accessToken();
+    const authenticatedImageUrl = imageUrl && accessToken ? new URL(imageUrl, window.location.href) : undefined;
+
+    if (authenticatedImageUrl && accessToken) {
+        authenticatedImageUrl.searchParams.set('api_key', accessToken);
+    }
+    const src = authenticatedImageUrl?.href ?? imageUrl;
 
     return user ? (
         <Avatar
             alt={user.Name ?? undefined}
-            src={imageUrl}
+            src={src}
             // eslint-disable-next-line react/jsx-no-bind
             sx={(theme) => ({
-                bgcolor: imageUrl ?
+                bgcolor: src ?
                     theme.vars.palette.background.paper :
                     theme.vars.palette.primary.dark,
                 color: 'inherit',

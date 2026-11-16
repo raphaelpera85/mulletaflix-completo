@@ -1,5 +1,4 @@
-import React from 'react';
-import { act } from 'react';
+import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,10 +28,10 @@ describe('UserAvatar', () => {
     });
 
     it('uses the authenticated image URL for a user primary image', async () => {
-        const getUserImageUrl = vi.fn(() => 'https://server.test/Users/user-id/Images/Primary?tag=image-tag&api_key=session-token');
+        const getUserImageUrl = vi.fn(() => 'https://server.test/Users/user-id/Images/Primary?tag=image-tag');
         useApiMock.mockReturnValue({
             api: { basePath: 'https://server.test' },
-            __legacyApiClient__: { getUserImageUrl }
+            __legacyApiClient__: { getUserImageUrl, accessToken: () => 'session-token' }
         });
 
         await act(async () => root.render(
@@ -47,11 +46,27 @@ describe('UserAvatar', () => {
 
     it('does not request an image when the user has no primary image tag', async () => {
         const getUserImageUrl = vi.fn();
-        useApiMock.mockReturnValue({ __legacyApiClient__: { getUserImageUrl } });
+        useApiMock.mockReturnValue({ __legacyApiClient__: { getUserImageUrl, accessToken: () => '' } });
 
         await act(async () => root.render(<UserAvatar user={{ Id: 'user-id', Name: 'Raphael' }} />));
 
         expect(getUserImageUrl).not.toHaveBeenCalled();
         expect(container.querySelector('img')?.getAttribute('src')).toBeNull();
+    });
+
+    it('keeps the image URL unchanged when no access token is available', async () => {
+        const imageUrl = 'https://server.test/Users/user-id/Images/Primary?tag=image-tag';
+        useApiMock.mockReturnValue({
+            __legacyApiClient__: {
+                getUserImageUrl: vi.fn(() => imageUrl),
+                accessToken: () => ''
+            }
+        });
+
+        await act(async () => root.render(
+            <UserAvatar user={{ Id: 'user-id', Name: 'Raphael', PrimaryImageTag: 'image-tag' }} />
+        ));
+
+        expect(container.querySelector('img')?.getAttribute('src')).toBe(imageUrl);
     });
 });
