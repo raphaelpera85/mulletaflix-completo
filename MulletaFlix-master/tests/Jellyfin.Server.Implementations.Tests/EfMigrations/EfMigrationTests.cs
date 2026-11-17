@@ -1,10 +1,10 @@
+using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Jellyfin.Database.Implementations.Migrations;
 using MulletaFlix.Database.Implementations.Migrations;
 using Xunit;
-using System;
 
 namespace MulletaFlix.Server.Implementations.Tests.EfMigrations;
 
