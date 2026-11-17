@@ -5948,8 +5948,6 @@ GRANT USAGE, SELECT, UPDATE ON SEQUENCE nebula_backups_id_seq TO service_role;
         }
         processInfo.ArgumentList.Add("--dest");
         processInfo.ArgumentList.Add(monitorSources[0]);
-        processInfo.ArgumentList.Add("--mongo");
-        processInfo.ArgumentList.Add(config.MongoDbConnectionString);
         processInfo.ArgumentList.Add("--db-name");
         processInfo.ArgumentList.Add("ftp");
         processInfo.ArgumentList.Add("--user");

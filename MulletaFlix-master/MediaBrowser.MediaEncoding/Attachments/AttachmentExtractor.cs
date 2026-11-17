@@ -177,7 +177,7 @@ namespace MediaBrowser.MediaEncoding.Attachments
                     EnableRaisingEvents = true
                 })
                 {
-                    _logger.LogInformation("{File} {Arguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
+                    _logger.LogInformation("{File} {Arguments}", process.StartInfo.FileName, FfmpegLogSanitizer.Redact(process.StartInfo.Arguments));
 
                     process.Start();
 
@@ -308,7 +308,7 @@ namespace MediaBrowser.MediaEncoding.Attachments
                 EnableRaisingEvents = true
             })
             {
-                _logger.LogInformation("{File} {Arguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
+                _logger.LogInformation("{File} {Arguments}", process.StartInfo.FileName, FfmpegLogSanitizer.Redact(process.StartInfo.Arguments));
 
                 process.Start();
 

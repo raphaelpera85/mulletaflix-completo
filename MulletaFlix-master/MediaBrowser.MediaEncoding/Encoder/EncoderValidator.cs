@@ -650,7 +650,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 }
             })
             {
-                _logger.LogDebug("Running {Path} {Arguments}", path, arguments);
+                _logger.LogDebug("Running {Path} {Arguments}", path, FfmpegLogSanitizer.Redact(arguments));
 
                 process.Start();
 
@@ -675,7 +675,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 WindowStyle = ProcessWindowStyle.Hidden,
                 ErrorDialog = false
             };
-            _logger.LogDebug("Running {Path} {Arguments}", path, arguments);
+            _logger.LogDebug("Running {Path} {Arguments}", path, FfmpegLogSanitizer.Redact(arguments));
 
             try
             {
@@ -685,7 +685,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
             }
             catch (Exception ex)
             {
-                _logger.LogError("Running {Path} {Arguments} failed with exception {Exception}", path, arguments, ex.Message);
+                _logger.LogError("Running {Path} {Arguments} failed with exception {Exception}", path, FfmpegLogSanitizer.Redact(arguments), FfmpegLogSanitizer.Redact(ex.Message));
                 return false;
             }
         }

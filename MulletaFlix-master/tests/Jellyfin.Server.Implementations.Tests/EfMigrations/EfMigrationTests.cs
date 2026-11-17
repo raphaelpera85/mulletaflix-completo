@@ -31,6 +31,13 @@ public class EfMigrationTests
         }
     }
 
+    private sealed class ExposedExpandBaseItemCleanNameTo512 : ExpandBaseItemCleanNameTo512
+    {
+        public void ApplyUp(MigrationBuilder migrationBuilder) => base.Up(migrationBuilder);
+
+        public void ApplyDown(MigrationBuilder migrationBuilder) => base.Down(migrationBuilder);
+    }
+
     [Fact]
     public void CheckForUnappliedMigrations_MySql()
     {
@@ -75,6 +82,31 @@ public class EfMigrationTests
             downBuilder.Operations,
             operation => AssertImageProvenanceDrop(operation, "Language"),
             operation => AssertImageProvenanceDrop(operation, "ProviderName"));
+    }
+
+    [Fact]
+    public void ExpandBaseItemCleanNameTo512_PreservesExistingValuesAndRevertsColumnSize()
+    {
+        var migration = new ExposedExpandBaseItemCleanNameTo512();
+        var upBuilder = new MigrationBuilder("Pomelo.EntityFrameworkCore.MySql");
+
+        migration.ApplyUp(upBuilder);
+
+        var up = Assert.IsType<AlterColumnOperation>(Assert.Single(upBuilder.Operations));
+        Assert.Equal("BaseItems", up.Table);
+        Assert.Equal("CleanName", up.Name);
+        Assert.Equal("varchar(512)", up.ColumnType);
+        Assert.Equal(512, up.MaxLength);
+        Assert.True(up.IsNullable);
+        Assert.Equal("varchar(255)", up.OldColumn.ColumnType);
+        Assert.Equal(255, up.OldColumn.MaxLength);
+
+        var downBuilder = new MigrationBuilder("Pomelo.EntityFrameworkCore.MySql");
+        migration.ApplyDown(downBuilder);
+
+        var down = Assert.IsType<AlterColumnOperation>(Assert.Single(downBuilder.Operations));
+        Assert.Equal("varchar(255)", down.ColumnType);
+        Assert.Equal("varchar(512)", down.OldColumn.ColumnType);
     }
 
     private static void AssertImageProvenanceColumn(MigrationOperation operation, string name, string type)

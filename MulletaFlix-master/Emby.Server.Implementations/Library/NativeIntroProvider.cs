@@ -71,9 +71,8 @@ public sealed class NativeIntroProvider : IIntroProvider
             }
         }
 
-        // Preparing the main media is opportunistic: slow STRM/Nebula reads must not
-        // delay (or prevent) returning the intro that the web player needs to start.
-        _ = Task.Run(() => PrepareMainMediaAsync(item));
+        // PrepareAsync starts remote buffering without waiting for the source to finish downloading.
+        await PrepareMainMediaAsync(item).ConfigureAwait(false);
 
         _logger.LogInformation("Providing native intro for {ItemName}", item.Name);
 

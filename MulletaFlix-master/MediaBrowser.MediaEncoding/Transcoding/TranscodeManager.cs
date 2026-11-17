@@ -524,7 +524,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             state,
             cancellationTokenSource);
 
-        _logger.LogInformation("{Filename} {Arguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
+        _logger.LogInformation("{Filename} {Arguments}", process.StartInfo.FileName, FfmpegLogSanitizer.Redact(process.StartInfo.Arguments));
 
         var logFilePrefix = "FFmpeg.Transcode-";
         if (state.VideoRequest is not null
@@ -553,11 +553,12 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             IODefaults.FileStreamBufferSize,
             FileOptions.Asynchronous);
 
-        await JsonSerializer.SerializeAsync(logStream, state.MediaSource, cancellationToken: cancellationTokenSource.Token).ConfigureAwait(false);
+        var mediaSourceJson = Encoding.UTF8.GetBytes(FfmpegLogSanitizer.Redact(JsonSerializer.Serialize(state.MediaSource)));
+        await logStream.WriteAsync(mediaSourceJson, cancellationTokenSource.Token).ConfigureAwait(false);
         var commandLineLogMessageBytes = Encoding.UTF8.GetBytes(
             Environment.NewLine
             + Environment.NewLine
-            + process.StartInfo.FileName + " " + process.StartInfo.Arguments
+            + process.StartInfo.FileName + " " + FfmpegLogSanitizer.Redact(process.StartInfo.Arguments)
             + Environment.NewLine
             + Environment.NewLine);
 

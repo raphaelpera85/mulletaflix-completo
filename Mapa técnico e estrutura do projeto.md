@@ -27,3 +27,11 @@ O fluxo existente `BaseItemAnalyzerTask -> FFmpegService -> StrmInputResolver` t
 ### 2026-11-02 — ampliação da redação de URLs em logs
 
 Os limites de exceção em MediaBrowser.Providers/Manager/ProviderManager.cs, MetadataService.cs, provedores OpenLibrary, letras, legendas, src/Jellyfin.LiveTv/Guide/GuideManager.cs e Schedules Direct sanitizam URLs remotas antes do logger. Schedules Direct deixou de registrar resposta HTTP bruta. Verificações: Providers 893/906 (13 ignorados), Live TV 81/81; formatter parcial por avisos de codificação CHARSET em dois arquivos legados. T6.4 parcial, restante dos logs ainda em triagem. last_verified: 2026-11-02.
+
+## Conferência 2026-11-16 — release 12.1.56
+
+- Alterado o fluxo de mídia: `NativeIntroProvider` inicia e aguarda apenas o registro/primeiro trecho de `StrmPrebufferManager` antes de devolver a intro; o preenchimento continua em background, e `MediaSourceManager` direciona a reprodução do STRM ao proxy local quando há sessão. Não foi criado endpoint.
+- Novo helper interno `MediaBrowser.Controller/MediaEncoding/FfmpegLogSanitizer`, aplicado aos pontos de log FFmpeg nos módulos Controller, MediaEncoding e Server. Nenhuma dependência adicionada.
+- Atualizado o schema EF de `BaseItem.CleanName` para 512 via migração `ExpandBaseItemCleanNameTo512`; tabela existente, sem novo módulo/API.
+- `NebulaFtpManager` passa a encaminhar `MONGODB` pelo ambiente, não por argumento CLI.
+- Verificação de estrutura: responsabilidades permanecem nos módulos atuais; a nova classe de sanitização e a migração foram registradas neste mapa. Fluxo e evidências: `MulletaFlix-master/docs/homologacao-release-12.1.56.md`.

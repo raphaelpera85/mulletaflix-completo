@@ -237,8 +237,8 @@ namespace Jellyfin.Database.Implementations.Migrations
                         .HasColumnType("char(36)");
 
                     b.Property<string>("CleanName")
-                        .HasMaxLength(255)
-                        .HasColumnType("varchar(255)");
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
 
                     b.Property<float?>("CommunityRating")
                         .HasColumnType("float");

@@ -18,7 +18,7 @@ public class BaseItemConfiguration : IEntityTypeConfiguration<BaseItemEntity>
         builder.Property(e => e.SeriesPresentationUniqueKey).HasMaxLength(100);
         builder.Property(e => e.PresentationUniqueKey).HasMaxLength(100);
         builder.Property(e => e.SortName).HasMaxLength(255);
-        builder.Property(e => e.CleanName).HasMaxLength(255);
+        builder.Property(e => e.CleanName).HasMaxLength(512);
         builder.Property(e => e.MediaType).HasMaxLength(100);
         builder.Property(e => e.Path).HasMaxLength(512);
         // TODO: See rant in entity file.

@@ -19,6 +19,7 @@ namespace Emby.Server.Implementations.MediaEncoding;
 public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
 {
     private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+    private static readonly TimeSpan UpstreamTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan ReadIdleTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan SessionTtl = TimeSpan.FromMinutes(30);
     private readonly CancellationTokenSource _disposeCts = new();
@@ -46,8 +47,8 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
     {
         CleanupExpiredSessions();
         var options = _configurationManager.GetConfiguration<BrandingOptions>("branding");
-        var prebufferActive = options.PrebufferEnabled || options.IntroEnabled || !string.IsNullOrWhiteSpace(options.IntroPath);
-        if (!prebufferActive || item.Path is null)
+        // NativeIntroProvider is the only caller, so invocation already means an intro was selected.
+        if (item.Path is null)
         {
             return;
         }
@@ -146,25 +147,36 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
         try
         {
             session.Touch();
-            await session.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+            await Task.WhenAny(session.DataAvailable.Task, session.Ready.Task)
+                .WaitAsync(UpstreamTimeout, cancellationToken)
+                .ConfigureAwait(false);
+
+            var bufferedBytes = session.BufferedBytes;
+            if (bufferedBytes == 0)
+            {
+                throw new HttpRequestException("The STRM source returned no data for prebuffering.");
+            }
+
             await using (var prefix = new FileStream(session.BufferPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
-                await prefix.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                await CopyExactlyAsync(prefix, output, bufferedBytes, cancellationToken).ConfigureAwait(false);
             }
 
             using var request = CreateUpstreamRequest(session.Uri);
-            request.Headers.Range = new RangeHeaderValue(session.BufferedBytes, null);
-            using var response = await _httpClientFactory.CreateClient().SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            request.Headers.Range = new RangeHeaderValue(bufferedBytes, null);
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = UpstreamTimeout;
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
             {
-                return (session.ContentType ?? "application/octet-stream", session.BufferedBytes);
+                return (session.ContentType ?? "application/octet-stream", bufferedBytes);
             }
 
             response.EnsureSuccessStatusCode();
             await using var upstream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             if (response.StatusCode != HttpStatusCode.PartialContent)
             {
-                await SkipAsync(upstream, session.BufferedBytes, cancellationToken).ConfigureAwait(false);
+                await SkipAsync(upstream, bufferedBytes, cancellationToken).ConfigureAwait(false);
             }
 
             await upstream.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
@@ -182,7 +194,9 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
         try
         {
             using var request = CreateUpstreamRequest(session.Uri);
-            using var response = await _httpClientFactory.CreateClient().SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _disposeCts.Token).ConfigureAwait(false);
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = UpstreamTimeout;
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _disposeCts.Token).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
             session.ContentType = response.Content.Headers.ContentType?.ToString();
             await using var input = await response.Content.ReadAsStreamAsync(_disposeCts.Token).ConfigureAwait(false);
@@ -194,7 +208,11 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
                 if (read == 0) break;
                 var count = (int)Math.Min(read, session.MaxBytes - session.BufferedBytes);
                 await output.WriteAsync(buffer.AsMemory(0, count), _disposeCts.Token).ConfigureAwait(false);
-                session.BufferedBytes += count;
+                if (session.AddBufferedBytes(count))
+                {
+                    await output.FlushAsync(_disposeCts.Token).ConfigureAwait(false);
+                    session.DataAvailable.TrySetResult(true);
+                }
                 if (count != read) break;
             }
             completed = true;
@@ -209,7 +227,7 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
         finally
         {
             session.Ready.TrySetResult(true);
-            if (!completed && _sessions.TryRemove(itemId, out var removedSession))
+            if (!completed && session.BufferedBytes == 0 && _sessions.TryRemove(itemId, out var removedSession))
             {
                 removedSession.Dispose();
             }
@@ -242,6 +260,22 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
         {
             var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, bytes)), cancellationToken).ConfigureAwait(false);
             if (read == 0) break;
+            bytes -= read;
+        }
+    }
+
+    private static async Task CopyExactlyAsync(Stream source, Stream destination, long bytes, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[81920];
+        while (bytes > 0)
+        {
+            var read = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, bytes)), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                throw new EndOfStreamException("The STRM prebuffer ended before its recorded length.");
+            }
+
+            await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
             bytes -= read;
         }
     }
@@ -281,10 +315,15 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
         public Uri Uri { get; }
         public string BufferPath { get; }
         public long MaxBytes { get; }
-        public long BufferedBytes { get; set; }
+        private long _bufferedBytes;
+
+        public long BufferedBytes => Interlocked.Read(ref _bufferedBytes);
         public string? ContentType { get; set; }
         public TaskCompletionSource<bool> Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> DataAvailable { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public DateTime LastAccessUtc { get; private set; } = DateTime.UtcNow;
+
+        public bool AddBufferedBytes(int count) => Interlocked.Add(ref _bufferedBytes, count) == count;
 
         public void Touch()
         {

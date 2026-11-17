@@ -239,14 +239,14 @@ public partial class AudioNormalizationTask : IScheduledTask
             },
         })
         {
-            _logger.LogDebug("Starting ffmpeg with arguments: {Arguments}", args);
+            _logger.LogDebug("Starting ffmpeg with arguments: {Arguments}", FfmpegLogSanitizer.Redact(args));
             try
             {
                 process.Start();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error starting ffmpeg with arguments: {Arguments}", args);
+                _logger.LogError(ex, "Error starting ffmpeg with arguments: {Arguments}", FfmpegLogSanitizer.Redact(args));
                 return null;
             }
 

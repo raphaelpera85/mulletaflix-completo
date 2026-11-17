@@ -154,12 +154,12 @@ public class NativeIntroProviderTests
     }
 
     [Fact]
-    public async Task GetIntros_ReturnsIntroWithoutWaitingForMainMediaPrebuffer()
+    public async Task GetIntros_PreparesMainMediaBeforeReturningIntro()
     {
         var introPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
         await File.WriteAllTextAsync(introPath, "intro video", TestContext.Current.CancellationToken);
         var prebufferStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var finishPrebuffer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var prepareCompleted = false;
 
         try
         {
@@ -175,7 +175,8 @@ public class NativeIntroProviderTests
                 .Returns(() =>
                 {
                     prebufferStarted.TrySetResult();
-                    return finishPrebuffer.Task;
+                    prepareCompleted = true;
+                    return Task.CompletedTask;
                 });
 
             var provider = new NativeIntroProvider(
@@ -185,16 +186,14 @@ public class NativeIntroProviderTests
             var item = new Video { Id = Guid.NewGuid(), Name = "Test media", Path = "N:\\Series\\test.strm" };
             var user = new User("test", "test", "test") { Id = Guid.NewGuid() };
 
-            var introsTask = provider.GetIntros(item, user);
-            var completedBeforePrebuffer = await Task.WhenAny(introsTask, Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+            var intros = await provider.GetIntros(item, user);
 
-            Assert.Same(introsTask, completedBeforePrebuffer);
-            Assert.Single(await introsTask);
-            await prebufferStarted.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            Assert.True(prepareCompleted);
+            Assert.True(prebufferStarted.Task.IsCompleted);
+            Assert.Single(intros);
         }
         finally
         {
-            finishPrebuffer.TrySetResult();
             File.Delete(introPath);
         }
     }

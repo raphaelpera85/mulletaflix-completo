@@ -1831,3 +1831,11 @@ MariaDB 11.4.4 descartável foi iniciado em `127.0.0.1:51588` com datadir tempor
 ## Fallback não-HTTP de imagens e regressão serial — 2026-11-03 12:57 BRT
 
 `ItemImageProvider.DownloadImage` e `DownloadMultiImages` agora distinguem cancelamento de falha comum: `OperationCanceledException` continua propagada; exceções não-HTTP viram falha do candidato, warning redigido e permitem tentar o próximo provider/imagem. O teste `RefreshImages_SingularNonHttpFailureContinuesWithNextCandidate` passou 1/1 após RED; `Jellyfin.Providers.Tests` sem Integration passou 923/923; regressão serial sem Integration passou 5.638 aprovados, 98 ignorados, 0 falhas/5.736; build Release passou com 0 erros. Runtime 12.1.45 não foi alterado.
+
+## Atualização 12.1.56 — STRM e logs FFmpeg — 2026-11-16
+
+`NativeIntroProvider -> StrmPrebufferManager -> MediaSourceManager` prepara a sessão local do `.strm` antes de retornar a introdução. O prebuffer libera o primeiro trecho e continua copiando em background; `MediaSourceManager` substitui o caminho de reprodução pelo proxy local quando a sessão existe. O servidor usa timeout de 2 minutos na solicitação externa e espera no máximo o primeiro bloco antes de liberar a intro. A homologação desta release cobre esse comportamento em teste determinístico de origem lenta, mas ainda não comprova reprodução real no Windows instalado.
+
+`FfmpegLogSanitizer` em `MediaBrowser.Controller/MediaEncoding` é compartilhado por `JobLogger`, `TranscodeManager`, `SubtitleEncoder`, `MediaEncoder`, `EncoderValidator`, `AttachmentExtractor` e `AudioNormalizationTask`. Redige credenciais, query strings e valores sensíveis antes dos sinks revisados. Os arquivos de log históricos não são alterados.
+
+`BaseItemConfiguration.CleanName` passa a 512 caracteres via migração reversível gerada; o schema foi revisado por script, sem execução em MariaDB. Sem novo serviço, endpoint ou dependência. Evidências e limites: `docs/homologacao-release-12.1.56.md`.

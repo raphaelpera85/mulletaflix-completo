@@ -427,7 +427,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                 EnableRaisingEvents = true
             })
             {
-                _logger.LogInformation("{0} {1}", process.StartInfo.FileName, process.StartInfo.Arguments);
+                _logger.LogInformation("{0} {1}", process.StartInfo.FileName, FfmpegLogSanitizer.Redact(process.StartInfo.Arguments));
 
                 try
                 {
@@ -753,7 +753,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                 EnableRaisingEvents = true
             })
             {
-                _logger.LogInformation("{File} {Arguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
+                _logger.LogInformation("{File} {Arguments}", process.StartInfo.FileName, FfmpegLogSanitizer.Redact(process.StartInfo.Arguments));
 
                 try
                 {
@@ -919,7 +919,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                 EnableRaisingEvents = true
             })
             {
-                _logger.LogInformation("{File} {Arguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
+                _logger.LogInformation("{File} {Arguments}", process.StartInfo.FileName, FfmpegLogSanitizer.Redact(process.StartInfo.Arguments));
 
                 try
                 {

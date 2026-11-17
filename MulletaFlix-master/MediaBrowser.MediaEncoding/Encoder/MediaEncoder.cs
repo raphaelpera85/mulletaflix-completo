@@ -860,7 +860,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "I-frame image extraction failed, will attempt standard way. Input: {Arguments}", inputArgument);
+                    _logger.LogWarning(ex, "I-frame image extraction failed, will attempt standard way. Input: {Arguments}", FfmpegLogSanitizer.Redact(inputArgument));
                 }
             }
 
@@ -1013,7 +1013,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 EnableRaisingEvents = true
             };
 
-            _logger.LogDebug("{ProcessFileName} {ProcessArguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
+            _logger.LogDebug("{ProcessFileName} {ProcessArguments}", process.StartInfo.FileName, FfmpegLogSanitizer.Redact(process.StartInfo.Arguments));
 
             using (var processWrapper = new ProcessWrapper(process, this))
             {
@@ -1245,7 +1245,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 EnableRaisingEvents = true
             };
 
-            var processDescription = string.Format(CultureInfo.InvariantCulture, "{0} {1}", process.StartInfo.FileName, process.StartInfo.Arguments);
+            var processDescription = string.Format(CultureInfo.InvariantCulture, "{0} {1}", process.StartInfo.FileName, FfmpegLogSanitizer.Redact(process.StartInfo.Arguments));
             _logger.LogInformation("Trickplay generation: {ProcessDescription}", processDescription);
 
             using (var processWrapper = new ProcessWrapper(process, this))

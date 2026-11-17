@@ -133,3 +133,11 @@ Uma release não faz parte automaticamente de cada execução de TDD: seguir aut
 ### Revalidação do port para `main` — 2026-11-13
 
 Decisão posterior do usuário: manter a `main` atual como base e portar somente as correções 12.1.52, sem migrar os 103 commits de `v12.1.51`. Na árvore portável, a solução .NET passou **6.103/315/0/6.418** em 17 projetos; IntroSkipper com MariaDB descartável passou **116/1/0/117**, incluindo E2E de quatro STRM, persistência e concorrência 2; Vitest passou **443/443**; build/typecheck web, produção, verify:build, auditoria de produção, localização NSIS, transporte DuckDNS e build do instalador passaram. A auditoria geral mantém oito vulnerabilidades moderadas apenas em ferramentas dev. Instalação em VM e CI hospedada seguem pendentes.
+
+## Regressões da release 12.1.56 — 2026-11-16
+
+- `StrmPrebufferManagerTests` reproduziu RED com origem remota lenta: a reprodução da introdução ficava aguardando o download terminar. GREEN: o prebuffer disponibiliza e descarrega o primeiro bloco ao cliente, continua a transferência em segundo plano e retoma a origem por Range; o teste verifica o início antes do fim da origem. `NativeIntroProviderTests` garante que a sessão de preparação exista antes de a introdução ser retornada.
+- Redação dos logs FFmpeg coberta por testes focais para credenciais, query strings, JSON e cabeçalhos sensíveis. Pesquisa de usos equivalentes aplicada aos pontos de logging revisados.
+- `CleanName` expandido para 512 com migração reversível; teste confirma alteração e preservação no `Up`. Script SQL gerado sem aplicar em banco.
+- Quality gates locais: solução .NET **6.116 aprovados, 315 ignorados, 0 falhas / 6.431**; Python **727 aprovados, 2 ignorados**; Web **444 aprovados em 84 arquivos** e `npm run build:check`; pacote Windows, integridade do stage, controles/localização NSIS e transporte DuckDNS passaram. Linux x64 cross-publish concluído e arquivo/script inspecionados.
+- Limites: migração não foi executada em MariaDB descartável; reprodução real de `.strm` com intro não foi exercitada nesta rodada; Linux não foi executado em host Linux; homologação UI/upgrade em VM e jobs CI hospedados estão pendentes.

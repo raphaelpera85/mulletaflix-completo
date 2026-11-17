@@ -30,6 +30,7 @@ namespace MediaBrowser.Controller.MediaEncoding
                     string line = await reader.ReadLineAsync().ConfigureAwait(false);
                     while (line is not null && reader.BaseStream.CanRead)
                     {
+                        line = FfmpegLogSanitizer.Redact(line);
                         ParseLogLine(line, state);
 
                         var bytes = Encoding.UTF8.GetBytes(Environment.NewLine + line);
