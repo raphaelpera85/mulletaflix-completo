@@ -37,8 +37,9 @@ Data: 2026-11-17 (America/Sao_Paulo).
 
 ## Publicação e limites
 
-- Ainda não confirmada. `gh auth status` informou que não há sessão autenticada no GitHub nesta máquina; verificar `git push` separadamente. Não declarar release pública sem validar a API da release e seus três assets.
-- VM limpa/instalação limpa, runtime nativo Linux, CI hospedada e conclusão do scan real interrompido permanecem pendentes.
+- Publicada como Latest: [v12.1.58](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.58), tag `v12.1.58` aponta para `d40f76a9255b8529de17ed3f26443cc6127a909b`, commit de release presente na história de `main`. A API remota confirmou três assets com tamanhos e SHA-256 iguais aos pacotes locais acima.
+- CI hospedada: run [44018912372](https://github.com/raphaelpera85/mulletaflix-completo/actions/runs/44018912372) falhou em quatro segundos antes de steps observáveis; os jobs Linux e release foram ignorados. A causa não foi confirmada. Gates locais continuam aprovados.
+- VM limpa/instalação limpa, runtime nativo Linux e conclusão do scan real interrompido permanecem pendentes.
 - Os testes e runtime não provam desempenho sob concorrência de múltiplos clientes. O prebuffer parcial conserva o comportamento já configurado; dependência da disponibilidade/latência da origem `.strm` permanece.
 
 ## Fontes
@@ -46,3 +47,8 @@ Data: 2026-11-17 (America/Sao_Paulo).
 `MulletaFlix-master/Jellyfin.Api/Controllers/UserLibraryController.cs`, `MulletaFlix-master/Jellyfin.Server.Implementations/MediaSegments/MediaSegmentManager.cs`, testes em `MulletaFlix-master/tests/`, fluxo web em `MulletaFlix-web-master/src/components/playback/playbackmanager.ts`, `TDD-PLAN.md` e log do servidor Windows (consultado sem copiar URLs/credenciais).
 
 Revisão adversarial confirmou coerência do fluxo transient intro/prebuffer e apontou o gate de notas da release; notas adicionadas em `docs/releases/12.1.58.md`, caminho consumido pelo workflow. Limite adicional: teste de `MediaSegmentManager` usa EF InMemory e não reproduz SQL MariaDB. A equivalência do filtro foi reproduzida em EF; tradução do provider MariaDB não foi testada nesta rodada.
+
+
+## Publicação — 2026-11-17
+
+A tag `v12.1.58` aponta para `d40f76a9255b8529de17ed3f26443cc6127a909b`, commit presente na história de `main`. A release está publicada como Latest em https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.58. A API do GitHub verificou installer, ZIP e tarball, bytes e digests correspondentes à seção de artefatos. A CI da tag (run `44018912372`) falhou em quatro segundos antes de steps observáveis; os jobs de Linux e publicação foram ignorados. Causa da falha não confirmada, portanto nenhuma validação hospedada é creditada.
