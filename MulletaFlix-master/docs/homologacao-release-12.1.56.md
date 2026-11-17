@@ -31,7 +31,7 @@ Diretório candidato: `.build/release-audit-12.1.56/dist`.
 ## Pendências de homologação
 
 - A migração EF não foi executada pelo mecanismo de migrações; o DDL equivalente foi verificado em MariaDB descartável depois do build. O banco operacional permaneceu separado.
-- O teste STRM com origem controlada comprova a prontidão do proxy e o cache parcial; não foi feita reprodução real com a introdução no servidor Windows instalado.
+- O teste STRM com origem controlada comprova a prontidão do proxy e o cache parcial. A validação em runtime descrita no complemento abaixo confirma intro resolvida, transcode pelo proxy e início da sessão principal; o log do servidor não comprova visualmente os quadros da introdução no navegador.
 - Não houve teste visual do assistente NSIS numa VM limpa, nem upgrade instalado nesta rodada. O servidor local estava parado ao início; produção só deve ser considerada atualizada após reinício e checagem de saúde/versão.
 - O tarball Linux não foi executado num host Linux.
 - CI hospedada do GitHub não foi considerada gate local; as execuções anteriores no projeto foram bloqueadas antes de iniciarem runners por pendência de cobrança. Verificar o status da conta/workflow desta tag após publicar.
@@ -51,5 +51,12 @@ Diretório candidato: `.build/release-audit-12.1.56/dist`.
 - Um STRM real da biblioteca foi resolvido e lido diretamente pela origem local de streaming após a atualização: HTTP 200, `video/x-matroska`, 488.504.089 bytes; FFprobe decodificou o contêiner e informou duração 1420,074 s (exit 0). Range `bytes=0-4095` respondeu 206 com 4096 bytes, confirmando suporte a retomada da origem. A URL e parâmetros privados não foram registrados.
 - A migração foi exercitada em MariaDB 11.4.4 descartável em `127.0.0.1:33189`, com datadir temporário isolado. O `ALTER ... varchar(255) -> varchar(512)` preservou valor existente de 250 caracteres e aceitou novo valor de 400. Instância parada; o datadir descartável permaneceu em `.build/mariadb-cleanname-20261116-2340` porque a exclusão recursiva foi bloqueada pelo ambiente.
 - O serviço `MulletaFlixServer` não existe nesse host. A chave `HKCU Run` contém `MulletaFlixTray`; o código da bandeja inicia `MulletaFlix.exe --datadir` quando não há serviço. Esta sessão manteve o servidor rodando como processo oculto; não foi testada disponibilidade antes do login interativo após reinicialização.
-- Ainda não houve reprodução via player web autenticado. O teste do servidor com STRM real confirma transporte/FFprobe; não comprova que a interface buscou e tocou a introdução antes da mídia.
+- O log de runtime abaixo registra intro resolvida, transcode pelo proxy e sessão principal iniciada para `.strm`. Ele confirma a sequência do servidor, mas não comprova visualmente os quadros da introdução no navegador.
 - Caminho estático rastreado: `PlaybackManager.play -> playWithIntros -> getIntros -> UserLibraryController.GetIntros -> LibraryManager.GetIntros -> NativeIntroProvider`; ao receber a intro, o player chama `prebufferItemDuringIntro`, e `MediaSourceManager` usa o proxy se a sessão foi registrada. Isso confirma o fluxo no código, sem substituir playback real.
+
+## Reprodução `.strm` com introdução — 2026-11-17
+
+- No log do servidor Windows em 2026-11-16, `LibraryManager` resolveu 1 intro para o item e `NativeIntroProvider` registrou que a forneceu às 13:41:13.469.
+- Às 13:41:14.176, o FFmpeg iniciou a mídia principal usando o endpoint local `/Videos/{id}/Prebuffer`; o GET do proxy terminou com HTTP 200 às 13:41:21.240 e a sessão principal de playback começou às 13:41:23.646. A entrada está registrada como contêiner `.strm` no log FFmpeg correspondente.
+- A ordem observada comprova que o servidor iniciou preparação/cache e transcode durante a janela da introdução, antes do início da sessão da mídia principal. O buffer é parcial e limitado por `PrebufferSizeMb` (padrão 32 MiB; faixa efetiva 1–256 MiB); o restante continua sendo lido da origem conforme necessário. Não há download completo obrigatório do arquivo.
+- Limite da evidência: o log confirma que uma intro foi resolvida e entregue ao player, mas não captura os quadros efetivamente renderizados no navegador. O código web já rastreado consome `/Intros` antes da mídia principal; validação visual de quadro a quadro permanece pendente.
