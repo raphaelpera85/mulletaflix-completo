@@ -2,7 +2,9 @@ using System;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Dto;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Http;
@@ -278,6 +280,23 @@ public class UserLibraryControllerTests
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
         Assert.Equal("User id must not be empty.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task GetItem_ReturnsRegisteredTransientIntro()
+    {
+        var intro = new Video { Id = Guid.NewGuid(), Path = "intro.mp4" };
+        var expectedDto = new BaseItemDto { Id = intro.Id };
+        _transientRegistry.Register(intro);
+        _mockDtoService
+            .Setup(service => service.GetBaseItemDtoAsync(intro, It.IsAny<DtoOptions>(), _testUser, null))
+            .ReturnsAsync(expectedDto);
+
+        var result = await _subject.GetItem(_testUser.Id, intro.Id);
+
+        Assert.Same(expectedDto, result.Value);
+        _mockLibraryManager.Verify(library => library.GetItemById<BaseItem>(intro.Id, _testUser), Times.Once);
+        Assert.Empty(_mockJobQueue.Invocations);
     }
 
     [Fact]

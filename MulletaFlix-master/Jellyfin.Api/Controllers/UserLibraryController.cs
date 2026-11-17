@@ -110,16 +110,20 @@ public class UserLibraryController : BaseMulletaFlixApiController
         var item = itemId.IsEmpty()
             ? _libraryManager.GetUserRootFolder()
             : _libraryManager.GetItemById<BaseItem>(itemId, user);
+        var isTransient = item is null && _transientMediaItemRegistry.TryGet(itemId, out item);
         if (item is null)
         {
             return NotFound();
         }
 
-        _nebulaFtpManager.PrioritizeItem(item);
+        if (!isTransient)
+        {
+            _nebulaFtpManager.PrioritizeItem(item);
 
-        // Refresh stale or incomplete metadata before building the DTO so the detail page
-        // can render overview, artwork and related fields without waiting for a manual scan.
-        await RefreshItemOnDemandIfNeeded(item).ConfigureAwait(false);
+            // Refresh stale or incomplete metadata before building the DTO so the detail page
+            // can render overview, artwork and related fields without waiting for a manual scan.
+            await RefreshItemOnDemandIfNeeded(item).ConfigureAwait(false);
+        }
 
         var dtoOptions = new DtoOptions();
 

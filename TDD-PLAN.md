@@ -1,5 +1,18 @@
 # Plano TDD integrado — MulletaFlix
 
+## Regressão do playback de intro em `.strm` — 2026-11-17
+
+- RED: `UserLibraryControllerTests.GetItem_ReturnsRegisteredTransientIntro` falhou (1 teste, 0 aprovados): a rota de detalhes retornou `NotFound` para a intro recém-registrada, pois só consultava a biblioteca persistida.
+- GREEN: o endpoint existente agora recorre ao registro transitório quando o item não existe na biblioteca, sem priorização Nebula nem refresh de metadata para essa intro. `UserLibraryControllerTests`: 27/27.
+- E2E Windows: em 12.1.57, a abertura tocou por 24 s; `Main media prebuffer successful` apareceu ainda durante esse trecho e a reprodução avançou para o STRM. O item foi restaurado ao estado não assistido. O teste também revelou HTTP 500 separado ao buscar segmentos.
+- 12.1.57 foi aplicado localmente para validar a rota transitória. A correção adicional do filtro de provedores será a release 12.1.58.
+
+## Regressão de consulta de segmentos — 2026-11-17
+
+- RED: `MediaSegmentManagerTests.GetSegmentsAsync_FiltersByProviderId` reproduziu `InvalidOperationException`/`TypeLoadException` para `ReadOnlySpan<string>` em `EFCore.ExpressionTreeFuncletizer`; o endpoint de segmentos retornava 500.
+- GREEN: qualificar `Enumerable.Contains(providerIds, e.SegmentProviderId)` evita que o compilador selecione `MemoryExtensions.Contains(ReadOnlySpan<T>)`. O teste focal passou com EF InMemory.
+- Release alvo: 12.1.58; suíte completa, pacote e E2E pós-fix pendentes.
+
 ## Regressões da release 12.1.55 — 2026-11-16
 
 - `StrmInputResolverTests.FingerprintAsync_ReportsMissingStrmAsFingerprintFailure`: RED reproduzido com `DirectoryNotFoundException` escapando do resolver; GREEN após converter falhas de leitura/validação de STRM em `FingerprintException`.
@@ -150,3 +163,11 @@ Decisão posterior do usuário: manter a `main` atual como base e portar somente
 - MariaDB 11.4.4 descartável em loopback porta 33189: migração `CleanName` para varchar(512) preservou valor anterior de 250 caracteres e aceitou valor de 400. Processo encerrado sem tocar a MariaDB de produção em 3306; datadir temporário ficou em `.build` porque remoção recursiva foi bloqueada pelo ambiente.
 - Trilha de código confirmada: o player envia todo item `Video` ao endpoint de intros; o provider nativo é descoberto pelo `ApplicationHost.GetExports<IIntroProvider>()`; com intro, o player inicia o prebuffer principal em paralelo. O teste em player real ainda requer sessão autenticada.
 - O host usa a bandeja em `HKCU Run` para iniciar o servidor quando não existe serviço; não foi demonstrado boot antes de login. Reprodução real pelo player com sessão autenticada continua pendente.
+
+## Regressões da release 12.1.58 — 2026-11-17
+
+- `UserLibraryControllerTests.GetItem_ReturnsRegisteredTransientIntro`: RED/ GREEN para obter o DTO de intro transitória que não existe na biblioteca persistente.
+- `MediaSegmentManagerTests.GetSegmentsAsync_FiltersByProviderId`: RED reproduziu erro de tradução/avaliação EF ao selecionar `MemoryExtensions.Contains(ReadOnlySpan<T>)`; GREEN com `Enumerable.Contains`.
+- Suíte API: 1.248 aprovados, 3 ignorados, 0 falhas / 1.251. Solução .NET Release: 6.118 aprovados, 315 ignorados, 0 falhas / 6.433 em 17 projetos.
+- Web: 5 testes focais passaram. Windows stage/NSIS, integridade do stage, localização e controles DuckDNS/token passaram; validação do player real confirmou intro, pré-cache e transição para `.strm` na 12.1.58. Um `bufferStalledError` HLS não fatal ocorreu, e a reprodução continuou.
+- Relatório: `MulletaFlix-master/docs/homologacao-release-12.1.58.md`. Release pública não confirmada por ausência de autenticação GitHub local; não afirmar publicação até verificar remote e assets.

@@ -248,7 +248,7 @@ public class MediaSegmentManager : IMediaSegmentManager
                     return [];
                 }
 
-                query = query.Where(e => providerIds.Contains(e.SegmentProviderId));
+                query = query.Where(e => Enumerable.Contains(providerIds, e.SegmentProviderId));
             }
 
             return query
