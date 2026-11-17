@@ -36,3 +36,11 @@ Diretório candidato: `.build/release-audit-12.1.56/dist`.
 - O tarball Linux não foi executado num host Linux.
 - CI hospedada do GitHub não foi considerada gate local; as execuções anteriores no projeto foram bloqueadas antes de iniciarem runners por pendência de cobrança. Verificar o status da conta/workflow desta tag após publicar.
 - Logs de versões anteriores podem conter URLs/tokens já gravados; a correção previne novos vazamentos nos sinks revisados, mas não limpa arquivos existentes. Rotação de credenciais expostas deve ser avaliada pelo operador.
+
+## Publicação e atualização Windows — 2026-11-16
+
+- Release pública Latest: [v12.1.56](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.1.56), commit `e76a2a7cba21f006404db21000710955f150e409` em `main` e no tag.
+- A API pública da release confirma os três assets, tamanhos e SHA-256 iguais aos pacotes locais acima.
+- CI hospedada: run [44003569145](https://github.com/raphaelpera85/mulletaflix-completo/actions/runs/44003569145) falhou antes de executar qualquer step; os outros dois jobs foram ignorados. A causa específica desta tentativa não foi confirmada, portanto não é evidência de teste remoto.
+- Atualização de produção aplicada em `C:\Program Files\MulletaFlix\Server`; `MulletaFlix.dll` FileVersion é 12.1.56. `GET /health` retornou `Healthy`, e `/System/Info/Public` retornou 12.1.56. `C:\ProgramData\MulletaFlix\Server` foi preservada.
+- Não havia serviço `MulletaFlixServer` no host; o servidor está rodando em processo oculto para manter a API disponível. O modo de inicialização persistente/serviço não foi reconfigurado nesta atualização e precisa ser conferido antes de reinicialização/logout.
