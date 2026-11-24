@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Diagnostics.Metrics;
 using System.Threading;
@@ -9,6 +10,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
+using MediaBrowser.Model.Nebula;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -278,6 +280,60 @@ public class NebulaTelegramNotifierTests
         var movie = new Movie { Name = " " };
 
         Assert.False(NotificationsLibraryNotifier.IsNotificationMetadataReady(movie, hasStableSnapshot: true));
+    }
+
+    [Fact]
+    public async Task MetadataWorker_SendsTextForStrmWithoutLocalCoverOrNfo()
+    {
+        var movie = new Movie
+        {
+            Name = "Filme remoto",
+            Path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.strm")
+        };
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager.Setup(manager => manager.GetItemById(movie.Id)).Returns(movie);
+
+        var settings = new NebulaNotificationsSettingsDto
+        {
+            Enabled = true,
+            ChannelIds = new List<string> { "test-channel" },
+            PublicServerUrl = "https://mulletaflix.example"
+        };
+        var notificationSent = new TaskCompletionSource<(string Message, string? ImagePath)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        nebulaManager.Setup(manager => manager.GetNotificationsSettings()).Returns(settings);
+        nebulaManager
+            .Setup(manager => manager.SendNotificationAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, string?, string?, CancellationToken>((message, imagePath, _, _) => notificationSent.TrySetResult((message, imagePath)))
+            .ReturnsAsync(true);
+
+        var applicationHost = new Mock<IServerApplicationHost>();
+        applicationHost.SetupGet(host => host.SystemId).Returns("test-server");
+        using var notifier = new NotificationsLibraryNotifier(
+            libraryManager.Object,
+            nebulaManager.Object,
+            applicationHost.Object,
+            NullLogger<NotificationsLibraryNotifier>.Instance);
+
+        await notifier.StartAsync(CancellationToken.None);
+        Assert.True(notifier.ScheduleMetadataCheck(movie.Id));
+
+        var delivery = await notificationSent.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.Contains("Filme remoto", delivery.Message, StringComparison.Ordinal);
+        Assert.Null(delivery.ImagePath);
+        nebulaManager.Verify(
+            manager => manager.SendNotificationAsync(
+                It.IsAny<string>(),
+                null,
+                "test-channel",
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        await notifier.StopAsync(CancellationToken.None);
     }
 
     [Fact]
