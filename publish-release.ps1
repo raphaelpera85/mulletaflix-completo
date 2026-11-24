@@ -7,6 +7,7 @@ param(
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip",
     [string[]]$AssetPath = @(),
     [string]$AssetsDirectory = "dist",
+    [string]$ManifestPath,
     [switch]$SkipAssets,
     [switch]$AllowMissingInstaller
 )
@@ -36,6 +37,58 @@ if (-not $Tag -or -not $Title) {
 }
 
 Write-Host "Publishing server release $Tag ($Title)" -ForegroundColor Cyan
+if (-not $NotesPath) {
+    throw 'NotesPath is required; refusing to publish the default legacy release notes.'
+}
+
+Import-Module (Join-Path $projectRoot 'tools\release\ReleaseArtifactValidation.psm1') -Force
+$releaseVersion = Get-MulletaFlixReleaseSemVer -Value $Tag
+$resolvedAssetsDirectory = if ([System.IO.Path]::IsPathRooted($AssetsDirectory)) { $AssetsDirectory } else { Join-Path $projectRoot $AssetsDirectory }
+$resolvedZipPath = if ([System.IO.Path]::IsPathRooted($ZipPath)) { $ZipPath } else { Join-Path $projectRoot $ZipPath }
+$resolvedManifestPath = if ($ManifestPath) {
+    if ([System.IO.Path]::IsPathRooted($ManifestPath)) { $ManifestPath } else { Join-Path $projectRoot $ManifestPath }
+} else {
+    Join-Path $resolvedAssetsDirectory 'mulletaflix-release-manifest.json'
+}
+
+if (-not $SkipAssets) {
+    if ($PSBoundParameters.ContainsKey('ZipPath') -and
+        -not $PSBoundParameters.ContainsKey('AssetsDirectory') -and
+        -not ([System.IO.Path]::GetFullPath($resolvedZipPath).StartsWith([System.IO.Path]::GetFullPath($resolvedAssetsDirectory).TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase))) {
+        throw 'When ZipPath is outside the default assets directory, pass AssetsDirectory for the same build output.'
+    }
+
+    $sourceCommit = (& git -C $projectRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-fA-F]{40}$') {
+        throw 'Could not resolve the publishing checkout commit.'
+    }
+    $tagCommit = (& git -C $projectRoot rev-parse "$Tag^{commit}").Trim()
+    if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $sourceCommit) {
+        throw "Release tag '$Tag' does not point to the validated source commit."
+    }
+    $targetRef = if ($TargetCommitish) { $TargetCommitish } else { $sourceCommit }
+    $targetCommit = (& git -C $projectRoot rev-parse "$targetRef^{commit}").Trim()
+    if ($LASTEXITCODE -ne 0 -or $targetCommit -ne $sourceCommit) {
+        throw "Release target '$targetRef' does not resolve to the source commit bound by the build manifest."
+    }
+
+    $resolvedExplicitAssetPaths = @($AssetPath | ForEach-Object {
+        if ([System.IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $projectRoot $_ }
+    })
+    $assets = @(Select-MulletaFlixReleaseAssets `
+        -Version $releaseVersion `
+        -ZipPath $resolvedZipPath `
+        -AssetPaths $resolvedExplicitAssetPaths `
+        -AssetsDirectory $resolvedAssetsDirectory `
+        -ManifestPath $resolvedManifestPath `
+        -SourceCommit $sourceCommit `
+        -AllowMissingInstaller:$AllowMissingInstaller)
+    $manifest = Get-Content -LiteralPath $resolvedManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    $installerAssets = @($assets | Where-Object { [System.IO.Path]::GetFileName($_) -match '(?i)_windows-x64\.exe$' })
+    foreach ($installerAsset in $installerAssets) {
+        Write-Host "Installer validated by manifest: $([System.IO.Path]::GetFileName($installerAsset))" -ForegroundColor Green
+    }
+}
 
 # 1. Get token from git credential helper
 $token = $env:GITHUB_TOKEN
@@ -81,7 +134,20 @@ try {
     $existingRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/$Tag" -Method Get -Headers $headers -ErrorAction Stop
     Write-Host "Release já existe para a tag $Tag (ID: $($existingRelease.id)). Atualizando..." -ForegroundColor Yellow
 } catch {
-    Write-Host "Criando nova release para a tag $Tag..." -ForegroundColor Cyan
+    $statusCode = 0
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+        $statusCode = [int]$_.Exception.Response.StatusCode
+    }
+    if ($statusCode -ne 404) { throw }
+    $existingRelease = $null
+    Write-Host "Nenhuma release encontrada para a tag $Tag." -ForegroundColor Cyan
+}
+
+if ($SkipAssets -and -not $existingRelease) {
+    throw "-SkipAssets exige uma release já existente para a tag $Tag."
+}
+if (-not $SkipAssets -and $existingRelease -and -not $existingRelease.draft) {
+    throw "A release $Tag já é pública. Para substituir assets sem expor um estado parcial, use uma nova versão/tag."
 }
 
 # Single-quoted here-string: release notes are literal text, so nothing here can be
@@ -128,12 +194,15 @@ if ($NotesPath) {
     if ([string]::IsNullOrWhiteSpace($bodyContent)) { throw 'Release notes must not be empty.' }
 }
 
+$draftState = $true
+if ($SkipAssets -and $existingRelease) { $draftState = [bool]$existingRelease.draft }
+$releaseTarget = if ($TargetCommitish) { $TargetCommitish } elseif ($SkipAssets -and $existingRelease) { $existingRelease.target_commitish } else { $sourceCommit }
 $releasePayloadJson = @{
     tag_name = $Tag
-    target_commitish = $(if ($TargetCommitish) { $TargetCommitish } else { 'main' })
+    target_commitish = $releaseTarget
     name = $Title
     body = $bodyContent
-    draft = $false
+    draft = $draftState
     prerelease = $false
     make_latest = "true"
 } | ConvertTo-Json
@@ -142,10 +211,10 @@ $payloadBytes = [System.Text.Encoding]::UTF8.GetBytes($releasePayloadJson)
 
 if ($existingRelease) {
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/$($existingRelease.id)" -Method Patch -Headers $headers -Body $payloadBytes -ContentType "application/json; charset=utf-8"
-    Write-Host "Release atualizada com sucesso! ID: $($release.id)" -ForegroundColor Green
+    Write-Host "Release atualizada; draft=$($release.draft). ID: $($release.id)" -ForegroundColor Green
 } else {
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Method Post -Headers $headers -Body $payloadBytes -ContentType "application/json; charset=utf-8"
-    Write-Host "Release criada com sucesso! ID: $($release.id)" -ForegroundColor Green
+    Write-Host "Release criada como rascunho. ID: $($release.id)" -ForegroundColor Green
 }
 
 # 3. Upload all server artifacts for this release.
@@ -159,74 +228,6 @@ if ($SkipAssets) {
     Write-Host "URL: $($release.html_url)" -ForegroundColor Green
     Write-Host "==================================================" -ForegroundColor Green
     return
-}
-
-$resolvedAssetsDirectory = if ([System.IO.Path]::IsPathRooted($AssetsDirectory)) { $AssetsDirectory } else { Join-Path $projectRoot $AssetsDirectory }
-$assetCandidates = [System.Collections.Generic.List[string]]::new()
-
-if ($AssetPath.Count -gt 0) {
-    foreach ($path in $AssetPath) {
-        $resolved = if ([System.IO.Path]::IsPathRooted($path)) { $path } else { Join-Path $projectRoot $path }
-        if (Test-Path -LiteralPath $resolved -PathType Leaf) {
-            $assetCandidates.Add((Get-Item -LiteralPath $resolved).FullName)
-        } else {
-            throw "Asset informado não encontrado: $resolved"
-        }
-    }
-}
-
-# Preserve the existing -ZipPath contract and always include the update package.
-$resolvedZipPath = if ([System.IO.Path]::IsPathRooted($ZipPath)) { $ZipPath } else { Join-Path $projectRoot $ZipPath }
-if (Test-Path -LiteralPath $resolvedZipPath -PathType Leaf) {
-    $assetCandidates.Add((Get-Item -LiteralPath $resolvedZipPath).FullName)
-}
-
-$serverAssetPatterns = @(
-    'mulletaflix-update-*.zip',
-    'MulletaFlix_*_windows-*.exe',
-    'mulletaflix_*_windows-*.exe',
-    'MulletaFlix_*_linux-*',
-    'mulletaflix_*_linux-*',
-    'MulletaFlix_*_macos-*',
-    'mulletaflix_*_macos-*',
-    '*.deb', '*.rpm', '*.tar.gz', '*.tar.xz', '*.AppImage', '*.dmg', '*.pkg', '*.msi'
-)
-
-if (Test-Path -LiteralPath $resolvedAssetsDirectory -PathType Container) {
-    foreach ($pattern in $serverAssetPatterns) {
-        Get-ChildItem -LiteralPath $resolvedAssetsDirectory -File -Filter $pattern -ErrorAction SilentlyContinue |
-            ForEach-Object { $assetCandidates.Add($_.FullName) }
-    }
-}
-
-$releaseVersion = $Tag.TrimStart('v')
-$assets = $assetCandidates |
-    Sort-Object -Unique |
-    Where-Object {
-        # Do not mix an installer/package from another server release into the
-        # current release when dist contains leftovers from a previous build.
-        $candidateName = [System.IO.Path]::GetFileName($_)
-        if ($candidateName -match '(?i)(?:^|_)(\d+\.\d+\.\d+)(?:_|-)') {
-            return $matches[1] -eq $releaseVersion
-        }
-
-        return $true
-    }
-if ($assets.Count -eq 0) {
-    throw "Nenhum artefato de servidor encontrado para anexar à release."
-}
-
-# The Windows installer executable must ship together with the update package.
-# Releases 12.0.46-12.0.62 went out with the update zip only because nothing
-# enforced this step, so the check is fail-closed: an operator who really wants a
-# packaging-only release must say so explicitly with -AllowMissingInstaller.
-$installerAssets = @($assets | Where-Object { [System.IO.Path]::GetFileName($_) -match '(?i)_windows-x64\.exe$' })
-if (-not $AllowMissingInstaller -and $installerAssets.Count -eq 0) {
-    throw ("Nenhum instalador Windows (mulletaflix_{0}_windows-x64.exe) encontrado em '{1}'. Execute `.\build-mulletaflix-installer.ps1 antes de publicar, ou passe -AllowMissingInstaller para publicar sem o instalador de propósito." -f $releaseVersion, $resolvedAssetsDirectory)
-}
-
-foreach ($installerAsset in $installerAssets) {
-    Write-Host "Instalador que será anexado: $([System.IO.Path]::GetFileName($installerAsset))" -ForegroundColor Green
 }
 
 # Remove versioned server artifacts from an older release left on the same tag.
@@ -283,8 +284,25 @@ foreach ($assetPath in $assets) {
     $uploadClient.DefaultRequestHeaders.UserAgent.ParseAdd('MulletaFlix-Release-Script')
     $uploadClient.DefaultRequestHeaders.Accept.ParseAdd('application/vnd.github+json')
 
-    $uploadStream = [System.IO.File]::OpenRead($asset.FullName)
+    $uploadStream = [System.IO.File]::Open($asset.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
     try {
+        $record = @($manifest.artifacts | Where-Object { $_.name -ceq $assetName } | Select-Object -First 1)
+        if ($record.Count -ne 1) {
+            throw "No unique manifest record exists for $assetName."
+        }
+        $assetLength = [long]$uploadStream.Length
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $assetHash = [BitConverter]::ToString($sha256.ComputeHash($uploadStream)).Replace('-', '').ToLowerInvariant()
+        }
+        finally {
+            $sha256.Dispose()
+        }
+        if ($assetLength -ne [long]$record[0].sizeBytes -or $assetHash -cne [string]$record[0].sha256) {
+            throw "Asset changed after preflight and was not uploaded: $assetName"
+        }
+        $uploadStream.Position = 0
+
         $streamContent = New-Object System.Net.Http.StreamContent($uploadStream)
         $streamContent.Headers.ContentType =
             New-Object System.Net.Http.Headers.MediaTypeHeaderValue($contentType)
@@ -305,7 +323,43 @@ foreach ($assetPath in $assets) {
 
 
 
+if (-not $SkipAssets) {
+    $verifiedRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/$($release.id)" -Method Get -Headers $headers
+    $remoteByName = @{}
+    foreach ($remoteAsset in @($verifiedRelease.assets)) {
+        $remoteKey = ([string]$remoteAsset.name).ToLowerInvariant()
+        if ($remoteByName.ContainsKey($remoteKey)) {
+            throw "GitHub release contains duplicate asset name after upload: $($remoteAsset.name)"
+        }
+        $remoteByName[$remoteKey] = $remoteAsset
+    }
+    if ($remoteByName.Count -ne $assets.Count) {
+        throw "Uploaded release asset count mismatch: expected $($assets.Count), found $($remoteByName.Count). Release remains a draft."
+    }
+    foreach ($assetPath in $assets) {
+        $localAsset = Get-Item -LiteralPath $assetPath -ErrorAction Stop
+        $remoteKey = $localAsset.Name.ToLowerInvariant()
+        if (-not $remoteByName.ContainsKey($remoteKey) -or [long]$remoteByName[$remoteKey].size -ne [long]$localAsset.Length) {
+            throw "Uploaded release asset failed remote name/size verification: $($localAsset.Name). Release remains a draft."
+        }
+        if ($remoteByName[$remoteKey].digest -and $remoteByName[$remoteKey].digest -cne "sha256:$((Get-FileHash -LiteralPath $localAsset.FullName -Algorithm SHA256).Hash.ToLowerInvariant())") {
+            throw "Uploaded release asset SHA-256 mismatch: $($localAsset.Name). Release remains a draft."
+        }
+    }
+    $release = $verifiedRelease
+}
+
 Write-Host "`n==================================================" -ForegroundColor Green
+if ($release.draft) {
+    $publishPayload = @{
+        draft = $false
+        prerelease = $false
+        make_latest = 'true'
+    } | ConvertTo-Json
+    $publishBytes = [System.Text.Encoding]::UTF8.GetBytes($publishPayload)
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/$($release.id)" -Method Patch -Headers $headers -Body $publishBytes -ContentType "application/json; charset=utf-8"
+}
+
 Write-Host "Release $Tag publicada com sucesso!" -ForegroundColor Green
 Write-Host "URL: $($release.html_url)" -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Green

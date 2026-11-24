@@ -1,4 +1,4 @@
-# Builds MulletaFlix, updates the local stage folder, and creates the Windows installer.
+﻿# Builds MulletaFlix, updates the local stage folder, and creates the Windows installer.
 # Run from anywhere:
 #   powershell -ExecutionPolicy Bypass -File .\MulletaFlix-packaging-master\build-stage-and-installer.ps1
 
@@ -90,6 +90,19 @@ $webDist = Join-Path $webRoot 'dist'
 $stageIntegrityScript = Join-Path $packagingRoot 'scripts\Assert-StageIntegrity.ps1'
 $stageBackupRoot = Join-Path $buildRoot 'stage-preserve-backups'
 $stageBackupHelper = Join-Path $packagingRoot 'scripts\StageBackup.ps1'
+$releaseValidationModule = Join-Path $projectRoot 'tools\release\ReleaseArtifactValidation.psm1'
+if (-not (Test-Path -LiteralPath $releaseValidationModule -PathType Leaf)) {
+    throw "Release validation helpers were not found: $releaseValidationModule"
+}
+Import-Module $releaseValidationModule -Force
+$sourceCommit = Assert-MulletaFlixGitWorktreeClean -RepositoryRoot $projectRoot
+$sourceVersionPath = Join-Path $serverRoot 'SharedVersion.cs'
+$versionMatch = Select-String -LiteralPath $sourceVersionPath -Pattern 'AssemblyFileVersion\("([^"]+)"\)' | Select-Object -First 1
+if (-not $versionMatch) { throw "Could not determine server version from $sourceVersionPath" }
+$serverSourceVersion = $versionMatch.Matches[0].Groups[1].Value
+if ($SkipServerBuild -or $SkipWebBuild) {
+    Assert-MulletaFlixStageManifest -StageDirectory $stageDir -Version $serverSourceVersion -SourceCommit $sourceCommit | Out-Null
+}
 
 function Write-Step {
     param([string]$Message)
@@ -166,6 +179,14 @@ function Build-Web {
         $exitCode = (Start-Process -FilePath 'cmd.exe' -ArgumentList "/c npm run build:production" -WorkingDirectory $webRoot -Wait -PassThru).ExitCode
         if ($exitCode -ne 0) {
             throw "npm build failed with exit code $exitCode"
+        }
+
+        # The Vite visualizer writes a tracked analysis report as a build side effect.
+        # The release build starts from a clean tree, so restore only this generated
+        # report before the final provenance check; this never discards user changes.
+        & git -C $projectRoot restore --worktree -- 'MulletaFlix-web-master/stats.html'
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not restore the generated web bundle analysis report.'
         }
     }
     finally {
@@ -648,6 +669,11 @@ try {
     } else {
         Write-Host 'Skipping installer creation.' -ForegroundColor Yellow
     }
+
+    $verifiedCommit = Assert-MulletaFlixGitWorktreeClean -RepositoryRoot $projectRoot
+    if ($verifiedCommit -ne $sourceCommit) { throw 'Source commit changed while the Windows stage was being built.' }
+    $stageManifest = New-MulletaFlixStageManifest -StageDirectory $stageDir -Version $serverSourceVersion -SourceCommit $sourceCommit -SourceTreeClean $true
+    Write-Host "Stage manifest written beside stage: $($stageManifest.FullName)" -ForegroundColor Green
 
     $stageExe = Join-Path $stageDir 'MulletaFlix.exe'
     $installer = Get-ChildItem -LiteralPath $installerOutputDir -Filter 'mulletaflix_*_windows-x64.exe' -ErrorAction SilentlyContinue |

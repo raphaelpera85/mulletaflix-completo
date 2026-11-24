@@ -181,6 +181,10 @@ jobs:
         shell: pwsh
         run: |
           dotnet publish MulletaFlix-master/Jellyfin.Server/Jellyfin.Server.csproj -c Release -r win-x64 --self-contained true -o stage -p:DebugSymbols=false -p:DebugType=none -p:GenerateDocumentationFile=false -p:RunAnalyzersDuringBuild=false -p:RunAnalyzers=false
+          Import-Module .\tools\release\ReleaseArtifactValidation.psm1 -Force
+          $sourceCommit = Assert-MulletaFlixGitWorktreeClean -RepositoryRoot (Get-Location).Path
+          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
+          New-MulletaFlixStageManifest -StageDirectory stage -Version $tagVersion -SourceCommit $sourceCommit -SourceTreeClean $true | Out-Null
 
       - name: Checkout Windows tray source
         uses: actions/checkout@v4

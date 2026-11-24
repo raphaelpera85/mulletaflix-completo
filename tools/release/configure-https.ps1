@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$InstallRoot,
@@ -384,7 +384,7 @@ function Configure-DuckDns {
     Remove-LegacyDuckDnsConfig
 }
 
-function Write-NginxConfig([bool]$TlsEnabled) {
+function Write-NginxConfig([bool]$TlsEnabled, [bool]$AcmeBootstrapOnly = $false) {
     New-Item -ItemType Directory -Force -Path $acmeRoot, $certRoot, (Split-Path -Parent $nginxConfig) | Out-Null
     $acmePath = $acmeRoot.Replace('\', '/')
     $certificateChainPath = "$certPrefix-chain.pem".Replace('\', '/')
@@ -418,8 +418,8 @@ function Write-NginxConfig([bool]$TlsEnabled) {
 "@
     }
 
-    $httpAction = if ($TlsEnabled) { "return 301 https://`$host`$request_uri;" } else { "proxy_pass http://127.0.0.1:$ServerPort;" }
-    $httpProxy = if ($TlsEnabled) { '' } else { @"
+    $httpAction = if ($TlsEnabled) { "return 301 https://`$host`$request_uri;" } elseif ($AcmeBootstrapOnly) { 'return 503;' } else { "proxy_pass http://127.0.0.1:$ServerPort;" }
+    $httpProxy = if ($TlsEnabled -or $AcmeBootstrapOnly) { '' } else { @"
             proxy_http_version 1.1;
             proxy_set_header Host `$host;
             proxy_set_header X-Real-IP `$remote_addr;
@@ -489,22 +489,91 @@ function Ensure-NginxService {
     & $nssmExe set $nginxService Start SERVICE_AUTO_START | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Nginx service startup mode configuration failed.' }
     $service = Get-Service -Name $nginxService -ErrorAction Stop
-    if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+    $configuredApplication = (& $nssmExe get $nginxService Application 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not [string]::Equals([System.IO.Path]::GetFullPath($configuredApplication), [System.IO.Path]::GetFullPath($nginxExe), [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Nginx service is not configured to use the bundled executable.'
+    }
+
+    if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running) {
+        try {
+            Restart-Service -Name $nginxService -Force -ErrorAction Stop
+        }
+        catch {
+            try { Start-Service -Name $nginxService -ErrorAction SilentlyContinue } catch { }
+            throw
+        }
+    }
+    else {
         Start-Service -Name $nginxService -ErrorAction Stop
     }
-    $service = Get-Service -Name $nginxService -ErrorAction Stop
-    if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
-        throw 'Nginx service did not reach the running state.'
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    do {
+        $service = Get-Service -Name $nginxService -ErrorAction Stop
+        $nginxProcesses = @(Get-CimInstance Win32_Process -Filter "Name='nginx.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            $_.ExecutablePath -and [string]::Equals([System.IO.Path]::GetFullPath([string]$_.ExecutablePath), [System.IO.Path]::GetFullPath($nginxExe), [System.StringComparison]::OrdinalIgnoreCase)
+        })
+        if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running -and $nginxProcesses.Count -gt 0) { break }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running -or $nginxProcesses.Count -eq 0) {
+        throw 'Nginx service did not start from the bundled executable.'
     }
 }
 
 function Ensure-FirewallRules {
     foreach ($port in 80, 443) {
         $name = "MulletaFlix Nginx HTTPS $port"
-        if (-not (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)) {
-            New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Any | Out-Null
+        $rules = @(Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)
+        $hasCorrectNamedRule = $false
+        foreach ($rule in $rules) {
+            $application = $rule | Get-NetFirewallApplicationFilter
+            $portFilter = $rule | Get-NetFirewallPortFilter
+            $addressFilter = $rule | Get-NetFirewallAddressFilter
+            $isCorrect = $rule.Enabled -eq 'True' -and $rule.Direction -eq 'Inbound' -and $rule.Action -eq 'Allow' -and
+                [string]::Equals([string]$application.Program, $nginxExe, [System.StringComparison]::OrdinalIgnoreCase) -and
+                $rule.Profile -eq 'Any' -and $portFilter.Protocol -eq 'TCP' -and [string]$portFilter.LocalPort -eq [string]$port -and
+                [string]$addressFilter.LocalAddress -eq 'Any' -and [string]$addressFilter.RemoteAddress -eq 'Any'
+            if ($isCorrect) {
+                $hasCorrectNamedRule = $true
+            }
+            else {
+                Remove-NetFirewallRule -InputObject $rule
+            }
+        }
+        if (-not $hasCorrectNamedRule) {
+            New-NetFirewallRule -DisplayName $name -Program $nginxExe -Direction Inbound -Protocol TCP -LocalPort $port -LocalAddress Any -RemoteAddress Any -Action Allow -Profile Any | Out-Null
         }
     }
+
+    # Remove broader Allow rules already attached to this exact bundled Nginx binary.
+    $allAllows = @(Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow -ErrorAction SilentlyContinue)
+    foreach ($rule in $allAllows) {
+        $application = $rule | Get-NetFirewallApplicationFilter
+        if (-not [string]::Equals([string]$application.Program, $nginxExe, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        $portFilter = $rule | Get-NetFirewallPortFilter
+        $addressFilter = $rule | Get-NetFirewallAddressFilter
+        $strictWebRule = $rule.Profile -eq 'Any' -and $portFilter.Protocol -eq 'TCP' -and [string]$portFilter.LocalPort -in @('80', '443')
+        $strictAddressRule = [string]$addressFilter.LocalAddress -eq 'Any' -and [string]$addressFilter.RemoteAddress -eq 'Any'
+        if (-not $strictWebRule -or -not $strictAddressRule) {
+            Remove-NetFirewallRule -InputObject $rule
+        }
+    }
+}
+
+function Test-CanPreserveExistingTls {
+    param(
+        [string]$HostName,
+        [switch]$SkipCertificate,
+        [string]$CertificateChainPath,
+        [string]$PrivateKeyPath
+    )
+
+    return -not $SkipCertificate -and
+        -not [string]::IsNullOrWhiteSpace($HostName) -and
+        [System.IO.File]::Exists($CertificateChainPath) -and
+        [System.IO.File]::Exists($PrivateKeyPath)
 }
 
 function Test-NginxConfig([string]$ConfigPath = $nginxCandidateConfig) {
@@ -564,7 +633,9 @@ Restore-PendingNginxConfig
 Configure-DuckDns
 Ensure-FirewallRules
 Write-ReloadScript
-Write-NginxConfig $false
+$preserveExistingTls = Test-CanPreserveExistingTls -HostName $HostName -SkipCertificate:$SkipCertificate -CertificateChainPath "${certPrefix}-chain.pem" -PrivateKeyPath "${certPrefix}-key.pem"
+$acmeBootstrapOnly = -not $preserveExistingTls -and -not $SkipCertificate
+Write-NginxConfig $preserveExistingTls $acmeBootstrapOnly
 $httpConfigTransaction = Install-NginxConfig
 try {
     Ensure-NginxService

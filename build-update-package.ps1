@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Builds a standalone update zip package for MulletaFlix (mulletaflix-update-win-x64.zip).
 .DESCRIPTION
@@ -60,54 +60,55 @@ $webRoot = Join-Path $projectRoot 'MulletaFlix-web-master'
 $webDist = Join-Path $webRoot 'dist'
 $packagingRoot = Join-Path $projectRoot 'MulletaFlix-packaging-master'
 $updaterScriptSource = Join-Path $packagingRoot 'MulletaFlix-ux-custom\nsis\apply-update.ps1'
+Import-Module (Join-Path $projectRoot 'tools\release\ReleaseArtifactValidation.psm1') -Force
+$sourceCommit = Assert-MulletaFlixGitWorktreeClean -RepositoryRoot $projectRoot
 
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "   MulletaFlix In-Place Update Package Builder    " -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
-# 0. Sync version to SharedVersion.cs and Directory.Build.props
-if (Test-Path -LiteralPath $sharedVersionPath) {
-    $sharedVersionContent = @"
-using System.Reflection;
-
-[assembly: AssemblyVersion("$Version")]
-[assembly: AssemblyFileVersion("$Version")]
-"@
-    [System.IO.File]::WriteAllText($sharedVersionPath, $sharedVersionContent, [System.Text.Encoding]::UTF8)
-    Write-Host "Synced SharedVersion.cs to $Version." -ForegroundColor Green
-}
-
+$requestedVersion = Get-MulletaFlixReleaseSemVer -Value $Version
 $buildPropsPath = Join-Path $projectRoot 'MulletaFlix-master\Directory.Build.props'
-if (Test-Path -LiteralPath $buildPropsPath) {
-    $propsContent = [System.IO.File]::ReadAllText($buildPropsPath, [System.Text.Encoding]::UTF8)
-    $newPropsContent = [System.Text.RegularExpressions.Regex]::Replace(
-        $propsContent,
-        '<VersionPrefix>[^<]+</VersionPrefix>',
-        "<VersionPrefix>$Version</VersionPrefix>"
-    )
-    [System.IO.File]::WriteAllText($buildPropsPath, $newPropsContent, [System.Text.Encoding]::UTF8)
-    Write-Host "Synced Directory.Build.props to $Version." -ForegroundColor Green
+$assemblyMatch = Select-String -LiteralPath $sharedVersionPath -Pattern 'AssemblyFileVersion\("([^"]+)"\)' | Select-Object -First 1
+if (-not $assemblyMatch) { throw "Could not determine AssemblyFileVersion from $sharedVersionPath" }
+$assemblyVersion = Get-MulletaFlixReleaseSemVer -Value $assemblyMatch.Matches[0].Groups[1].Value
+$propsMatch = Select-String -LiteralPath $buildPropsPath -Pattern '<VersionPrefix>([^<]+)</VersionPrefix>' | Select-Object -First 1
+if (-not $propsMatch) { throw "Could not determine VersionPrefix from $buildPropsPath" }
+$propsVersion = Get-MulletaFlixReleaseSemVer -Value $propsMatch.Matches[0].Groups[1].Value
+if ($assemblyVersion -ne $requestedVersion -or $propsVersion -ne $requestedVersion) {
+    throw "Source version mismatch: requested=$requestedVersion, SharedVersion=$assemblyVersion, VersionPrefix=$propsVersion. Correct and commit version files before packaging."
 }
 
-# 1. Build server binaries to stage
+# 1. Build a fresh, complete Windows stage or validate the supplied stage manifest.
 if (-not $SkipBuild) {
-    Write-Host "Building and publishing latest server binaries to stage..." -ForegroundColor Yellow
-    & dotnet publish (Join-Path $projectRoot 'MulletaFlix-master\Jellyfin.Server') `
-        -c Release `
-        -r win-x64 `
-        --self-contained true `
-        -o $stageDir `
-        -p:DebugSymbols=false `
-        -p:DebugType=none `
-        -p:GenerateDocumentationFile=false `
-        -p:RunAnalyzersDuringBuild=false `
-        -p:RunAnalyzers=false
-    if ($LASTEXITCODE -ne 0) {
-        throw "Server publish failed with exit code $LASTEXITCODE"
+    Write-Host "Building a fresh complete Windows stage..." -ForegroundColor Yellow
+    $stageBuilder = Join-Path $packagingRoot 'build-stage-and-installer.ps1'
+    if (-not (Test-Path -LiteralPath $stageBuilder -PathType Leaf)) { throw "Windows stage builder not found: $stageBuilder" }
+    $buildRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot '.build')).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $stageFullPath = [System.IO.Path]::GetFullPath($stageDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $stageIsInsideBuildRoot = $stageFullPath.Equals($buildRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $stageFullPath.StartsWith($buildRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
+    if ($stageFullPath.Equals($buildRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'StageDirectory cannot be the .build root; choose a child stage directory or the default stage folder.'
     }
+    $stageBuilderBuildDirectory = if ($stageIsInsideBuildRoot) {
+        Join-Path $buildRoot ('package-build-' + [Guid]::NewGuid().ToString('N'))
+    } else {
+        $buildRoot
+    }
+    $stageBuilderParameters = @{ StageDirectory = $stageDir; BuildDirectory = $stageBuilderBuildDirectory; SkipInstaller = $true; NoPause = $true }
+    if ($SkipWebBuild) { $stageBuilderParameters.SkipWebBuild = $true }
+    & $stageBuilder @stageBuilderParameters
 } elseif (-not (Test-Path -LiteralPath $stageDir) -or -not (Test-Path -LiteralPath (Join-Path $stageDir 'MulletaFlix.dll'))) {
     throw "Stage directory does not contain MulletaFlix binaries. Run build without -SkipBuild."
 }
+
+$stageServerDll = Join-Path $stageDir 'MulletaFlix.dll'
+$stageVersion = Get-MulletaFlixBinaryVersion -Path $stageServerDll
+if ($stageVersion -ne $requestedVersion) {
+    throw "Stage version $stageVersion does not match requested package version $requestedVersion."
+}
+Assert-MulletaFlixStageManifest -StageDirectory $stageDir -Version $requestedVersion -SourceCommit $sourceCommit | Out-Null
 
 # Bundle the compatible third-party middleware; ApplicationHost installs it into the
 # server data plugin directory before PluginManager discovers plugins at startup.
@@ -223,6 +224,9 @@ if (Test-Path -LiteralPath $toolsSource) {
 }
 
 # 3. Create clean temp directory for update archive
+$verifiedCommit = Assert-MulletaFlixGitWorktreeClean -RepositoryRoot $projectRoot
+if ($verifiedCommit -ne $sourceCommit) { throw 'Source commit changed while the update stage was being prepared.' }
+$null = New-MulletaFlixStageManifest -StageDirectory $stageDir -Version $requestedVersion -SourceCommit $sourceCommit -SourceTreeClean $true
 $tempPackageDir = Join-Path ([System.IO.Path]::GetTempPath()) "mulletaflix-update-pkg-$([Guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $tempPackageDir -Force | Out-Null
 
@@ -336,3 +340,31 @@ if ($SkipInstaller) {
     Write-Host "Building Windows installer from stage..." -ForegroundColor Cyan
     & $installerScript -StageDirectory $stageDir -OutputDirectory $installerOutputDir -NoCopyToReleaseAssets
 }
+
+$installerPath = $null
+if (-not $SkipInstaller) {
+    $installerPath = Join-Path $installerOutputDir "mulletaflix_${requestedVersion}_windows-x64.exe"
+    if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+        throw "Expected installer was not created from the selected stage: $installerPath"
+    }
+
+    $installerVersion = Get-MulletaFlixBinaryVersion -Path $installerPath
+    if ($installerVersion -ne $requestedVersion) {
+        throw "Installer version $installerVersion does not match requested package version $requestedVersion."
+    }
+}
+
+$manifestPath = Join-Path $OutputDir 'mulletaflix-release-manifest.json'
+$additionalReleaseAssets = @(Get-ChildItem -LiteralPath $OutputDir -File -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -match "(?i)(?:^|_)${requestedVersion}(?:_|-)" -and
+    $_.Name -ne 'mulletaflix-update-win-x64.zip' -and
+    $_.FullName -ne $installerPath
+} | ForEach-Object { $_.FullName })
+New-MulletaFlixReleaseManifest `
+    -Version $requestedVersion `
+    -SourceCommit $sourceCommit `
+    -ZipPath $zipPath `
+    -InstallerPath $installerPath `
+    -AdditionalAssetPaths $additionalReleaseAssets `
+    -OutputPath $manifestPath | Out-Null
+Write-Host "Release artifact manifest written: $manifestPath" -ForegroundColor Green

@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $configPath = Join-Path $PSScriptRoot '..\configure-https.ps1'
 $tokens = $null
@@ -44,6 +44,96 @@ foreach ($functionName in $nginxTransactionFunctionNames) {
     if ($null -eq $definition) { throw "Nginx transaction function was not found: $functionName" }
     Invoke-Expression $definition.Extent.Text
 }
+$serviceReconcile = $nginxTransactionDefinitions | Where-Object { $_.Name -eq 'Ensure-NginxService' } | Select-Object -First 1
+if ($null -eq $serviceReconcile -or
+    $serviceReconcile.Extent.Text -notmatch 'Restart-Service' -or
+    $serviceReconcile.Extent.Text -notmatch 'Win32_Process' -or
+    $serviceReconcile.Extent.Text -notmatch 'ExecutablePath' -or
+    $serviceReconcile.Extent.Text -notmatch 'AppDirectory' -or
+    $serviceReconcile.Extent.Text -notmatch 'AppParameters') {
+    throw 'Nginx service reconciliation must restart stale processes and verify the bundled executable path.'
+}
+$firewallReconcile = $nginxTransactionDefinitions | Where-Object { $_.Name -eq 'Ensure-FirewallRules' } | Select-Object -First 1
+if ($null -eq $firewallReconcile -or
+    $firewallReconcile.Extent.Text -notmatch '-Program\s+\$nginxExe' -or
+    $firewallReconcile.Extent.Text -notmatch '-Protocol\s+TCP' -or
+    $firewallReconcile.Extent.Text -notmatch '-LocalPort\s+\$port' -or
+    $firewallReconcile.Extent.Text -notmatch '-LocalAddress\s+Any' -or
+    $firewallReconcile.Extent.Text -notmatch '-RemoteAddress\s+Any' -or
+    $firewallReconcile.Extent.Text -notmatch 'Get-NetFirewallPortFilter' -or
+    $firewallReconcile.Extent.Text -notmatch 'Get-NetFirewallAddressFilter' -or
+    $firewallReconcile.Extent.Text -notmatch 'Remove-NetFirewallRule') {
+    throw 'Nginx firewall rules must be repaired to the bundled binary and TCP 80/443 only.'
+}
+$tlsPreservationFunction = $nginxTransactionDefinitions | Where-Object { $_.Name -eq 'Test-CanPreserveExistingTls' } | Select-Object -First 1
+if ($null -eq $tlsPreservationFunction -or $configAst.Extent.Text -notmatch 'Write-NginxConfig\s+\$preserveExistingTls\s+\$acmeBootstrapOnly' -or
+    $configAst.Extent.Text -notmatch '\$acmeBootstrapOnly\s*=\s*-not\s+\$preserveExistingTls\s+-and\s+-not\s+\$SkipCertificate') {
+    throw 'HTTPS configuration must retain an existing certificate-backed TLS config during renewal.'
+}
+Invoke-Expression $tlsPreservationFunction.Extent.Text
+$tlsModeTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('mflx-tls-preserve-' + [guid]::NewGuid().ToString('N'))
+[void][System.IO.Directory]::CreateDirectory($tlsModeTestRoot)
+$testChain = Join-Path $tlsModeTestRoot 'chain.pem'
+$testKey = Join-Path $tlsModeTestRoot 'key.pem'
+try {
+    [System.IO.File]::WriteAllText($testChain, 'chain')
+    [System.IO.File]::WriteAllText($testKey, 'key')
+    if (-not (Test-CanPreserveExistingTls -HostName 'media.example.test' -CertificateChainPath $testChain -PrivateKeyPath $testKey) -or
+        (Test-CanPreserveExistingTls -HostName 'media.example.test' -SkipCertificate -CertificateChainPath $testChain -PrivateKeyPath $testKey) -or
+        (Test-CanPreserveExistingTls -HostName 'media.example.test' -CertificateChainPath (Join-Path $tlsModeTestRoot 'missing-chain.pem') -PrivateKeyPath $testKey)) {
+        throw 'TLS preservation policy did not distinguish valid certificate, explicit HTTP-only mode, and missing certificate.'
+    }
+}
+finally {
+    [System.IO.Directory]::Delete($tlsModeTestRoot, $true)
+    Remove-Item Function:\Test-CanPreserveExistingTls -ErrorAction SilentlyContinue
+}
+
+$script:firewallState = [System.Collections.Generic.List[object]]::new()
+function Get-NetFirewallRule {
+    param([string]$DisplayName, [string]$Enabled, [string]$Direction, [string]$Action, [string]$ErrorAction)
+    $items = @($script:firewallState)
+    if ($PSBoundParameters.ContainsKey('DisplayName')) { $items = @($items | Where-Object DisplayName -eq $DisplayName) }
+    if ($PSBoundParameters.ContainsKey('Enabled')) { $items = @($items | Where-Object Enabled -eq $Enabled) }
+    if ($PSBoundParameters.ContainsKey('Direction')) { $items = @($items | Where-Object Direction -eq $Direction) }
+    if ($PSBoundParameters.ContainsKey('Action')) { $items = @($items | Where-Object Action -eq $Action) }
+    return $items
+}
+function Get-NetFirewallApplicationFilter {
+    param([Parameter(ValueFromPipeline = $true)]$InputObject)
+    process { [pscustomobject]@{ Program = $InputObject.Program } }
+}
+function Get-NetFirewallPortFilter {
+    param([Parameter(ValueFromPipeline = $true)]$InputObject)
+    process { [pscustomobject]@{ Protocol = $InputObject.Protocol; LocalPort = $InputObject.LocalPort } }
+}
+function Get-NetFirewallAddressFilter {
+    param([Parameter(ValueFromPipeline = $true)]$InputObject)
+    process { [pscustomobject]@{ LocalAddress = $InputObject.LocalAddress; RemoteAddress = $InputObject.RemoteAddress } }
+}
+function Remove-NetFirewallRule {
+    param($InputObject)
+    [void]$script:firewallState.Remove($InputObject)
+}
+function New-NetFirewallRule {
+    param([string]$DisplayName, [string]$Program, [string]$Direction, [string]$Protocol, [string]$LocalPort, [string]$LocalAddress, [string]$RemoteAddress, [string]$Action, [string]$Profile)
+    $script:firewallState.Add([pscustomobject]@{ DisplayName=$DisplayName; Program=$Program; Direction=$Direction; Protocol=$Protocol; LocalPort=$LocalPort; LocalAddress=$LocalAddress; RemoteAddress=$RemoteAddress; Action=$Action; Profile=$Profile; Enabled='True' })
+}
+try {
+    $nginxExe = 'C:\Program Files\MulletaFlix\Server\nginx\nginx.exe'
+    $script:firewallState.Add([pscustomobject]@{ DisplayName='MulletaFlix Nginx HTTPS 80'; Program=$nginxExe; Direction='Inbound'; Protocol='Any'; LocalPort='Any'; LocalAddress='Any'; RemoteAddress='Any'; Action='Allow'; Profile='Any'; Enabled='True' })
+    $script:firewallState.Add([pscustomobject]@{ DisplayName='nginx.exe'; Program=$nginxExe; Direction='Inbound'; Protocol='UDP'; LocalPort='Any'; LocalAddress='Any'; RemoteAddress='Any'; Action='Allow'; Profile='Any'; Enabled='True' })
+    $script:firewallState.Add([pscustomobject]@{ DisplayName='MulletaFlix Nginx HTTPS 443'; Program=$nginxExe; Direction='Inbound'; Protocol='TCP'; LocalPort='443'; LocalAddress='Any'; RemoteAddress='192.0.2.1'; Action='Allow'; Profile='Any'; Enabled='True' })
+    Invoke-Expression $firewallReconcile.Extent.Text
+    Ensure-FirewallRules
+    if ($script:firewallState.Count -ne 2 -or @($script:firewallState | Where-Object { $_.Program -cne $nginxExe -or $_.Direction -ne 'Inbound' -or $_.Protocol -ne 'TCP' -or $_.LocalPort -notin @('80','443') -or $_.LocalAddress -ne 'Any' -or $_.RemoteAddress -ne 'Any' -or $_.Action -ne 'Allow' -or $_.Profile -ne 'Any' }).Count -gt 0) {
+        throw 'Firewall reconciliation did not replace broad/restricted Nginx allows with exact TCP web rules.'
+    }
+    Write-Output 'Nginx firewall reconciliation removed broad Any/UDP rules and retained only TCP 80/443.'
+}
+finally {
+    Remove-Item Function:\Get-NetFirewallRule, Function:\Get-NetFirewallApplicationFilter, Function:\Get-NetFirewallPortFilter, Function:\Get-NetFirewallAddressFilter, Function:\Remove-NetFirewallRule, Function:\New-NetFirewallRule -ErrorAction SilentlyContinue
+}
 $tlsConfigTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "mflx nginx config-$([guid]::NewGuid().ToString('N'))"
 $nginxRoot = $tlsConfigTestRoot
 $nginxConfig = Join-Path $tlsConfigTestRoot 'conf\nginx.conf'
@@ -67,6 +157,14 @@ try {
     if (-not $httpOnlyConfig.Contains('proxy_pass http://127.0.0.1:8096;')) {
         throw 'HTTP-only Nginx config did not preserve the local streaming proxy.'
     }
+
+    Write-NginxConfig $false $true
+    $acmeBootstrapConfig = [System.IO.File]::ReadAllText($nginxCandidateConfig)
+    if (-not $acmeBootstrapConfig.Contains('return 503;') -or $acmeBootstrapConfig.Contains('proxy_pass http://127.0.0.1:8096;') -or
+        -not $acmeBootstrapConfig.Contains('location /.well-known/acme-challenge/')) {
+        throw 'First-time ACME bootstrap must keep the challenge route while denying cleartext application proxying.'
+    }
+    Write-NginxConfig $false
 
     $script:simulateNginxTestFailure = $true
     $candidateRejected = $false

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-24T15:07:47-03:00",
+  "generatedAt": "2026-11-24T17:50:10-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -33,7 +33,7 @@
         "skipped": 101,
         "failed": 0,
         "percent": 98.4,
-        "label": "Auditoria técnica reconciliada em Windows/.NET 10 Release no checkout local: 6.028 aprovados, 101 ignorados, 0 falhas/6.129 casos auditados. Server.Implementations teve 1.757 aprovados e 95 ignorados; API teve 1.242 aprovados e 3 ignorados; Naming teve 681/681; Providers teve 982/982. O filtro excluiu casos Integration e dois projetos não tiveram casos selecionados. HTTP-1 foi revalidado no código atual com StreamStateCacheTests 18/18; FRONT-1/F-3 foi revalidado com RootAppRouter dinâmico e slices administrativos 7/7 em stage descartável. Homologação formal permanece 2/7 (28,6%), sem crédito de runtime instalado."
+        "label": "Auditoria técnica reconciliada em Windows/.NET 10 Release no checkout local: 6.028 aprovados, 101 ignorados, 0 falhas/6.129 casos auditados. Server.Implementations teve 1.757 aprovados e 95 ignorados; API teve 1.242 aprovados e 3 ignorados; Naming teve 681/681; Providers teve 982/982. O filtro excluiu casos Integration e dois projetos não tiveram casos selecionados. HTTP-1 foi revalidado no código atual com StreamStateCacheTests 18/18; FRONT-1/F-3 foi revalidado com RootAppRouter dinâmico e slices administrativos 7/7 em stage descartável. Homologação formal permanece 2/7 (28,6%), sem crédito adicional na área de runtime pela amostra pontual. Runtime Windows 12.1.58 recebeu amostra read-only em 24/11; isso não é aceite formal e não fecha Linux, carga, integrações ou CI hospedada."
       }
     },
     {
@@ -4513,7 +4513,9 @@
       "title": "Requests, Nebula, backup e acessibilidade GREEN nos configs dedicados",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Servidores Vite dedicados em 127.0.0.1:8097 e 127.0.0.1:8098",
       "location": "playwright.requests.config.ts, playwright.a11y.config.ts, tests/playwright/specs",
       "scope": "My Requests, autocomplete, Nebula navigation, backup coverage e WCAG de My Media Requests",
@@ -4530,7 +4532,9 @@
       "title": "Scroll buttons GREEN no config Playwright dedicado",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Servidor Vite dedicado em 127.0.0.1:8097",
       "location": "MulletaFlix-web-master/tests/playwright/specs/24-scrollbuttons.spec.ts, playwright.scrollbuttons.config.ts",
       "scope": "Navegação de carrosséis, teclado, RTL e conteúdo montado após o scroller",
@@ -4547,7 +4551,9 @@
       "title": "Pagination permanece RED após reexecução focada",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "MulletaFlix-web-master/tests/playwright/specs/99-pagination.spec.ts, reports/playwright",
       "scope": "Reconhecimento de biblioteca, home media e paginação de filmes/séries",
@@ -4564,7 +4570,9 @@
       "title": "Regressão Playwright ampla após GREEN do multi-user",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "MulletaFlix-web-master/reports/playwright/playwright-summary.json, raw-results.json, tests/playwright/specs",
       "scope": "Regressão completa dos gates E2E web após correção do lifecycle HLS",
@@ -4581,7 +4589,9 @@
       "title": "Pagination GREEN focal após correções de navegação do harness",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "MulletaFlix-web-master/tests/playwright/specs/99-pagination.spec.ts, tests/playwright/support/stage.mjs, tests/selenium-cucumber/support/stage.ts, tests/playwright/support/stage.test.mjs",
       "scope": "Reconhecimento de bibliotecas, home media, usuário comum e paginação de filmes/séries",
@@ -4598,7 +4608,9 @@
       "title": "AdSense playback GREEN focal após fallback assíncrono da intro",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "MulletaFlix-web-master/src/utils/playback/playIntroThenMain.ts, src/components/playback/playbackmanager.ts, src/utils/playback/playIntroThenMain.test.ts, tests/playwright/specs/22-adsense-flow.spec.ts",
       "scope": "Interstitial AdSense após intro, fallback de intro e continuidade quando o script falha",
@@ -4615,7 +4627,9 @@
       "title": "Regressão Playwright ampla após GREEN de AdSense",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "MulletaFlix-web-master/reports/playwright/playwright-summary.json, raw-results.json, tests/playwright/specs",
       "scope": "Regressão completa dos gates E2E web após GREEN de AdSense e pagination",
@@ -4632,7 +4646,9 @@
       "title": "Unified Search GREEN focal após correção do harness",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "MulletaFlix-web-master/tests/playwright/support/stage.mjs, tests/playwright/support/stage.test.mjs, tests/playwright/specs/23-search.spec.ts",
       "scope": "Navegação SPA assíncrona, busca unificada, limpeza de escopo e retry global",
@@ -4649,7 +4665,9 @@
       "title": "Regressão Playwright ampla após GREEN de Unified Search",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "MulletaFlix-web-master/reports/playwright/playwright-summary.json, raw-results.json, tests/playwright/specs",
       "scope": "Regressão completa dos gates E2E web após correção da navegação SPA assíncrona",
@@ -4666,7 +4684,9 @@
       "title": "Runtime instalado indisponível durante homologação",
       "agent": "Hermes",
       "front": "server",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Host Windows local; investigação read-only; sem reinício ou alteração operacional",
       "location": "C:/ProgramData/MulletaFlix/Server/log/log_20261105.log, http://127.0.0.1:8096/health",
       "scope": "Verificar disponibilidade do runtime instalado e preservar a fronteira com MariaDB produtivo",
@@ -4683,7 +4703,10 @@
       "title": "GREEN dedicado dos cenários Playwright 24–29 em Vite",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.011", "ROADMAP.014"],
+      "featureIds": [
+        "ROADMAP.011",
+        "ROADMAP.014"
+      ],
       "local": "MulletaFlix-web-master; servidores Vite dedicados nas portas 8097 e 8098",
       "location": "playwright.requests.config.ts, playwright.scrollbuttons.config.ts, playwright.a11y.config.ts",
       "scope": "Separar falha funcional de incompatibilidade do runner Kestrel com fixtures/módulos Vite dev",
@@ -4700,7 +4723,10 @@
       "title": "Catálogo de mídia não determinístico e multi-user rebaixado",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.009", "ROADMAP.011"],
+      "featureIds": [
+        "ROADMAP.009",
+        "ROADMAP.011"
+      ],
       "local": "MulletaFlix-web-master; stage Playwright descartável com fixtures sintéticas",
       "location": "tests/playwright/specs/21-media-instrumented.spec.ts, tests/playwright/specs/21-multi-user-playback.spec.ts",
       "scope": "Reconhecimento de filmes e pré-condição de playback concorrente",
@@ -4717,7 +4743,10 @@
       "title": "GREEN focal após serialização do refresh de bibliotecas",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.009", "ROADMAP.011"],
+      "featureIds": [
+        "ROADMAP.009",
+        "ROADMAP.011"
+      ],
       "local": "MulletaFlix-web-master; stage Playwright descartável com fixtures sintéticas",
       "location": "tests/playwright/support/media-library.mjs, tests/playwright/support/media-library.test.mjs, tests/playwright/specs/21-multi-user-playback.spec.ts",
       "scope": "Evitar scan concorrente na criação da biblioteca e validar playback multiusuário após refresh explícito",
@@ -4734,7 +4763,11 @@
       "title": "Regressão Playwright ampla GREEN após compatibilidade Vite/Kestrel",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.009", "ROADMAP.011", "ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.009",
+        "ROADMAP.011",
+        "ROADMAP.015"
+      ],
       "local": "MulletaFlix-web-master; stage Playwright descartável com fixtures sintéticas",
       "location": "playwright.stage.config.ts, scripts/playwright/run-suite.mjs, tests/playwright/support/stage.mjs, specs 24–29",
       "scope": "Reconciliar a regressão ampla servindo fixtures TS/TSX por Vite e mantendo o Kestrel para o stage/API",
@@ -4751,7 +4784,9 @@
       "title": "AdSense self-player com falha intermitente e rechecagens",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage Playwright descartável com fixtures sintéticas e paths explícitos",
       "location": "tests/playwright/specs/22-adsense-flow.spec.ts, src/components/playback/playbackmanager.ts, src/components/branding/adsense.ts",
       "scope": "Verificar materialização do interstitial após a intro no caminho de player self-managed",
@@ -4768,7 +4803,10 @@
       "title": "Diagnóstico movie-only determinístico após refresh explícito",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.009", "ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.009",
+        "ROADMAP.015"
+      ],
       "local": "Stage Playwright descartável com fixtures sintéticas e paths explícitos",
       "location": "tests/playwright/specs/21-media-recognition.spec.ts, tests/playwright/support/media-library.mjs",
       "scope": "Reproduzir e observar a materialização de filmes após criação da biblioteca sem scan automático",
@@ -4785,7 +4823,11 @@
       "title": "Regressão Playwright completa após TDD movie-only",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.009", "ROADMAP.011", "ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.009",
+        "ROADMAP.011",
+        "ROADMAP.015"
+      ],
       "local": "Stage Playwright descartável com wrapper isolado, Vite gerenciado e fixtures sintéticas",
       "location": "scripts/playwright/run-isolated-stage.mjs, tests/playwright/specs/21-media-recognition.spec.ts, suíte Playwright completa",
       "scope": "Reexecutar a regressão ampla após incluir o diagnóstico movie-only determinístico",
@@ -4802,7 +4844,9 @@
       "title": "Probe read-only do runtime instalado",
       "agent": "Hermes",
       "front": "server",
-      "featureIds": ["ROADMAP.001"],
+      "featureIds": [
+        "ROADMAP.001"
+      ],
       "local": "Host Windows local; instalação em Program Files; nenhuma ação operacional",
       "location": "C:/Program Files/MulletaFlix/Server/MulletaFlix.exe, http://127.0.0.1:8096/health",
       "scope": "Confirmar versão instalada e disponibilidade do endpoint sem iniciar ou alterar o runtime",
@@ -4819,7 +4863,10 @@
       "title": "Inventário read-only da divergência do bundle instalado",
       "agent": "Hermes",
       "front": "server",
-      "featureIds": ["ROADMAP.001", "ROADMAP.009"],
+      "featureIds": [
+        "ROADMAP.001",
+        "ROADMAP.009"
+      ],
       "local": "Instalação Program Files versus MulletaFlix-web-master/dist",
       "location": "C:/Program Files/MulletaFlix/Server/MulletaFlix-web/index.html, MulletaFlix-web-master/dist/index.html",
       "scope": "Comparar referências do entrypoint e volume do payload sem modificar a instalação",
@@ -4836,7 +4883,10 @@
       "title": "Auditoria de marcador textual de credencial no portal",
       "agent": "Hermes",
       "front": "portal",
-      "featureIds": ["ROADMAP.001", "ROADMAP.009"],
+      "featureIds": [
+        "ROADMAP.001",
+        "ROADMAP.009"
+      ],
       "local": "portal-site/homologacao-status.json",
       "location": "portal-site/homologacao-status.json:6160",
       "scope": "Distinguir nome de parâmetro documentado de valor de credencial exposto",
@@ -4853,7 +4903,10 @@
       "title": "Reconciliação de referências stale no checklist",
       "agent": "Hermes",
       "front": "portal",
-      "featureIds": ["ROADMAP.001", "ROADMAP.009"],
+      "featureIds": [
+        "ROADMAP.001",
+        "ROADMAP.009"
+      ],
       "local": "TODO-AUDITORIA.md e documentação de homologação",
       "location": "TODO-AUDITORIA.md:28,675",
       "scope": "Corrigir versão histórica apresentada como estado corrente e distinguir regressão concluída de gates abertos",
@@ -4870,7 +4923,10 @@
       "title": "Contrato local do workflow CI revalidado",
       "agent": "Hermes",
       "front": "server",
-      "featureIds": ["ROADMAP.001", "ROADMAP.009"],
+      "featureIds": [
+        "ROADMAP.001",
+        "ROADMAP.009"
+      ],
       "local": "Checkout local; testes estáticos de cobertura do workflow",
       "location": "tools/release/tests/ci-*.test.mjs, .github/workflows/ci.yml",
       "scope": "Verificar que jobs, filtros e gates Linux/Windows/MongoDB/Nebula/packaging estão declarados no workflow",
@@ -4887,7 +4943,10 @@
       "title": "Probe dos ambientes externos locais",
       "agent": "Hermes",
       "front": "server",
-      "featureIds": ["ROADMAP.001", "ROADMAP.009"],
+      "featureIds": [
+        "ROADMAP.001",
+        "ROADMAP.009"
+      ],
       "local": "Host Windows local; Android SDK, WSL, Docker e NebulaPython",
       "location": "C:/Android/Sdk/platform-tools/adb.exe, wsl.exe, docker, Tools/NebulaPython/venv/bin/python",
       "scope": "Confirmar disponibilidade dos ambientes necessários antes de tentar gates Android/Linux/POSIX",
@@ -4904,7 +4963,11 @@
       "title": "Regressão Playwright ampla após serialização do refresh",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.009", "ROADMAP.011", "ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.009",
+        "ROADMAP.011",
+        "ROADMAP.015"
+      ],
       "local": "MulletaFlix-web-master; stage Playwright descartável com fixtures sintéticas",
       "location": "scripts/playwright/run-isolated-stage.mjs, tests/playwright/support/media-library.mjs, suíte tests/playwright/specs",
       "scope": "Reconciliar o gate amplo após corrigir a ordem de criação/refresh das bibliotecas",
@@ -4921,7 +4984,9 @@
       "title": "GREEN focal do multi-user playback após correção do lifecycle HLS",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "src/components/htmlMediaHelper.ts, src/plugins/htmlVideoPlayer/plugin.ts, src/components/playback/playbackmanager.ts, tests/playwright/specs/21-multi-user-playback.spec.ts",
       "scope": "Playback simultâneo em dois usuários e fallback de intro HLS",
@@ -4938,7 +5003,9 @@
       "title": "Regressão Playwright focal de acessibilidade, AdSense e paginação",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "31-accessibility-home-and-details.spec.ts, 22-adsense-flow.spec.ts, 99-pagination.spec.ts",
       "scope": "Acessibilidade de Item Details, playback com AdSense e paginação de bibliotecas",
@@ -4955,7 +5022,9 @@
       "title": "Diagnóstico de reconhecimento de mídia no Playwright stage",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "tests/playwright/support/media-library.mjs, media-library.test.mjs, 21-multi-user-playback.spec.ts",
       "scope": "Pré-condição de bibliotecas reconhecidas para pagination e multi-user playback",
@@ -4972,7 +5041,9 @@
       "title": "Revalidação de reconhecimento de mídia e pré-condição do multi-user playback",
       "agent": "Hermes + Codex",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Stage descartável em porta não produtiva, PTY, fixtures sintéticas",
       "location": "tests/playwright/support/media-library.mjs, media-library.test.mjs, 21-multi-user-playback.spec.ts",
       "scope": "Reconhecimento de biblioteca de filmes e pré-condição do gate multiusuário",
@@ -16827,7 +16898,9 @@
       "updatedAt": "2026-11-08T01:53:33-03:00",
       "evidence": "8096 está ouvindo no PID 19932, MulletaFlix.exe instalado em C:\\Program Files\\MulletaFlix\\Server\\MulletaFlix.exe, versão 12.1.51, com --datadir C:/ProgramData/MulletaFlix/Server; /health HTTP 200. 3306 está ouvindo no mysqld.exe PID 10980 e deve ser tratado como MariaDB de produção; 27017 está ouvindo no mongod.exe PID 4412 e deve ser tratado como MongoDB de produção. ADB existe em C:/Android/Sdk/platform-tools/adb.exe, mas não listou dispositivos. WSL respondeu sem distribuições instaladas; Docker, Podman e coletores OTLP não estão disponíveis no PATH.",
       "release": "Recheck atualiza os bloqueios observados, mas não promove homologação global: runtime é o release instalado, Android instrumentado e Linux/POSIX continuam sem ambiente, CI hospedada permanece sem check run verificável no PR #2, e login/catálogo autenticados não foram executados.",
-      "links": ["https://github.com/raphaelpera85/mulletaflix-completo/pull/2"]
+      "links": [
+        "https://github.com/raphaelpera85/mulletaflix-completo/pull/2"
+      ]
     },
     {
       "id": "web-vitest-flake-reprobe-2026-11-08-0212",
@@ -16987,7 +17060,9 @@
       "title": "Stage alinhado ao runtime 12.1.51; regressão Playwright bloqueada por catálogo autenticado",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Windows; stage sincronizado do runtime instalado; porta isolada 18096; MariaDB descartável 33100; fixtures sintéticas",
       "location": "stage/, MulletaFlix-web-master/scripts/playwright/run-isolated-stage.mjs, tests/playwright/specs/21-media-recognition.spec.ts, tests/playwright/specs/21-multi-user-playback.spec.ts",
       "scope": "Reexecutar a suíte Playwright contra o mesmo artefato 12.1.51 usado pela produção sem tocar o datadir produtivo.",
@@ -17004,7 +17079,9 @@
       "title": "TDD do isolamento do stage e timeout da prontidão do catálogo 12.1.51",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Windows; stage 12.1.51; MariaDB descartável; fixtures sintéticas; produção fora do teste",
       "location": "MulletaFlix-web-master/scripts/playwright/run-isolated-stage-helpers.mjs, scripts/playwright/run-suite.mjs, scripts/playwright/stage-safety.test.mjs, tests/playwright/specs/21-media-recognition.spec.ts",
       "scope": "Eliminar integrações externas herdadas pelo stage e separar timeout do harness de falha definitiva do catálogo.",
@@ -17038,7 +17115,9 @@
       "title": "TDD de diagnóstico do timeout de reconhecimento de mídia",
       "agent": "Hermes",
       "front": "web",
-      "featureIds": ["ROADMAP.015"],
+      "featureIds": [
+        "ROADMAP.015"
+      ],
       "local": "Windows checkout; helper Playwright e Node test runner",
       "location": "MulletaFlix-web-master/tests/playwright/support/media-library.mjs; media-library.test.mjs",
       "scope": "Preservar os últimos counts observados quando a materialização do catálogo não estabiliza.",
@@ -17626,7 +17705,9 @@
       "updatedAt": "2026-11-09T07:22:00-03:00",
       "evidence": "RED inicial reproduzido no teste por assumir OkObjectResult em Result; GREEN após usar o padrão ActionResult<T> existente. Focal 1/1 e regressão LibraryControllerAuthorizationTests 22/22. A tentativa de integração foi removida após ficar 1 ignorada por exigir MariaDB descartável opt-in.",
       "release": "Cobertura unitária GREEN; MariaDB descartável, materialização de mídia, runtime instalado, playback e produção permanecem sem aceite.",
-      "links": ["docs/server-test-gap-map-2026-11-09.md"]
+      "links": [
+        "docs/server-test-gap-map-2026-11-09.md"
+      ]
     },
     {
       "id": "server-tdd-backup-di-items-http-2026-11-10-0130",
@@ -17643,7 +17724,9 @@
       "updatedAt": "2026-11-10T00:59:16-03:00",
       "evidence": "RED reproduzido no wiring de ApplicationHost. GREEN com factory explícita preservando context factories opcionais e participantes de backup. TDD focal 1/1; BackupServiceTests + NebulaSupabaseSyncTests 157 aprovados, 5 ignorados, 0 falhas; Jellyfin.Server.Tests 95 aprovados, 3 ignorados, 0 falhas; ItemsControllerTests autenticados com MariaDB descartável 6/6 aprovados; regressão integral Jellyfin.Server.Implementations.Tests 1.760 aprovados, 95 ignorados, 0 falhas em 1.855 casos. Build Release da solução 0 erros e 32 avisos. Instância MariaDB e datadir scratch foram encerrados/removidos.",
       "release": "Correção não foi instalada no runtime nem executou upload autenticado contra Supabase real; aceite externo, restore, produção e demais gates permanecem pendentes.",
-      "links": ["docs/server-test-gap-map-2026-11-09.md"]
+      "links": [
+        "docs/server-test-gap-map-2026-11-09.md"
+      ]
     },
     {
       "id": "server-tdd-get-items-2026-11-09-0736",
@@ -17660,7 +17743,9 @@
       "updatedAt": "2026-11-09T07:36:37-03:00",
       "evidence": "RED inicial reproduziu NullReferenceException quando a fixture usava UserRootFolder sem dependência estática configurada. GREEN após fixture Folder sintética, BaseItem.LibraryManager restaurado em finally e CollapseBoxSetItems=false. Focal 1/1 e regressão ItemsControllerTests 22/22.",
       "release": "Cobertura unitária GREEN; HTTP autenticado, MariaDB descartável, materialização persistente, runtime instalado, playback e produção permanecem sem aceite.",
-      "links": ["docs/server-test-gap-map-2026-11-09.md"]
+      "links": [
+        "docs/server-test-gap-map-2026-11-09.md"
+      ]
     },
     {
       "id": "dotnet-full-regression-after-introskipper-2026-11-11",
@@ -17677,7 +17762,9 @@
       "updatedAt": "2026-11-11T10:15:00-03:00",
       "evidence": "dotnet test Release --no-build --no-restore -m:1 terminou com exit 0 em 17 projetos: 6.087 aprovados, 314 ignorados, 0 falhas / 6.401 casos. IntroSkipper.Integration.Tests ficou em 43/57/0; nenhum caso ignorado recebeu crédito de aprovação.",
       "release": "Regressão local/source GREEN; build validado com 0 erros e 643 avisos. Runtime instalado, mídia real, persistência real, CI hospedada, Linux/POSIX, Android instrumentado, integrações externas e produção permanecem sem aceite.",
-      "links": ["docs/roadmap-evolucao-tecnologica-servidor-e-web.md"]
+      "links": [
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md"
+      ]
     },
     {
       "id": "windows-server-audit-2026-11-24",
@@ -17691,10 +17778,13 @@
       "status": "partial",
       "progressPercent": null,
       "startedAt": "2026-11-24T09:30:00-03:00",
-      "updatedAt": "2026-11-24T15:07:47-03:00",
-      "evidence": "RED reproduziu WinError 121 em realpath da unidade de staging; depois GREEN: 5 testes focais e suíte Nebula separada 213 aprovados, 1 ignorado, 0 falhas. O worker Python efetivamente empacotado (Tools/NebulaPython), sem essa falha de cache, passou 727 testes e ignorou 2. IntroSkipper direcionado: 69 aprovados, 58 ignorados, 0 falhas; teste semântico final passou 1/1. Execução paralela da solução .NET teve falhas intermitentes em Controller/Server.Tests; ambas passaram ao repetir isoladamente. Execução final serial `dotnet test MulletaFlix.sln -c Release --no-build --no-restore -m:1`: exit code 0 e nenhum teste falho; Server.Implementations 1767 aprovados/95 ignorados. Tray Release build: 0 avisos/erros; caminho com espaços validado por reflexão. Usuário iniciou manualmente o tray; versão 12.1.58 e health local/Nginx 200. Valor HKCU Run foi corrigido para incluir aspas e conferido.",
-      "release": "Não publicada nem aplicada: candidato final isolado concluído. ZIP 419080311 bytes SHA-256 8D2F4F9BBDE2E0C03B2FBD629633E6E13D2A3A4E57CEB7D24D48067368D96D1B; instalador 453917499 bytes SHA-256 10D96FD494D32165E662024B7244421A77FF58CF8003B67D9F3F1F5CFB2A9CC4 (Authenticode NotSigned). ZIP com 3266 entradas legíveis e helper de firewall; hash do tray staged confere com a compilação da fonte rastreada. Falso exit code 1 do stage builder corrigido/testado; reexecução terminou 0. Auditoria encontrou duas regras Public inbound Allow para MulletaFlix.exe; candidato removerá regras por caminho exato e o smoke test verifica esse resultado. Após aprovação do UAC, a correção foi aplicada no host e a rechecagem confirmou zero regras inbound Allow para o executável instalado; o perfil ativo é Public, todos os perfis de firewall estão enabled e DefaultInboundAction=Block. HTTP local e Nginx retornaram 200 Healthy; versão instalada 12.1.58. Teste externo não executado. Gate 4.0 mantém melhorias do roadmap pendentes. CLI `gh` sem sessão, mas fallback do publicador via Git credential disponível; candidato não instalado/publicado. Cliente mongosh e integração DB descartável não habilitados. Correção Nebula standalone segue no checkout ignorado e não é embarcada no pacote. Run GitHub Actions 45457377315 do commit 9ae1a149 terminou cancelled, com 14 jobs failure e 2 cancelled, runner_id 0 e zero steps; CI hospedada continua sem executar testes. Rebuild final após ajuste de tipagem do helper: artefatos em final-assets-firewall-final2, ZIP SHA-256 8D2F4F9BBDE2E0C03B2FBD629633E6E13D2A3A4E57CEB7D24D48067368D96D1B, EXE SHA-256 10D96FD494D32165E662024B7244421A77FF58CF8003B67D9F3F1F5CFB2A9CC4; tar -tf e testes focais passaram novamente.",
-      "links": ["docs/homologacao-release-12.1.59.md", "docs/roadmap-evolucao-tecnologica-servidor-e-web.md"]
+      "updatedAt": "2026-11-24T19:38:00-03:00",
+      "evidence": "RED reproduziu WinError 121 em realpath da unidade de staging; depois GREEN: 5 testes focais e suíte Nebula separada 213 aprovados, 1 ignorado, 0 falhas. O worker Python efetivamente empacotado (Tools/NebulaPython), sem essa falha de cache, passou 727 testes e ignorou 2. IntroSkipper direcionado: 69 aprovados, 58 ignorados, 0 falhas; teste semântico final passou 1/1. Execução paralela da solução .NET teve falhas intermitentes em Controller/Server.Tests; ambas passaram ao repetir isoladamente. Execução final serial `dotnet test MulletaFlix.sln -c Release --no-build --no-restore -m:1`: exit code 0 e nenhum teste falho; Server.Implementations 1767 aprovados/95 ignorados. Tray Release build: 0 avisos/erros; caminho com espaços validado por reflexão. Usuário iniciou manualmente o tray; versão 12.1.58 e health local/Nginx 200. Valor HKCU Run foi corrigido para incluir aspas e conferido. Amostra read-only de 24/11 no runtime 12.1.58: 25/25 HTTP 200 por rota em /health local, /System/Info/Public local e /health via Nginx. Latências min/p50/p95/máx (ms): 4,33/7,28/15,10/113,87; 0,90/1,20/3,20/9,65; 7,73/10,21/24,89/37,98. Processo: working set 320,4 MiB, private 296,7 MiB, CPU acumulada 4.290,8 s; C: livre 81.288 MiB. Amostra sequencial sem carga, autenticação, tarefas Nebula ou acesso externo; T0.1 permanece parcial. Follow-up 18:30: TDD RED/GREEN corrigiu reconciliação NSSM/firewall do Nginx; testes focais de configurador e manifesto passaram. O pacote builder agora exige source clean, stage content hashes, coerência tag/commit e verifica assets remotos antes de publicar draft. Runtime segue 12.1.58; não houve instalação candidata nem teste externo. Revisão adversarial 18:40: teste HTTPS preserva TLS válido durante renovação; stage skip exige manifesto anterior; fluxo normal reconstrói stage; manifesto verifica working tree. Regras firewall também validam LocalAddress/RemoteAddress e notes-only preserva target commit. Focais passaram. Fix adicional após revisão: no primeiro provisionamento ACME, Nginx preserva o path HTTP-01 e retorna 503 ao restante do site até TLS ficar pronto; -SkipCertificate explícito mantém HTTP. Mock testa bootstrap/challenge e impede proxy em cleartext. Build isolado completo no candidato local b6cfa99f3bf0e1df1f78d049b4999e4d821a47f4: servidor/plugins, web (typecheck+produção), Tray e stage de 3153 arquivos. Corrigidos side effect do Vite no stats.html e comparação dependente de ordenação cultural do manifesto; testes de ordem embaralhada e adulteração passaram. ZIP final: 419077730 bytes, SHA-256 9E1C14EB05C60993F18DA3BBF35233C9EC19EDA6CCE4E627E3F07294F94271ED; instalador: 453915066 bytes, SHA-256 6B56CD54EF71EC5768E74C7BE37E24B71A53BB1E60CABD74BC14E43409E6BE1A, Authenticode NotSigned. Três suítes PowerShell e portal 379/379 passaram. Runtime permaneceu 12.1.58; /System/Info/Public e /health localhost responderam HTTP 200. Reexecução integrada `build-update-package.ps1` em saída limpa contra commit candidato limpo b6cfa99f3bf0e1df1f78d049b4999e4d821a47f4 encerrou exit 0, incluindo ZIP/NSIS/manifesto; stage 3153 arquivos, ZIP 3264 entradas. Hash ZIP final 8360AC930D4DA7040427ACBD5946CD36A3C19E59CF8CF437838DEDB618F3F583; instalador 6B56CD54EF71EC5768E74C7BE37E24B71A53BB1E60CABD74BC14E43409E6BE1A (NotSigned). Worktree candidato limpa; v12.1.59 continua sem tag remota. Smoke Windows final: nginx -t exit 0; health direto, proxy HTTP e proxy HTTPS = 200 Healthy. Listeners observados 80/443 PID 5920 e 8096 PID 15868. Consulta ActiveStore não encontrou regra inbound Allow Public/Any para o executável MulletaFlix instalado; nenhum firewall foi modificado agora, sem teste externo. Triagem de dependências web: audit geral 8 moderadas em ferramentas dev lint/typecheck; audit --omit=dev 0 vulnerabilidades de produção. Sem autofix: requer revisão compatível (SonarJS tem remediação major) e suíte web. Inventário read-only confirmou Hyper-V/Get-VM e vmms ausentes, VBoxManage/vmrun/WindowsSandbox indisponíveis; não há VM local para clean install/upgrade. Instalador candidato não foi executado em produção.",
+      "release": "Artefatos locais em worktree descartável, sem publicação: ZIP 419077730 bytes, SHA-256 8360AC930D4DA7040427ACBD5946CD36A3C19E59CF8CF437838DEDB618F3F583; instalador 453915066 bytes, SHA-256 6B56CD54EF71EC5768E74C7BE37E24B71A53BB1E60CABD74BC14E43409E6BE1A (NotSigned). Manifesto vinculado ao candidato local b6cfa99f3bf0e1df1f78d049b4999e4d821a47f4; stage 3153 arquivos e ZIP 3264 entradas. Sem instalação em VM, ACME real ou reachability externa; runtime atual 12.1.58. Tag v12.1.59 ausente. Gate 4.0: 81 pendentes e 1 em andamento. Sem commit/push/release.",
+      "links": [
+        "docs/homologacao-release-12.1.59.md",
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md"
+      ]
     }
   ]
 }
