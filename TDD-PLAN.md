@@ -183,4 +183,4 @@ Decisão posterior do usuário: manter a `main` atual como base e portar somente
 - RED: `PublicServerFirewallRules.Tests.ps1` falhou porque o helper de reconciliação ainda não existia.
 - GREEN: regras inbound `Allow` do executável exato são removidas do perfil `Public`; regras `Any` são restritas a `Domain,Private`; regras mistas conservam os perfis privados/de domínio. Caminhos diferentes, outbound, bloqueios e regras somente privadas não mudam.
 - O instalador executa a correção e falha se não puder aplicá-la. O smoke test de instalação limpa rejeita qualquer regra Public restante; `Assert-StageIntegrity` exige o helper no pacote.
-- Focais Windows: `PublicServerFirewallRules.Tests.ps1` e `Assert-StageIntegrity.Tests.ps1` passaram. O smoke privilegiado ainda requer VM limpa e sessão elevada; o host atual não foi alterado.
+- Focais Windows: `PublicServerFirewallRules.Tests.ps1` e `Assert-StageIntegrity.Tests.ps1` passaram. O smoke de instalação limpa ainda requer VM isolada elevada; adicionalmente, o helper foi aplicado no host com aprovação do UAC e consulta confirmou zero regras inbound Allow para o executável.
