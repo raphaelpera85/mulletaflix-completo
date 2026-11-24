@@ -57,3 +57,9 @@ Instalação no host e verificação do estado real do scan após a correção c
 - Interpretação: esse resultado não reprova código porque nenhum step/teste iniciou, mas também não conta como CI verde. Os testes locais Release e os focais Windows seguem aprovados como registrado acima. Confirmar funcionamento dos runners e obter uma execução hospedada verde continua pendente do operador/repositório.
 - GitHub API pública ainda aponta `v12.1.58` como Latest. O fluxo `publish-release.ps1` tem credencial disponível via fallback `git credential fill`, mas não foi executado; o gate 4.0 do roadmap continua aberto.
 - Novo push documental `9ae1a1492ce638c27dffe96896e8ff0a9d7efd80`: run `45457377315` também terminou cancelled; 14 jobs failure e 2 cancelled, todos `runner_id=0`, sem steps. Não foi feita outra tentativa.
+
+## Revalidação visual do avatar — 2026-11-24
+
+- Na interface web autenticada do runtime instalado, o menu de usuário exibiu a foto de perfil do usuário em vez do fallback com inicial. A imagem carregou com `naturalWidth=300`, `naturalHeight=300`, `complete=true`, atributo `alt` preenchido; a requisição foi para o endpoint de imagem primária do usuário. O endereço/token da requisição não foi registrado.
+- Esta observação valida a renderização de GetAvatar para a conta e instalação existentes 12.1.58. Não reproduz a falha relatada nesse runtime e não prova atribuição de avatar a contas novas, outros usuários, nem comportamento da candidata 12.1.59. Não foi alterado código.
+- Revalidação read-only: `/health` local HTTP 200 `Healthy`; `/System/Info/Public` informa 12.1.58; porta 8096 está associada ao processo instalado `MulletaFlix.exe` PID 15868; processo escuta em `0.0.0.0:8096`. Integração externa/Internet não testada.
