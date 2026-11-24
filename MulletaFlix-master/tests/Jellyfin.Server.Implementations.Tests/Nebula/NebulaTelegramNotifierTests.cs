@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -260,6 +261,23 @@ public class NebulaTelegramNotifierTests
 
         Assert.Equal("http://mulletaflix.duckdns.org:8096/web/#/details?id=e7b83cbe1f782b329a2490a40252e46a&serverId=29ebbf0c786245469ecb2cccbb257f60", url);
         Assert.DoesNotContain("localhost", url, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void IsNotificationMetadataReady_AllowsTextWhenLocalCoverAndNfoAreAbsent()
+    {
+        var movie = new Movie { Name = "Filme de teste" };
+
+        Assert.True(NotificationsLibraryNotifier.IsNotificationMetadataReady(movie, hasStableSnapshot: true));
+        Assert.False(NotificationsLibraryNotifier.IsNotificationMetadataReady(movie, hasStableSnapshot: false));
+    }
+
+    [Fact]
+    public void IsNotificationMetadataReady_RejectsMediaWithoutUsableText()
+    {
+        var movie = new Movie { Name = " " };
+
+        Assert.False(NotificationsLibraryNotifier.IsNotificationMetadataReady(movie, hasStableSnapshot: true));
     }
 
     [Fact]

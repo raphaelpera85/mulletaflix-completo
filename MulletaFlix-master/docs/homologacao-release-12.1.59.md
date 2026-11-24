@@ -122,3 +122,25 @@ Inventário read-only do host: Hyper-V cmdlets indisponíveis, serviço `vmms` a
 ### Estado do código fonte — 2026-11-24
 
 As correções de código e configuração desta auditoria foram consolidadas localmente na branch `main` pelo commit `d00bc64fd12534fab008a2e474520fd3bed51243`; `origin/main` ainda está um commit atrás. Não houve push. O diff preexistente de `MulletaFlix-web-master/stats.html` segue fora do commit. Os artefatos de homologação anteriores foram vinculados ao candidato isolado `b6cfa99f3bf0e1df1f78d049b4999e4d821a47f4`, cuja árvore contém o mesmo código de build/runtime deste commit e documentação anterior; como nada foi publicado, o pacote deverá ser reconstruído contra o commit final quando os gates permitirem a release.
+
+### Pacote reconstruído contra a main local — 2026-11-24 19:49 BRT
+
+Após consolidar a main local, recriei o manifesto de stage e executei o fluxo integrado `build-update-package.ps1 -SkipBuild -SkipWebBuild` em worktree limpa exatamente no commit `553ab19b76ace05e899328ae709e3edf97879c6d`. A stage compilada foi preservada porque o diff entre o candidato anterior e este commit era exclusivamente documental/portal (nenhum arquivo de código/build mudou). O fluxo encerrou 0 e gerou ZIP, instalador NSIS e release manifest. Validação independente: worktree limpa; stage 3.153 arquivos; release manifest 2 assets; ZIP 3.264 entradas e payloads backend/web/Tray/updater; versão EXE 12.1.59.
+
+Hashes atuais (substituem os do candidato anterior): ZIP 419.077.730 bytes, SHA-256 `7D5888EC6BB416C396348CE7397523CBA5422420BE3D6D3D2573457B89C2DD81`; EXE 453.915.066 bytes, SHA-256 `6B56CD54EF71EC5768E74C7BE37E24B71A53BB1E60CABD74BC14E43409E6BE1A`, `NotSigned`. Artefatos locais em `.build/homologation-windows-2026-11-24/.build/homologation-release-output-main/` e `.../homologation-installer-main/`.
+
+Sem push, tag, release ou instalação. `main` local segue dois commits à frente de `origin/main`; `stats.html` permanece como diff preexistente não commitado. O artefato é candidato limpo do commit 553ab19, mas publicação segue vetada pelo gate 4.0 (81 pendências e 1 em andamento), Authenticode ausente e homologação de instalação/upgrade em VM pendente.
+
+### Inspeção dos logs do servidor Windows ativo — 2026-11-24 19:55 BRT
+
+Processo MulletaFlix PID 15868 iniciou às 13:40 e segue saudável (`/health` 200); Nginx PID 5920 escuta 80/443. MariaDB 3306 e MongoDB 27017 escutam apenas em `127.0.0.1`. No log atual `log_20261124.log` (543 linhas, último write 19:49), contagem: 1 ERR, 91 WRN, 438 INF.
+
+Evidências funcionais: `GetAvatar.AvatarValidationService` encerrou às 13:40:43 com “All avatars are valid”, 0 reparos e sem erro de validação; isso prova o estado dos arquivos/mapeamentos no boot, não renderização do avatar em toda sessão cliente. O único ERR foi `IOException` de `ImageSaver` porque outro processo mantinha um arquivo de imagem aberto (15:04); falha localizada, sem outra falha de escrita correlata no log.
+
+Pontos de melhoria/rechecagem: 64 avisos `NotificationsLibraryNotifier` informam que capa/NFO não estabilizaram no prazo de 180 s e que a notificação foi descartada. O código exige capa+NFO locais; os logs não informam tipo de mídia de forma suficiente para concluir se são `.strm`, falta de metadados ou origem lenta. Correlacionar por tipo de item, sem expor títulos/caminhos, antes de alterar a política. Quatro avisos Kestrel disseram que o heartbeat ultrapassou o limite e citaram possível starvation, às 19:17; `/health` depois permaneceu 200. Um aviso EF Core durante startup indica `Skip/Take` sem `OrderBy`, sem indicar a consulta chamadora. O aviso é risco de paginação não determinística, mas exige atribuir a query antes de mudar código.
+
+A senha root ausente no MariaDB é documentada pelo próprio bootstrap como aceitável apenas em localhost; listener 3306 está comprovadamente em 127.0.0.1. Nenhuma conexão/credencial foi exibida, nenhum dado de mídia foi registrado.
+
+### Correção do notifier para mídias sem sidecars — 2026-11-24
+
+A rotina de notificação descartava itens após 180 s quando faltavam capa ou `.nfo`, embora houvesse fallback para enviar texto sem imagem. Corrigido: dois snapshots consecutivos iguais e nome de mídia não vazio bastam para prontidão; capa e NFO locais são opcionais, e a notificação sai somente com texto quando não há imagem. Testes adicionados para prontidão sem sidecars e supressão sem texto. Suíte focal `NebulaTelegramNotifierTests`: 15/15 passou em Windows/.NET 10 Debug. O teste valida a política, não um envio real `.strm` de ponta a ponta. Runtime instalado permanece 12.1.58; o candidato deve ser reconstruído e instalado em ambiente isolado para homologação operacional.

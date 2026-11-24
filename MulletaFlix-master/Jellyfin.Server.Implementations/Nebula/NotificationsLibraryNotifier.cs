@@ -27,7 +27,7 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
     private sealed record WorkItem(string MessageHtml, string? ImagePath);
     private sealed record ScheduledMetadataCheck(Guid ItemId, CancellationTokenSource CancellationSource);
 
-    /// <summary>How long an item's cover and nfo are given to stabilise before giving up.</summary>
+    /// <summary>How long an item's text metadata is given to stabilise before giving up.</summary>
     private const int MetadataWaitSeconds = 180;
 
     /// <summary>
@@ -256,7 +256,7 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
                 }
 
                 var snapshot = GetMetadataSnapshot(current);
-                if (snapshot == previousSnapshot && IsMetadataReady(current))
+                if (IsNotificationMetadataReady(current, snapshot == previousSnapshot))
                 {
                     ready = current;
                     break;
@@ -272,7 +272,7 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
 
             if (ready is null)
             {
-                _logger.LogWarning("[NOTIFICATIONS] Capa/NFO da mídia {ItemId} não estabilizaram em {Seconds} segundos; nenhuma notificação foi enviada.", itemId, MetadataWaitSeconds);
+                _logger.LogWarning("[NOTIFICATIONS] Metadados textuais da mídia {ItemId} não estabilizaram em {Seconds} segundos; nenhuma notificação foi enviada.", itemId, MetadataWaitSeconds);
                 return;
             }
 
@@ -344,17 +344,8 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
         return string.Join('|', item.Name, item.Overview, item.ProductionYear, image, imageState, nfo, nfoState);
     }
 
-    private bool IsMetadataReady(BaseItem item)
-    {
-        var imagePath = FindCoverPath(item);
-        var nfoPath = GetNfoPath(item);
-        return !string.IsNullOrWhiteSpace(item.Name)
-            && !string.IsNullOrWhiteSpace(imagePath)
-            && File.Exists(imagePath)
-            && !string.IsNullOrWhiteSpace(nfoPath)
-            && File.Exists(nfoPath)
-            && new FileInfo(nfoPath).Length > 0;
-    }
+    internal static bool IsNotificationMetadataReady(BaseItem item, bool hasStableSnapshot)
+        => hasStableSnapshot && !string.IsNullOrWhiteSpace(item.Name);
 
     private static string? GetNfoPath(BaseItem item)
         => string.IsNullOrWhiteSpace(item.Path) ? null : Path.ChangeExtension(item.Path, ".nfo");
