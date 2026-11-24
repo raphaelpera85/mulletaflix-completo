@@ -69,15 +69,22 @@ public class TrayApplicationContext : ApplicationContext
         set
         {
             using RegistryKey key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
-            if (value && key.GetValue(_autostartKey) == null)
+            string command = BuildAutoStartCommand(Application.ExecutablePath);
+            string currentCommand = key.GetValue(_autostartKey) as string;
+            if (value && !string.Equals(currentCommand, command, StringComparison.OrdinalIgnoreCase))
             {
-                key.SetValue(_autostartKey, Path.ChangeExtension(Application.ExecutablePath, "exe"));
+                key.SetValue(_autostartKey, command);
             }
-            else if (!value && key.GetValue(_autostartKey) != null)
+            else if (!value && currentCommand != null)
             {
                 key.DeleteValue(_autostartKey);
             }
         }
+    }
+
+    private static string BuildAutoStartCommand(string executablePath)
+    {
+        return $"\"{Path.ChangeExtension(executablePath, "exe")}\"";
     }
 
     /// <summary>
@@ -110,6 +117,8 @@ public class TrayApplicationContext : ApplicationContext
         }
         else
         {
+            // Rewrites existing unquoted Run values created by older versions.
+            AutoStart = AutoStart;
             _firstRunDone = true;
         }
 

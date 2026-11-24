@@ -84,7 +84,7 @@ if ($normalizedStageDir.Equals($normalizedBuildDir, [System.StringComparison]::O
 }
 $serverPublishDir = Join-Path $buildDir 'server-publish'
 $installerScript = Join-Path $projectRoot 'build-mulletaflix-installer.ps1'
-$trayProject = Join-Path $packagingRoot 'jellyfin-server-windows\Jellyfin.Windows.Tray\Jellyfin.Windows.Tray.csproj'
+$trayProject = Join-Path $projectRoot 'mulletaflix-server-windows-mulletaflix-installer-branding\Jellyfin.Windows.Tray\Jellyfin.Windows.Tray.csproj'
 $trayProjectDir = Split-Path -Parent $trayProject
 $webDist = Join-Path $webRoot 'dist'
 $stageIntegrityScript = Join-Path $packagingRoot 'scripts\Assert-StageIntegrity.ps1'
@@ -141,6 +141,10 @@ function Copy-DirectoryContents {
     if ($robocopyExitCode -ge 8) {
         throw "robocopy failed from $Source to $Destination with exit code $robocopyExitCode"
     }
+
+    # Robocopy uses exit codes 1-7 for successful copies with differences.
+    # Clear the native status so PowerShell does not report a false script failure.
+    $global:LASTEXITCODE = 0
 }
 
 function Build-Web {

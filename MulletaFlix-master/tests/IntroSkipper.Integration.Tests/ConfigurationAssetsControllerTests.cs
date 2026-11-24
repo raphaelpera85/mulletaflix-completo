@@ -22,6 +22,23 @@ public sealed class ConfigurationAssetsControllerTests
         Assert.Contains("/IntroSkipper/Configuration/introskipper.css", html, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ConfigurationJavaScript_PollsScanStatusForTheSelectedSeason()
+    {
+        using var stream = typeof(ConfigurationAssetsController).Assembly
+            .GetManifestResourceStream("IntroSkipper.Configuration.introskipper.js");
+
+        Assert.NotNull(stream);
+        using var reader = new StreamReader(stream!);
+        var javascript = reader.ReadToEnd();
+
+        const string scanStatusRoute = "Intros/ScanStatus/${encodeURIComponent(e)}";
+        Assert.Contains(scanStatusRoute, javascript, StringComparison.Ordinal);
+        Assert.Contains("!a.data?.isQueued", javascript, StringComparison.Ordinal);
+        Assert.Contains("c.data?.isQueued", javascript, StringComparison.Ordinal);
+        Assert.Contains("a.data?.failed", javascript, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("GetJavaScript", "application/javascript", "IntroSkipper.Configuration.introskipper.js")]
     [InlineData("GetStylesheet", "text/css", "IntroSkipper.Configuration.introskipper.css")]

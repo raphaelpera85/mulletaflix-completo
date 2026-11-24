@@ -13,6 +13,7 @@ param(
     [string]$Version,
     [string]$OutputDir,
     [string]$StageDirectory,
+    [string]$InstallerOutputDirectory,
     [switch]$SkipBuild,
     [switch]$SkipWebBuild,
     [switch]$SkipInstaller
@@ -47,6 +48,13 @@ $stageDir = if ([string]::IsNullOrWhiteSpace($StageDirectory)) {
     Join-Path $projectRoot 'stage'
 } else {
     [System.IO.Path]::GetFullPath($StageDirectory)
+}
+$installerOutputDir = if ([string]::IsNullOrWhiteSpace($InstallerOutputDirectory)) {
+    $OutputDir
+} elseif ([System.IO.Path]::IsPathRooted($InstallerOutputDirectory)) {
+    [System.IO.Path]::GetFullPath($InstallerOutputDirectory)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $projectRoot $InstallerOutputDirectory))
 }
 $webRoot = Join-Path $projectRoot 'MulletaFlix-web-master'
 $webDist = Join-Path $webRoot 'dist'
@@ -326,5 +334,5 @@ if ($SkipInstaller) {
 
     Write-Host ""
     Write-Host "Building Windows installer from stage..." -ForegroundColor Cyan
-    & $installerScript
+    & $installerScript -StageDirectory $stageDir -OutputDirectory $installerOutputDir -NoCopyToReleaseAssets
 }

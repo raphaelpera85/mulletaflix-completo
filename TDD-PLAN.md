@@ -171,3 +171,9 @@ Decisão posterior do usuário: manter a `main` atual como base e portar somente
 - Suíte API: 1.248 aprovados, 3 ignorados, 0 falhas / 1.251. Solução .NET Release: 6.118 aprovados, 315 ignorados, 0 falhas / 6.433 em 17 projetos.
 - Web: 5 testes focais passaram. Windows stage/NSIS, integridade do stage, localização e controles DuckDNS/token passaram; validação do player real confirmou intro, pré-cache e transição para `.strm` na 12.1.58. Um `bufferStalledError` HLS não fatal ocorreu, e a reprodução continuou.
 - Relatório: `MulletaFlix-master/docs/homologacao-release-12.1.58.md`. Release pública Latest `v12.1.58` publicada no commit `d40f76a9255b8529de17ed3f26443cc6127a909b`; API remota confirmou três assets e hashes. CI hospedada run `44018912372` falhou antes de steps (causa não confirmada).
+
+## Regressão do status de scan — 2026-11-17
+
+- `ConfigurationAssetsControllerTests.ConfigurationJavaScript_PollsScanStatusForTheSelectedSeason`: RED confirmou que o painel chamava `Intros/ScanStatus` sem a chave exigida pelo controlador (`ScanStatus/{SeasonId}`).
+- GREEN: o asset consulta a temporada/movie atual nos dois pontos (poll e carga), observa `isQueued` em vez do estado global de qualquer análise e sinaliza o campo `failed` ao concluir.
+- Suíte `IntroSkipper.Integration.Tests`: 69 aprovados, 58 ignorados, 0 falhas. Relatório de homologação 12.1.59 documentará a validação runtime e os limites do scan real autorizado.
