@@ -118,3 +118,7 @@ No host Windows ativo, `nginx.exe -t -p "C:\Program Files\MulletaFlix\Server\ngi
 ### Capacidade de homologação isolada — 2026-11-24 19:38 BRT
 
 Inventário read-only do host: Hyper-V cmdlets indisponíveis, serviço `vmms` ausente, sem `VBoxManage`, `vmrun` ou `WindowsSandbox.exe`. Não há VM/sandbox disponível nesta sessão para clean install/upgrade. O instalador candidato não foi executado no servidor de produção.
+
+### Estado do código fonte — 2026-11-24
+
+As correções de código e configuração desta auditoria foram consolidadas localmente na branch `main` pelo commit `d00bc64fd12534fab008a2e474520fd3bed51243`; `origin/main` ainda está um commit atrás. Não houve push. O diff preexistente de `MulletaFlix-web-master/stats.html` segue fora do commit. Os artefatos de homologação anteriores foram vinculados ao candidato isolado `b6cfa99f3bf0e1df1f78d049b4999e4d821a47f4`, cuja árvore contém o mesmo código de build/runtime deste commit e documentação anterior; como nada foi publicado, o pacote deverá ser reconstruído contra o commit final quando os gates permitirem a release.

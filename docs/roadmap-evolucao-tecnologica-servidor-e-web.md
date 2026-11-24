@@ -4780,3 +4780,5 @@ Smoke operacional Windows (24/11/2026 19:36 BRT): `nginx -t` exit 0; health back
 Triagem npm (24/11/2026): audit geral reporta 8 moderadas, exclusivamente em dependências de desenvolvimento de lint/typecheck (typescript-eslint, ESLint SonarJS, minimatch transitivo); `npm audit --omit=dev` reporta 0. Remediações sugeridas incluem atualizar typescript-eslint e um downgrade major do SonarJS; revisar compatibilidade e testar lint em trabalho separado. Sem alteração de dependências nesta candidata.
 
 Limite confirmado: host sem Hyper-V cmdlets/serviço `vmms`, VirtualBox, VMware `vmrun` ou Windows Sandbox; clean install/upgrade precisa de runner/VM externo. O servidor em produção não foi usado como alvo de instalação candidata.
+
+Correções desta auditoria consolidadas localmente em `main` (`d00bc64fd12534fab008a2e474520fd3bed51243`), ainda sem push; o único diff de workspace mantido fora do commit é `MulletaFlix-web-master/stats.html`. O candidato empacotado usa o commit isolado anterior, com código de build/runtime igual; uma release futura deverá reconstruir no commit final após o fechamento dos gates.
