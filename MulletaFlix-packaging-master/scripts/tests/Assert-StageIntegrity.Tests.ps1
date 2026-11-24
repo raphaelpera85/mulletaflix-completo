@@ -32,6 +32,7 @@ $requiredFiles = @(
     'Tools\NebulaPython\requirements.txt',
     'Tools\NebulaPython\requirements.lock',
     'install-rclone-if-missing.ps1',
+    'remove-public-server-firewall-rules.ps1',
     'nssm.exe',
     'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
 )
@@ -76,6 +77,20 @@ try {
     }
 
     Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+
+    $firewallHelper = Join-Path $stageDirectory 'remove-public-server-firewall-rules.ps1'
+    Remove-Item -LiteralPath $firewallHelper -Force
+    $missingFirewallHelperRejected = $false
+    try {
+        Assert-StageIntegrity -StageDirectory $stageDirectory -ProjectRoot $projectRoot -PublishDirectory $publishDirectory
+    } catch {
+        $missingFirewallHelperRejected = $_.Exception.Message -like '*remove-public-server-firewall-rules.ps1*'
+        if (-not $missingFirewallHelperRejected) { throw }
+    }
+    if (-not $missingFirewallHelperRejected) {
+        throw 'Stage integrity accepted a payload without the server firewall remediation helper.'
+    }
+    [System.IO.File]::WriteAllText($firewallHelper, 'firewall remediation fixture')
 
     [System.IO.File]::WriteAllText($stagedDownloader, 'stale-stage-copy')
     $mismatchRejected = $false

@@ -307,6 +307,15 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
     ; the network. Remove a broad rule left by older installers.
     ExecWait 'netsh advfirewall firewall delete rule name="MulletaFlix MariaDB"' $0
 
+    ; The public reverse proxy is Nginx. Keep the backend's direct HTTP port
+    ; off Public networks while preserving any explicitly scoped LAN rules.
+    DetailPrint "Remove-PublicServerFirewallRules: restricting public MulletaFlix server rules..."
+    ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\remove-public-server-firewall-rules.ps1" -ServerExecutablePath "$INSTDIR\MulletaFlix.exe"' $0
+    ${If} $0 <> 0
+        MessageBox MB_OK|MB_ICONSTOP "Could not restrict direct public access to MulletaFlix Server. Installation stopped."
+        Abort
+    ${EndIf}
+
     ; HttpListener usa HTTP.sys. Reserve a porta padrão do Nebula para que o
     ; streaming HTTP em LAN não falhe com "Access is denied".
     DetailPrint "Configurando reserva HTTP do Nebula (porta 2123)..."
@@ -693,6 +702,11 @@ Section "Uninstall"
     ; Stop only processes owned by this installation. Never use /IM here:
     ; another MulletaFlix/MariaDB instance may belong to a different install.
     Call un.StopRunningMulletaFlixProcesses
+
+    IfFileExists "$INSTDIR\remove-public-server-firewall-rules.ps1" 0 SkipPublicServerFirewallCleanup
+    ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\remove-public-server-firewall-rules.ps1" -ServerExecutablePath "$INSTDIR\MulletaFlix.exe" -RemoveAllProfiles' $0
+    DetailPrint "Removed installed MulletaFlix firewall rules, $0"
+    SkipPublicServerFirewallCleanup:
 
     ; Remove MariaDB firewall rule
     ExecWait 'netsh advfirewall firewall delete rule name="MulletaFlix MariaDB"' $0

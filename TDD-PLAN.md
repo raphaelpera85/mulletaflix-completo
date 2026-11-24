@@ -177,3 +177,10 @@ Decisão posterior do usuário: manter a `main` atual como base e portar somente
 - `ConfigurationAssetsControllerTests.ConfigurationJavaScript_PollsScanStatusForTheSelectedSeason`: RED confirmou que o painel chamava `Intros/ScanStatus` sem a chave exigida pelo controlador (`ScanStatus/{SeasonId}`).
 - GREEN: o asset consulta a temporada/movie atual nos dois pontos (poll e carga), observa `isQueued` em vez do estado global de qualquer análise e sinaliza o campo `failed` ao concluir.
 - Suíte `IntroSkipper.Integration.Tests`: 69 aprovados, 58 ignorados, 0 falhas. Relatório de homologação 12.1.59 documentará a validação runtime e os limites do scan real autorizado.
+
+## Firewall público do servidor Windows — 2026-11-24
+
+- RED: `PublicServerFirewallRules.Tests.ps1` falhou porque o helper de reconciliação ainda não existia.
+- GREEN: regras inbound `Allow` do executável exato são removidas do perfil `Public`; regras `Any` são restritas a `Domain,Private`; regras mistas conservam os perfis privados/de domínio. Caminhos diferentes, outbound, bloqueios e regras somente privadas não mudam.
+- O instalador executa a correção e falha se não puder aplicá-la. O smoke test de instalação limpa rejeita qualquer regra Public restante; `Assert-StageIntegrity` exige o helper no pacote.
+- Focais Windows: `PublicServerFirewallRules.Tests.ps1` e `Assert-StageIntegrity.Tests.ps1` passaram. O smoke privilegiado ainda requer VM limpa e sessão elevada; o host atual não foi alterado.

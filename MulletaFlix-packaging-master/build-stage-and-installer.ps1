@@ -417,6 +417,14 @@ function Copy-RuntimeExtras {
         throw "WinFsp prerequisite checker not found at $winfspScript"
     }
 
+    $firewallRemediationScript = Join-Path $packagingRoot 'remove-public-server-firewall-rules.ps1'
+    if (Test-Path -LiteralPath $firewallRemediationScript -PathType Leaf) {
+        Copy-Item -LiteralPath $firewallRemediationScript -Destination (Join-Path $stageDir 'remove-public-server-firewall-rules.ps1') -Force
+        Write-Host 'Copied public server firewall remediation helper to stage.' -ForegroundColor Green
+    } else {
+        throw "Public server firewall remediation helper not found at $firewallRemediationScript"
+    }
+
     $pythonScript = Join-Path $packagingRoot 'install-python-if-missing.ps1'
     if (Test-Path -LiteralPath $pythonScript) {
         Copy-Item -LiteralPath $pythonScript -Destination (Join-Path $stageDir 'install-python-if-missing.ps1') -Force

@@ -59,6 +59,7 @@ function Assert-StageIntegrity {
         'Tools\NebulaPython\requirements.txt',
         'Tools\NebulaPython\requirements.lock',
         'install-rclone-if-missing.ps1',
+        'remove-public-server-firewall-rules.ps1',
         'nssm.exe',
         'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
     )

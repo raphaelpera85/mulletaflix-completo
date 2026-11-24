@@ -209,6 +209,25 @@ try {
     Assert-Condition (-not (Get-NetFirewallRule -DisplayName 'MulletaFlix MariaDB' -ErrorAction SilentlyContinue)) 'embedded MariaDB must not have an inbound firewall rule.'
     Assert-Condition (-not (Get-NetFirewallRule -DisplayName 'MulletaFlix MongoDB' -ErrorAction SilentlyContinue)) 'local MongoDB must not have an inbound firewall rule.'
 
+    $firewallHelper = Join-Path $installDirectory 'remove-public-server-firewall-rules.ps1'
+    Assert-Condition (Test-Path -LiteralPath $firewallHelper -PathType Leaf) 'public server firewall remediation helper was not installed.'
+    $serverExecutable = Join-Path $installDirectory 'MulletaFlix.exe'
+    . $firewallHelper -ServerExecutablePath $serverExecutable -Preview
+    $serverFirewallRules = Get-NetFirewallRule -PolicyStore PersistentStore -Enabled True -Direction Inbound -Action Allow
+    $firewallRecords = foreach ($rule in $serverFirewallRules) {
+        $application = $rule | Get-NetFirewallApplicationFilter
+        [pscustomobject]@{
+            Rule = $rule
+            Program = [string]$application.Program
+            Direction = [string]$rule.Direction
+            Action = [string]$rule.Action
+            Enabled = [bool]$rule.Enabled
+            Profile = [string]$rule.Profile
+        }
+    }
+    $publicServerRules = @(Get-MulletaFlixPublicRuleUpdates -Rules $firewallRecords -ServerExecutablePath $serverExecutable)
+    Assert-Condition ($publicServerRules.Count -eq 0) 'PublicServerFirewallRules: an inbound allow rule still exposes the server executable on the Public firewall profile.'
+
     # /ready represents the core server readiness. Nebula is an optional
     # integration and must not make a healthy server fail this installer gate.
     $healthUri = "http://127.0.0.1:$HttpPort/ready"
