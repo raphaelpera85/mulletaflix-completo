@@ -764,3 +764,8 @@ Todos os oito `MulletaFlix-packaging-master/scripts/tests/*.Tests.ps1` passaram 
 #### Configuração observada no runtime — 2026-11-28 04:23 BRT
 
 Leitura restrita de `C:\ProgramData\MulletaFlix\Server\plugins\configurations\IntroSkipper.xml` confirmou `MaxParallelism=2` e `ScanTimeoutSeconds=300` no runtime 12.1.58; a fonte 12.1.59 impõe mínimo 900 s apenas para `.strm` mesmo quando o valor salvo fica em 300. Não alterei XML do runtime durante scan. Dois FFmpeg ativos e zero avisos de fingerprint vazio no log corrente até 04:17, mas resultado de segmentos ainda não verificado.
+
+## CI após sincronizar a correção do runner — 2026-11-28 04:26 BRT
+
+- O commit `034e14e8` foi enviado para `origin/main`, corrigindo as duas labels macOS e incluindo o teste de regressão/documentação. O run público de CI `#702` (`46121187512`) foi iniciado por esse push e terminou em failure após 5 s; os 16 jobs não iniciaram porque a conta GitHub permanece bloqueada por cobrança. As anotações agora mostram somente aviso de fila/capacidade para macOS ARM e nenhum erro da label inválida. Portanto a correção de configuração foi confirmada no run, mas não houve execução de testes hospedados.
+- Após o push, `HEAD` e `origin/main` foram confirmados em `034e14e8`; nenhuma alteração de código do servidor ou update de produção ocorreu. Release segue impedida pelo §4.0 e por falta de CI verde, assinatura e homologação em VM.
