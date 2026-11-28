@@ -28,6 +28,56 @@ if ($installer -notmatch '\$\{NSD_CreatePassword\}[^\r\n]*\$_DUCKDNSTOKEN_' -or
     $installer -notmatch '\$\{NSD_GetText\} \$hCtl_duckdns_Token \$_DUCKDNSTOKEN_') {
     throw 'HTTPS page must show and collect the DuckDNS token in a password field.'
 }
+
+$setupTypePage = [regex]::Match($installer, '(?s)Function ShowSetupTypePage(?<body>.*?)FunctionEnd').Groups['body'].Value
+foreach ($text in @(
+    'Basic Install (Desktop; current user)',
+    'Runs only after you sign in; the server stops when the session ends.',
+    'Install as a Service (Always-on server)',
+    'Runs without a user sign-in. Network shares require extra setup.',
+    'Recommended for always-on servers.'
+)) {
+    if (-not $setupTypePage.Contains($text)) {
+        throw "Setup type page must explain the startup behavior for: $text"
+    }
+}
+if ($setupTypePage -match 'Basic Install \(Recommended\)|Service Install is not recommended') {
+    throw 'Setup type page must not recommend interactive Basic mode as the default for server deployments.'
+}
+
+if ($installer -notmatch '(?m)^\s*Page custom ShowSetupTypePage SetupTypePage_Config\s*$') {
+    throw 'Setup type page must keep its display and configuration callbacks wired.'
+}
+
+$setupTypeCreateIndex = $setupTypePage.IndexOf('Call fnc_setuptype_Create', [System.StringComparison]::Ordinal)
+$setupTypeShowIndex = $setupTypePage.IndexOf('nsDialogs::Show', [System.StringComparison]::Ordinal)
+if ($setupTypeCreateIndex -lt 0 -or $setupTypeShowIndex -lt 0 -or $setupTypeCreateIndex -ge $setupTypeShowIndex) {
+    throw 'Setup type controls must be created before the page is displayed.'
+}
+
+$setupTypeLabels = @(
+    '$hCtl_setuptype_BasicInstall',
+    '$hCtl_setuptype_BasicInstallLabel',
+    '$hCtl_setuptype_InstallasaService',
+    '$hCtl_setuptype_InstallasaServiceLabel',
+    '$hCtl_setuptype_Label1'
+)
+foreach ($control in $setupTypeLabels) {
+    $textIndex = $setupTypePage.IndexOf("`${NSD_SetText} $control ", [System.StringComparison]::Ordinal)
+    if ($textIndex -lt $setupTypeCreateIndex -or $textIndex -gt $setupTypeShowIndex) {
+        throw "Setup type control $control must receive its runtime text after creation and before display."
+    }
+}
+if (-not $setupTypePage.Contains('; Keep the installed-server guidance here because generated dialog text is stale.')) {
+    throw 'Setup type page must document why its runtime labels override the generated dialog text.'
+}
+
+$setupTypeConfig = [regex]::Match($installer, '(?s)Function SetupTypePage_Config(?<body>.*?)FunctionEnd').Groups['body'].Value
+if ($setupTypeConfig -notmatch '\$\{NSD_GetState\}\s+\$hCtl_setuptype_BasicInstall\s+\$BasicInstall' -or
+    $setupTypeConfig -notmatch '\$BasicInstall\s*==\s*1') {
+    throw 'Setup type configuration must keep reading the Basic radio control and selecting the matching install path.'
+}
+
 $passwordControl = [regex]::Match($installer, '\$\{NSD_CreatePassword\}\s+\d+u\s+(?<top>\d+)u\s+\d+u\s+(?<height>\d+)u\s+\$_DUCKDNSTOKEN_')
 if (-not $passwordControl.Success -or
     ([int]$passwordControl.Groups['top'].Value + [int]$passwordControl.Groups['height'].Value) -gt 145) {

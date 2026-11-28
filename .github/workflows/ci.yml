@@ -446,7 +446,8 @@ jobs:
             'RcloneBootstrap.Tests.ps1',
             'ServiceDataAcl.Tests.ps1',
             'StageBackup.Tests.ps1',
-            'StageBuildOptions.Tests.ps1'
+            'StageBuildOptions.Tests.ps1',
+            'UpdateVersionMetadata.Tests.ps1'
           )
 
           foreach ($test in $tests) {

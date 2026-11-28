@@ -335,12 +335,14 @@ test('disabling HTTPS also removes the DuckDNS updater and stored credential', (
     const disabledSection = installer.slice(installer.indexOf('Section "-configure HTTPS"'), installer.indexOf('SectionEnd', installer.indexOf('Section "-configure HTTPS"')));
     const disableCallIndex = disabledSection.indexOf('-DisableDuckDns');
     const cleanupTaskIndex = configurator.indexOf('function Disable-DuckDns');
-    const unregisterIndex = configurator.indexOf('Unregister-ScheduledTask -TaskName $duckDnsTask');
-    const cleanupConfigIndex = configurator.indexOf('foreach ($configPath in @($duckDnsConfig, $legacyDuckDnsConfig))');
+    const disableBodyEnd = configurator.indexOf('if ($PrepareDuckDnsTokenFile)', cleanupTaskIndex);
+    const disableBody = configurator.slice(cleanupTaskIndex, disableBodyEnd);
+    const unregisterIndex = disableBody.indexOf('Unregister-ScheduledTask -TaskName $duckDnsTask');
+    const cleanupConfigIndex = disableBody.indexOf('foreach ($configPath in @($duckDnsConfig, $legacyDuckDnsConfig))');
 
     assert.notEqual(disableCallIndex, -1, 'unchecked HTTPS setup must invoke DuckDNS cleanup');
     assert.notEqual(cleanupTaskIndex, -1, 'configurator must provide an explicit DuckDNS disable path');
-    assert.ok(unregisterIndex > cleanupTaskIndex && cleanupConfigIndex > unregisterIndex, 'task removal must precede credential cleanup');
+    assert.ok(unregisterIndex !== -1 && cleanupConfigIndex > unregisterIndex, 'task removal must precede credential cleanup');
 });
 
 test('token read opens the same leaf without following reparse points or allowing replacement', () => {

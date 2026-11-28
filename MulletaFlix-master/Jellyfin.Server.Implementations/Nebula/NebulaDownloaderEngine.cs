@@ -2279,6 +2279,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             return defaultFallback;
         }
 
+        var usesSystemDriveInspector = driveInspector is null;
         driveInspector ??= root =>
         {
             var fullPath = Path.GetFullPath(root);
@@ -2322,13 +2323,19 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     continue;
                 }
 
-                try
+                // Unit tests can inject volume information for synthetic roots. Do not touch
+                // those paths in that case: they may point at disconnected mapped drives on
+                // Windows, where CreateDirectory can block indefinitely.
+                if (usesSystemDriveInspector)
                 {
-                    Directory.CreateDirectory(root);
-                }
-                catch (Exception ex)
-                {
-                    logger?.LogDebug(ex, "[NEBULA-STAGE] Não foi possível criar o stage root {Root}; o volume segue elegível pela inspeção.", root);
+                    try
+                    {
+                        Directory.CreateDirectory(root);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.LogDebug(ex, "[NEBULA-STAGE] Não foi possível criar o stage root {Root}; o volume segue elegível pela inspeção.", root);
+                    }
                 }
 
                 if (total > 0)

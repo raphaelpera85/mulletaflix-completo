@@ -640,8 +640,9 @@ public sealed class ServerPersistenceMariaDbTests : IAsyncLifetime
         await using (var migrationContext = await Contexts.CreateDbContextAsync(TestContext.Current.CancellationToken))
         {
             var migrations = migrationContext.Database.GetMigrations().ToArray();
-            Assert.Equal(targetMigration, migrations[^1]);
-            await migrationContext.Database.MigrateAsync(migrations[^2], TestContext.Current.CancellationToken);
+            var targetMigrationIndex = Array.IndexOf(migrations, targetMigration);
+            Assert.True(targetMigrationIndex > 0, $"Target migration '{targetMigration}' must be present after an earlier migration.");
+            await migrationContext.Database.MigrateAsync(migrations[targetMigrationIndex - 1], TestContext.Current.CancellationToken);
             await migrationContext.Database.MigrateAsync(targetMigration, TestContext.Current.CancellationToken);
         }
 

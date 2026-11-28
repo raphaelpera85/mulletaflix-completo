@@ -122,6 +122,36 @@ public sealed class QueuedEpisode
     public long? FileVersion { get; set; }
 
     /// <summary>
+    /// Calculates the opening fingerprint window. STRM catalogs often omit runtime, so an
+    /// unknown duration still needs a bounded window for Introduction and Recap detection.
+    /// </summary>
+    /// <param name="duration">Known media duration in seconds, or zero when unknown.</param>
+    /// <param name="analysisPercent">Percentage of long media to analyze.</param>
+    /// <param name="analysisLengthLimit">Maximum analysis window in minutes.</param>
+    /// <returns>A positive, bounded fingerprint end timestamp.</returns>
+    public static double CalculateIntroFingerprintEnd(double duration, int analysisPercent, int analysisLengthLimit)
+    {
+        var maximumWindow = Math.Max(1, analysisLengthLimit) * 60d;
+        if (!double.IsFinite(duration) || duration <= 0)
+        {
+            return maximumWindow;
+        }
+
+        var boundedPercent = Math.Clamp(analysisPercent, 0, 100) / 100d;
+        var desiredWindow = duration >= 5 * 60 ? duration * boundedPercent : duration;
+        return Math.Min(desiredWindow, maximumWindow);
+    }
+
+    /// <summary>
+    /// Determines whether a fingerprint range is finite, non-negative, and non-empty.
+    /// </summary>
+    /// <param name="start">Start timestamp in seconds.</param>
+    /// <param name="end">End timestamp in seconds.</param>
+    /// <returns><see langword="true"/> when the range can be analyzed.</returns>
+    public static bool IsValidFingerprintRange(double start, double end)
+        => double.IsFinite(start) && double.IsFinite(end) && start >= 0 && end > start;
+
+    /// <summary>
     /// Gets or sets a value indicating whether a stored analysis record carries a different
     /// file version than <see cref="FileVersion"/>. The pass then discards the item's
     /// automatic segments and fingerprints before analyzing it again.

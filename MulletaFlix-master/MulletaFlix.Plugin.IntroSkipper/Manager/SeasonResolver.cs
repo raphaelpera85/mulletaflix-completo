@@ -392,8 +392,6 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     {
         var category = SeriesHelper.IsAnime(series) ? QueuedMediaCategory.AnimeEpisode : QueuedMediaCategory.Episode;
         var config = Config;
-        var analysisPercent = config.AnalysisPercent / 100.0;
-
         List<QueuedEpisode> queued = [];
         foreach (var (episode, decision, key, seasonNumber) in placed)
         {
@@ -412,7 +410,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
                 Path = episode.Path,
                 Duration = duration,
                 DateAdded = EpisodeAvailabilityDate(episode),
-                IntroFingerprintEnd = Math.Min(duration >= 5 * 60 ? duration * analysisPercent : duration, 60 * config.AnalysisLengthLimit),
+                IntroFingerprintEnd = QueuedEpisode.CalculateIntroFingerprintEnd(duration, config.AnalysisPercent, config.AnalysisLengthLimit),
                 FileVersion = FileVersion(episode),
             });
         }

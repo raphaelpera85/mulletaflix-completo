@@ -174,11 +174,9 @@ public partial class BaseItemAnalyzerTask(
 
             var config = Config;
             var duration = episode.Duration;
-            var analysisPercent = (overrides.AnalysisPercent ?? config.AnalysisPercent) / 100.0;
+            var analysisPercent = overrides.AnalysisPercent ?? config.AnalysisPercent;
             var analysisLengthLimit = overrides.AnalysisLengthLimit ?? config.AnalysisLengthLimit;
-            episode.IntroFingerprintEnd = Math.Min(
-                duration >= 5 * 60 ? duration * analysisPercent : duration,
-                60 * analysisLengthLimit);
+            episode.IntroFingerprintEnd = QueuedEpisode.CalculateIntroFingerprintEnd(duration, analysisPercent, analysisLengthLimit);
         }
 
         var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
@@ -280,7 +278,7 @@ public partial class BaseItemAnalyzerTask(
         }
         catch (FingerprintException ex)
         {
-            LogFingerprintExceptionDuringAnalysis(_logger, ex);
+            LogFingerprintExceptionDuringAnalysis(_logger, ex.Message);
         }
         catch (TimeoutException ex)
         {
@@ -604,8 +602,8 @@ public partial class BaseItemAnalyzerTask(
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-analyzing settled season {Season} of {Series} ({Count} episodes)")]
     private static partial void LogReanalyzingSettledSeason(ILogger logger, int season, string series, int count);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Fingerprint exception during analysis.")]
-    private static partial void LogFingerprintExceptionDuringAnalysis(ILogger logger, Exception ex);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Fingerprint exception during analysis: {Message}")]
+    private static partial void LogFingerprintExceptionDuringAnalysis(ILogger logger, string message);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "An ffmpeg scan timed out during analysis; skipping this season. Raise the FFmpeg scan timeout in the plugin settings if this repeats.")]
     private static partial void LogFfmpegTimeoutDuringAnalysis(ILogger logger, Exception ex);

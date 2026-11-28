@@ -306,11 +306,17 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     public ActionResult ApplyUpdate()
     {
         string? updateSource;
+        string targetVersion;
         lock (SyncLock)
         {
             if (_installState != "ReadyToApply" || string.IsNullOrWhiteSpace(_extractedUpdatePath) || !Directory.Exists(_extractedUpdatePath))
             {
                 return BadRequest(new { Message = "Update package is not downloaded or ready to apply." });
+            }
+
+            if (!TryNormalizeReleaseVersion(_downloadedVersion, out targetVersion))
+            {
+                return BadRequest(new { Message = "Verified update version is unavailable or invalid." });
             }
 
             _installState = "Applying";
@@ -327,22 +333,15 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         Directory.CreateDirectory(updatesDir);
         var scriptPath = Path.Combine(updatesDir, "apply-update.ps1");
 
-        var installScriptPath = Path.Combine(installDir, "apply-update.ps1");
-        if (System.IO.File.Exists(installScriptPath))
-        {
-            System.IO.File.Copy(installScriptPath, scriptPath, true);
-        }
-        else
-        {
-            System.IO.File.WriteAllText(scriptPath, EmbeddedUpdaterScript);
-        }
+        // An installed updater can predate this server build and leave registry metadata stale.
+        System.IO.File.WriteAllText(scriptPath, EmbeddedUpdaterScript);
 
         _logger.LogInformation("Launching in-place updater: {ScriptPath} with source {Source} target {Target} PID {Pid}", scriptPath, updateSource, installDir, pid);
 
         var startInfo = new ProcessStartInfo
         {
             FileName = "powershell.exe",
-            Arguments = $"-WindowStyle Hidden -ExecutionPolicy Bypass -File \"{scriptPath}\" -InstallDirectory \"{installDir}\" -UpdateSourceDirectory \"{updateSource}\" -ProcessId {pid} -DataDirectory \"{dataDir}\"",
+            Arguments = BuildUpdaterArguments(scriptPath, installDir, updateSource, pid, dataDir, targetVersion),
             UseShellExecute = true,
             CreateNoWindow = true,
             Verb = "runas"
@@ -359,6 +358,28 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         });
 
         return new OkObjectResult(new { Message = "Update application started. Server is shutting down to apply updates." });
+    }
+
+    internal static bool TryNormalizeReleaseVersion(string? version, out string normalizedVersion)
+    {
+        normalizedVersion = string.Empty;
+        if (!Version.TryParse(version, out var parsed) || parsed.Build < 0)
+        {
+            return false;
+        }
+
+        normalizedVersion = parsed.ToString(3);
+        return true;
+    }
+
+    internal static string BuildUpdaterArguments(string scriptPath, string installDirectory, string updateSourceDirectory, int processId, string dataDirectory, string targetVersion)
+    {
+        if (!TryNormalizeReleaseVersion(targetVersion, out var normalizedVersion))
+        {
+            throw new ArgumentException("Update target version must have three numeric components.", nameof(targetVersion));
+        }
+
+        return $"-WindowStyle Hidden -ExecutionPolicy Bypass -File \"{scriptPath}\" -InstallDirectory \"{installDirectory}\" -UpdateSourceDirectory \"{updateSourceDirectory}\" -ProcessId {processId} -DataDirectory \"{dataDirectory}\" -TargetVersion \"{normalizedVersion}\"";
     }
 
     private HttpClient CreateConfiguredClient()
@@ -769,70 +790,31 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         }
     }
 
-    private const string EmbeddedUpdaterScript = @"param([string]$InstallDirectory, [string]$UpdateSourceDirectory, [int]$ProcessId, [string]$DataDirectory)
-$ErrorActionPreference = 'Continue'
-$logFile1 = Join-Path $InstallDirectory 'update.log'
-$logFile2 = Join-Path $env:TEMP 'mulletaflix-update.log'
+    internal static string EmbeddedUpdaterScript => LoadEmbeddedUpdaterScript();
 
-function Log([string]$Message) {
-    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $line = ""$ts [UPDATE] $Message""
-    try { $line | Out-File -FilePath $logFile1 -Append -Encoding utf8 } catch {}
-    try { $line | Out-File -FilePath $logFile2 -Append -Encoding utf8 } catch {}
-}
+    internal static string EmbeddedUpdaterVersionMetadataFunctions =>
+        ExtractEmbeddedUpdaterSection("# BEGIN VERSION METADATA HELPERS", "# END VERSION METADATA HELPERS");
 
-Log ""Starting in-place update for MulletaFlix.""
-Log ""InstallDirectory: $InstallDirectory""
-Log ""UpdateSourceDirectory: $UpdateSourceDirectory""
-Log ""Target ProcessId: $ProcessId""
-
-$waited = 0
-while ((Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) -and ($waited -lt 30)) { Start-Sleep -Seconds 1; $waited++ }
-
-$targetProcesses = @('MulletaFlix', 'MulletaFlix.Windows.Tray', 'jellyfin')
-foreach ($procName in $targetProcesses) {
-    Get-Process -Name $procName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-Start-Sleep -Seconds 3
-
-Log ""Copying update files using robocopy...""
-$p = Start-Process -FilePath ""robocopy.exe"" -ArgumentList ""`""$UpdateSourceDirectory`"" `""$InstallDirectory`"" /E /R:5 /W:2 /NP /NFL /NDL /XF apply-update.ps1 *.log *.tmp"" -Wait -PassThru -NoNewWindow
-$exitCode = $p.ExitCode
-Log ""Robocopy finished with exit code: $exitCode""
-
-if ($exitCode -lt 8) {
-    Log ""Files copied successfully.""
-    try { Remove-Item -LiteralPath $UpdateSourceDirectory -Recurse -Force -ErrorAction SilentlyContinue } catch {}
-    if ($DataDirectory) {
-        $stateFile = Join-Path $DataDirectory 'updates\update_state.json'
-        $pkgZip = Join-Path $DataDirectory 'updates\package.zip'
-        if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue }
-        if (Test-Path -LiteralPath $pkgZip) { Remove-Item -LiteralPath $pkgZip -Force -ErrorAction SilentlyContinue }
+    private static string LoadEmbeddedUpdaterScript()
+    {
+        using var stream = typeof(UpdateInfoController).Assembly.GetManifestResourceStream("MulletaFlix.Api.Updater.apply-update.ps1")
+            ?? throw new InvalidOperationException("Embedded Windows updater resource was not found.");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
-} else {
-    Log ""ERROR: Robocopy failed with exit code $exitCode.""
-}
 
-$service = Get-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue
-if ($service) {
-    Log ""Starting MulletaFlixServer service...""
-    Start-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue
-} else {
-    $exePath = Join-Path $InstallDirectory 'MulletaFlix.exe'
-    if (Test-Path -LiteralPath $exePath) {
-        Log ""Starting MulletaFlix.exe...""
-        $args = if ($DataDirectory) { ""--datadir `""$DataDirectory`"""" } else { """" }
-        Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $InstallDirectory -WindowStyle Hidden
+    private static string ExtractEmbeddedUpdaterSection(string startMarker, string endMarker)
+    {
+        var script = EmbeddedUpdaterScript;
+        var start = script.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = script.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+        if (start < 0 || end < 0)
+        {
+            throw new InvalidOperationException("Embedded Windows updater section markers are missing.");
+        }
+
+        return script[(start + startMarker.Length)..end].Trim();
     }
-}
-$trayPath = Join-Path $InstallDirectory 'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
-if (Test-Path -LiteralPath $trayPath) {
-    Log ""Starting MulletaFlix.Windows.Tray.exe...""
-    Start-Process -FilePath $trayPath -WorkingDirectory (Join-Path $InstallDirectory 'mulletaflix-windows-tray')
-}
-Log ""In-place update finished.""
-";
-
     /// <summary>
     /// Compara se todos os arquivos do pacote de atualização já estão presentes e são idênticos aos arquivos instalados.
     /// Se forem idênticos, nenhuma atualização é necessária.

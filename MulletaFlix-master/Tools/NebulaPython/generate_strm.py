@@ -10,6 +10,10 @@ from typing import Any
 from pymongo import MongoClient
 
 WINDOWS_INVALID_NAME = re.compile(r'[<>:"/\\|?*]')
+WINDOWS_RESERVED_NAME = re.compile(
+    r"^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])(?=\s*\.|$)",
+    re.IGNORECASE,
+)
 PROTECTED_SIDECAR_EXTENSIONS = {
     ".nfo",
     ".jpg",
@@ -42,6 +46,9 @@ def safe_windows_name(value: Any) -> str:
     """Return a single Windows-safe path component."""
     cleaned = WINDOWS_INVALID_NAME.sub(" - ", str(value))
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    reserved_match = WINDOWS_RESERVED_NAME.match(cleaned)
+    if reserved_match:
+        cleaned = f"{cleaned[:reserved_match.end()]}_{cleaned[reserved_match.end():]}"
     return cleaned or "_"
 
 

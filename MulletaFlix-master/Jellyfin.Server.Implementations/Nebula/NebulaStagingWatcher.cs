@@ -229,7 +229,10 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
         var trimmed = pathOrDir.Trim();
         var full = Path.GetFullPath(trimmed);
-        if (File.Exists(full) || NebulaMetadataExportService.IsUploadablePath(full))
+        // Do not probe the filesystem before recognizing a media payload. Priority can be
+        // requested while a remote staging volume is unavailable, and File.Exists may block
+        // on a disconnected network drive even though the extension already identifies media.
+        if (NebulaMetadataExportService.IsUploadablePath(full) || File.Exists(full))
         {
             if (_prioritizedPaths.TryAdd(full, 0))
             {

@@ -14,6 +14,15 @@ namespace Jellyfin.Server.Implementations.Tests.MediaEncoding;
 public class HardwareDetectionServiceTests
 {
     [Fact]
+    public void NormalizeVideoControllerNames_RemovesEmptyAndDuplicateNames()
+    {
+        var names = HardwareDetectionService.NormalizeVideoControllerNames(
+            [" NVIDIA GeForce RTX 3050 ", "nvidia geforce rtx 3050", "", "    ", "Intel UHD Graphics", null]);
+
+        Assert.Equal(["NVIDIA GeForce RTX 3050", "Intel UHD Graphics"], names);
+    }
+
+    [Fact]
     public void Run_WhenNoHardwareEncoderSupported_FallsBackToSoftwareCpuAndSavesConfig()
     {
         var mediaEncoder = new Mock<IMediaEncoder>();
@@ -37,7 +46,8 @@ public class HardwareDetectionServiceTests
             NullLogger<HardwareDetectionService>.Instance,
             configManager.Object,
             mediaEncoder.Object,
-            appPaths.Object);
+            appPaths.Object,
+            () => Array.Empty<string>());
 
         service.Run();
 
@@ -72,7 +82,8 @@ public class HardwareDetectionServiceTests
             NullLogger<HardwareDetectionService>.Instance,
             configManager.Object,
             mediaEncoder.Object,
-            appPaths.Object);
+            appPaths.Object,
+            () => Array.Empty<string>());
 
         // First run establishes the optimal software fallback baseline
         service.Run();
@@ -84,5 +95,34 @@ public class HardwareDetectionServiceTests
         // Second run detects that all configurations already match and does not mutate or save
         service.Run();
         configManager.Verify(c => c.SaveConfiguration("encoding", It.IsAny<EncodingOptions>()), Times.Never);
+    }
+
+    [Fact]
+    public void Run_WhenGpuInventoryFails_KeepsCurrentConfiguration()
+    {
+        var mediaEncoder = new Mock<IMediaEncoder>();
+        var options = new EncodingOptions
+        {
+            HardwareAccelerationType = HardwareAccelerationType.qsv,
+            EnableHardwareEncoding = true,
+            EncoderPreset = EncoderPreset.fast
+        };
+        var configManager = new Mock<IServerConfigurationManager>();
+        configManager.Setup(c => c.GetConfiguration("encoding")).Returns(options);
+
+        var service = new HardwareDetectionService(
+            NullLogger<HardwareDetectionService>.Instance,
+            configManager.Object,
+            mediaEncoder.Object,
+            new Mock<IApplicationPaths>().Object,
+            () => null);
+
+        service.Run();
+
+        Assert.Equal(HardwareAccelerationType.qsv, options.HardwareAccelerationType);
+        Assert.True(options.EnableHardwareEncoding);
+        Assert.Equal(EncoderPreset.fast, options.EncoderPreset);
+        configManager.Verify(c => c.SaveConfiguration("encoding", It.IsAny<EncodingOptions>()), Times.Never);
+        mediaEncoder.Verify(e => e.SupportsEncoder(It.IsAny<string>()), Times.Never);
     }
 }

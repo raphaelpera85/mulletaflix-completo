@@ -25,6 +25,7 @@ public sealed class StrmInputResolverTests
             () => service.FingerprintAsync(episode, AnalysisMode.Introduction, TestContext.Current.CancellationToken));
 
         Assert.IsType<DirectoryNotFoundException>(exception.InnerException);
+        Assert.DoesNotContain(missingStrmPath, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -41,6 +42,7 @@ public sealed class StrmInputResolverTests
             () => service.DetectBlackFramesAsync(episode, threshold: 20, TestContext.Current.CancellationToken));
 
         Assert.IsType<DirectoryNotFoundException>(exception.InnerException);
+        Assert.DoesNotContain(missingStrmPath, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

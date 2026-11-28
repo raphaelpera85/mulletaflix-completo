@@ -475,6 +475,21 @@ internal sealed partial class FFmpegService : IFFmpegService
         int timeout,
         CancellationToken cancellationToken)
     {
+        var processArgs = CreateProcessArguments(args, stderr, infoQuery);
+        return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
+    }
+
+    private Task<FFmpegProcessOutput> GetOutputWithDiagnosticsAsync(
+        IReadOnlyList<string> args,
+        int timeout,
+        CancellationToken cancellationToken)
+    {
+        var processArgs = CreateProcessArguments(args, stderr: false, infoQuery: false);
+        return _processRunner.RunWithDiagnosticsAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, timeout, cancellationToken);
+    }
+
+    private static List<string> CreateProcessArguments(IReadOnlyList<string> args, bool stderr, bool infoQuery)
+    {
         var processArgs = new List<string> { "-hide_banner" };
         if (!infoQuery)
         {
@@ -493,7 +508,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             throw new FingerprintException("Unable to resolve STRM input.", ex);
         }
 
-        return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
+        return processArgs;
     }
 
     /// <summary>
@@ -634,7 +649,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
-            LogPreferredAudioLanguageProbeFailed(_logger, ex, filePath, preferredLanguage);
+            LogPreferredAudioLanguageProbeFailed(_logger, preferredLanguage);
         }
 
         return null;
@@ -652,11 +667,16 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException)
         {
-            throw new FingerprintException($"Unable to resolve STRM input \"{episode.Path}\"", ex);
+            throw new FingerprintException("Unable to resolve STRM input.", ex);
         }
 
         var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
         var (start, end) = episode.GetFingerprintRange(cacheMode);
+        if (!QueuedEpisode.IsValidFingerprintRange(start, end))
+        {
+            throw new FingerprintException("No valid fingerprint window is available for this analysis mode.");
+        }
+
         var configuration = Plugin.Instance?.Configuration;
         var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration?.PreferredAudioLanguage);
         var streamSelection = await FindAudioStreamSelectionAsync(
@@ -690,7 +710,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             return cachedFingerprint;
         }
 
-        LogFingerprinting(_logger, start, end, episode.Path, episode.EpisodeId);
+        LogFingerprinting(_logger, cacheMode, start, end);
 
         var args = new List<string>
         {
@@ -714,20 +734,29 @@ internal sealed partial class FFmpegService : IFFmpegService
         ]);
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
-        byte[] rawPoints;
+        FFmpegProcessOutput processOutput;
         try
         {
-            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: ScanTimeout(episode.Path), cancellationToken).ConfigureAwait(false);
+            processOutput = await GetOutputWithDiagnosticsAsync(args, timeout: ScanTimeout(episode.Path), cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {
-            throw new FingerprintException($"chromaprint fingerprinting of \"{episode.Path}\" timed out", ex);
+            throw new FingerprintException("Chromaprint fingerprinting timed out.", ex);
         }
 
+        var rawPoints = processOutput.Output;
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
-            LogChromaprintReturnedPoints(_logger, rawPoints.Length / sizeof(uint), cacheMode, start, end, episode.Path);
-            throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
+            var diagnostic = FFmpegProcessRunner.SanitizeDiagnostic(processOutput.StandardError);
+            LogChromaprintReturnedPoints(
+                _logger,
+                rawPoints.Length / sizeof(uint),
+                cacheMode,
+                start,
+                end,
+                processOutput.ExitCode,
+                diagnostic.Length == 0 ? "No diagnostic text was available." : diagnostic);
+            throw new FingerprintException("Chromaprint returned no usable fingerprint output.");
         }
 
         var results = MemoryMarshal.Cast<byte, uint>(rawPoints).ToArray();
@@ -755,8 +784,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Error, Message = "{ErrorMessage}")]
     private static partial void LogFfmpegRequirementFailed(ILogger logger, string errorMessage);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Fingerprinting [{Start}, {End}] from \"{File}\" (id {Id})")]
-    private static partial void LogFingerprinting(ILogger logger, double start, double end, string file, Guid id);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Fingerprinting {Mode} window [{Start}, {End}]")]
+    private static partial void LogFingerprinting(ILogger logger, AnalysisMode mode, double start, double end);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "{Type} scan [{Start}, {End}] of \"{File}\" (id {Id})")]
     private static partial void LogDetectionScan(ILogger logger, CacheEntryType type, double start, double end, string file, Guid id);
@@ -764,14 +793,14 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for {Mode} window [{Start}, {End}] in \"{Path}\"")]
-    private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, AnalysisMode mode, double start, double end, string path);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for {Mode} window [{Start}, {End}] (FFmpeg exit code {ExitCode}): {Diagnostic}")]
+    private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, AnalysisMode mode, double start, double end, int exitCode, string diagnostic);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
     private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception ex, string file);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
-    private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language}; using FFmpeg's default audio stream selection")]
+    private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, string language);
 
     /// <summary>
     /// The audio stream a fingerprint is taken from.

@@ -67,4 +67,15 @@
     <ProjectReference Include="../src/Jellyfin.Extensions/Jellyfin.Extensions.csproj" />
   </ItemGroup>
 
+  <!--
+    Solution-level Rebuild can leave the SDK's clean-only flag set when this project is
+    rebuilt through project references. MimeTypes is supplied as a preprocessed package
+    content file, so ensure the SDK produces that source during the build phase.
+  -->
+  <Target Name="EnableContentPreprocessingForBuild" BeforeTargets="RunProduceContentAssets">
+    <PropertyGroup>
+      <_CleaningWithoutRebuilding>false</_CleaningWithoutRebuilding>
+    </PropertyGroup>
+  </Target>
+
 </Project>

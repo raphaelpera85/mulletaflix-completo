@@ -1010,7 +1010,15 @@ FunctionEnd
 ; Setup Type dialog show function
 Function ShowSetupTypePage
   Call HideSetupTypePage
-  Call fnc_setuptype_Show
+  Call fnc_setuptype_Create
+  ; Keep the installed-server guidance here because generated dialog text is stale.
+  ${NSD_SetText} $hCtl_setuptype_BasicInstall "Basic Install (Desktop; current user)"
+  ${NSD_SetText} $hCtl_setuptype_BasicInstallLabel "Runs only after you sign in; the server stops when the session ends."
+  ${NSD_SetText} $hCtl_setuptype_InstallasaService "Install as a Service (Always-on server)"
+  ${NSD_SetText} $hCtl_setuptype_InstallasaServiceLabel "Runs without a user sign-in. Network shares require extra setup."
+  ${NSD_SetText} $hCtl_setuptype_Label1 "Recommended for always-on servers."
+  SetCtlColors $hCtl_setuptype_Label1 0x000000 0xF0F0F0
+  nsDialogs::Show
 FunctionEnd
 
 ; Folder Warning dialog show function

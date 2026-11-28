@@ -1,3 +1,4 @@
+using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.ScheduledTasks;
 using Xunit;
@@ -6,6 +7,32 @@ namespace IntroSkipper.Integration.Tests;
 
 public sealed class FFmpegAudioDurationTests
 {
+    [Theory]
+    [InlineData(0, 25, 10, 600)]
+    [InlineData(123, 25, 10, 123)]
+    [InlineData(1_200, 25, 10, 300)]
+    [InlineData(1_200, 25, 2, 120)]
+    [InlineData(0, 25, 0, 60)]
+    public void CalculateIntroFingerprintEnd_UsesBoundedWindowWhenDurationIsUnavailable(
+        double duration,
+        int analysisPercent,
+        int analysisLengthLimit,
+        double expected)
+    {
+        Assert.Equal(expected, QueuedEpisode.CalculateIntroFingerprintEnd(duration, analysisPercent, analysisLengthLimit));
+    }
+
+    [Theory]
+    [InlineData(0, 0, false)]
+    [InlineData(0, 600, true)]
+    [InlineData(5, 5, false)]
+    [InlineData(-1, 10, false)]
+    [InlineData(double.NaN, 10, false)]
+    public void IsValidFingerprintRange_RejectsInvalidWindows(double start, double end, bool expected)
+    {
+        Assert.Equal(expected, QueuedEpisode.IsValidFingerprintRange(start, end));
+    }
+
     [Theory]
     [InlineData(300, true, 900_000)]
     [InlineData(1_200, true, 1_200_000)]

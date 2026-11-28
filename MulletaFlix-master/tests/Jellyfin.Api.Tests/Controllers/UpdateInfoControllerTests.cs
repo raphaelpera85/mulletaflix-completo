@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using Microsoft.Win32;
 using Microsoft.Extensions.Logging.Abstractions;
 using MulletaFlix.Api.Controllers;
 using Xunit;
@@ -8,6 +10,181 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public class UpdateInfoControllerTests
 {
+    [Fact]
+    public void TryNormalizeReleaseVersion_UsesThreePartServerVersion()
+    {
+        Assert.True(UpdateInfoController.TryNormalizeReleaseVersion("12.1.58.0", out var version));
+        Assert.Equal("12.1.58", version);
+        Assert.False(UpdateInfoController.TryNormalizeReleaseVersion("12.1", out _));
+        Assert.False(UpdateInfoController.TryNormalizeReleaseVersion("not-a-version", out _));
+    }
+
+    [Fact]
+    public void BuildUpdaterArguments_PassesVerifiedTargetVersion()
+    {
+        var arguments = UpdateInfoController.BuildUpdaterArguments(
+            @"C:\ProgramData\MulletaFlix\updates\apply-update.ps1",
+            @"C:\Program Files\MulletaFlix\Server",
+            @"C:\ProgramData\MulletaFlix\updates\extracted",
+            1234,
+            @"C:\ProgramData\MulletaFlix",
+            "12.1.58.0");
+
+        Assert.Contains("-TargetVersion \"12.1.58\"", arguments, StringComparison.Ordinal);
+        Assert.Contains("-InstallDirectory \"C:\\Program Files\\MulletaFlix\\Server\"", arguments, StringComparison.Ordinal);
+        Assert.Throws<ArgumentException>(() => UpdateInfoController.BuildUpdaterArguments("script.ps1", "install", "source", 1, "data", "invalid"));
+    }
+
+    [Fact]
+    public void EmbeddedUpdaterScript_SynchronizesVersionMetadataInIsolatedRegistryKey()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        const string registrySubKey = @"Software\MulletaFlix\UpdateVersionMetadataTests";
+        var registryPath = "HKCU:\\" + registrySubKey;
+        var tempRoot = Path.Combine(Path.GetTempPath(), "mulleta_upd_version_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            using (var key = Registry.CurrentUser.CreateSubKey(registrySubKey))
+            {
+                Assert.NotNull(key);
+                key!.SetValue("DisplayName", "MulletaFlix Server 12.1.5");
+                key.SetValue("DisplayVersion", "12.1.5");
+            }
+
+            var scriptPath = Path.Combine(tempRoot, "apply-update.ps1");
+            File.WriteAllText(
+                scriptPath,
+                "$ErrorActionPreference = 'Stop'" + Environment.NewLine
+                + UpdateInfoController.EmbeddedUpdaterVersionMetadataFunctions
+                + Environment.NewLine
+                + $"Set-InstalledVersionMetadata -TargetVersion '12.1.58.0' -RegistryPath '{registryPath}' | Out-Null");
+            var startInfo = new ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            foreach (var argument in new[]
+            {
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath
+            })
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            using var process = Process.Start(startInfo);
+            Assert.NotNull(process);
+            var stdout = process!.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            Assert.True(process.ExitCode == 0, $"Embedded updater script failed: {stdout} {stderr}");
+
+            using var updatedKey = Registry.CurrentUser.OpenSubKey(registrySubKey);
+            Assert.NotNull(updatedKey);
+            Assert.Equal("12.1.58", updatedKey!.GetValue("DisplayVersion"));
+            Assert.Equal("MulletaFlix Server 12.1.58", updatedKey.GetValue("DisplayName"));
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(registrySubKey, throwOnMissingSubKey: false);
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void EmbeddedUpdater_SynchronizesRegistryVersionOnlyAfterSuccessfulCopy()
+    {
+        var script = UpdateInfoController.EmbeddedUpdaterScript;
+        Assert.DoesNotContain("TestOnly", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("UninstallRegistryPath", script, StringComparison.Ordinal);
+        var serviceStop = script.IndexOf("Stop-Service -Name \"MulletaFlixServer\"", StringComparison.Ordinal);
+        var stagedCopy = script.IndexOf("Copy-UpdateToStage -SourceDirectory $UpdateSourceDirectory -StageDirectory $stageDirectory", StringComparison.Ordinal);
+        var stagedValidation = script.IndexOf("Assert-UpdateVersion -InstallDirectory $stageDirectory -TargetVersion $TargetVersion", StringComparison.Ordinal);
+        var stageAssembly = script.IndexOf("Copy-InstalledFilesToStage -InstallDirectory $InstallDirectory -StageDirectory $assembledDirectory", StringComparison.Ordinal);
+        var assembledValidation = script.IndexOf("Assert-UpdateVersion -InstallDirectory $assembledDirectory -TargetVersion $TargetVersion", StringComparison.Ordinal);
+        var installSwap = script.IndexOf("Move-StageIntoInstall -InstallDirectory $InstallDirectory -StageDirectory $assembledDirectory", StringComparison.Ordinal);
+        Assert.True(stagedCopy >= 0 && stagedValidation > stagedCopy && serviceStop > stagedValidation && stageAssembly > serviceStop && assembledValidation > stageAssembly && installSwap > assembledValidation);
+        Assert.Contains("Move-StageIntoInstall", script, StringComparison.Ordinal);
+        Assert.Contains("Restore-PreviousInstall", script, StringComparison.Ordinal);
+        Assert.Contains("the installed server remains active", script, StringComparison.Ordinal);
+        var targetExitCheck = script.IndexOf("Target server process $ProcessId did not exit within 30 seconds", StringComparison.Ordinal);
+        var processStop = script.IndexOf("Stop-InstalledProcesses -InstallDirectory $InstallDirectory", StringComparison.Ordinal);
+        var livenessCheck = script.IndexOf("Wait-ForServerLiveness -LivenessUri $livenessUri", StringComparison.Ordinal);
+        var backupCleanup = script.IndexOf("Remove-Item -LiteralPath $backupDirectory -Recurse -Force", StringComparison.Ordinal);
+        Assert.True(targetExitCheck >= 0 && processStop > targetExitCheck);
+        Assert.True(livenessCheck > installSwap && backupCleanup > livenessCheck);
+        Assert.DoesNotContain("Get-Process -Name $procName", script, StringComparison.Ordinal);
+
+        Assert.Contains("Start-Service -Name 'MulletaFlixServer'", script, StringComparison.Ordinal);
+        Assert.Contains("Start-Process -FilePath $exePath", script, StringComparison.Ordinal);
+        Assert.Contains("Start-Process -FilePath $trayPath", script, StringComparison.Ordinal);
+        Assert.Contains("Start-Service -Name 'MulletaFlixServer' -ErrorAction Stop", script, StringComparison.Ordinal);
+        Assert.Contains("$runningService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Start-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue", script, StringComparison.Ordinal);
+        Assert.Contains("$serverProcess = Start-Process -FilePath $exePath -ArgumentList $arguments -WorkingDirectory $InstallDirectory -WindowStyle Hidden -PassThru -ErrorAction Stop", script, StringComparison.Ordinal);
+        Assert.Contains("if ($serverProcess.HasExited)", script, StringComparison.Ordinal);
+        Assert.Contains("$null = Start-Process -FilePath $trayPath -WorkingDirectory (Join-Path $InstallDirectory 'mulletaflix-windows-tray') -PassThru -ErrorAction Stop", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EmbeddedUpdaterScript_ParsesInWindowsPowerShell()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), "mulleta_upd_parse_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var updaterPath = Path.Combine(tempRoot, "apply-update.ps1");
+            var parserPath = Path.Combine(tempRoot, "parse-script.ps1");
+            File.WriteAllText(updaterPath, UpdateInfoController.EmbeddedUpdaterScript);
+            File.WriteAllText(parserPath, @"
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$tokens, [ref]$parseErrors) | Out-Null
+if ($parseErrors.Count -gt 0) {
+    $parseErrors | Format-List | Out-String | Write-Error
+    exit 1
+}
+");
+
+            var startInfo = new ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            foreach (var argument in new[]
+            {
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", parserPath, updaterPath
+            })
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            using var process = Process.Start(startInfo);
+            Assert.NotNull(process);
+            var stdout = process!.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            Assert.True(process.ExitCode == 0, $"Embedded updater script did not parse: {stdout} {stderr}");
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public void IsPreparedUpdateCurrent_RejectsStateForDifferentReleaseMetadata()
     {

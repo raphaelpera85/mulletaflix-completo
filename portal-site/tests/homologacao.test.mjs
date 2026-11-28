@@ -7,6 +7,7 @@ const statusData = JSON.parse(readFileSync(new URL('../homologacao-status.json',
 const dashboardSource = readFileSync(new URL('../homologacao.js', import.meta.url), 'utf8');
 const homologationHtml = readFileSync(new URL('../homologacao.html', import.meta.url), 'utf8');
 const serverCiWorkflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+const roadmapSource = readFileSync(new URL('../../docs/roadmap-evolucao-tecnologica-servidor-e-web.md', import.meta.url), 'utf8');
 
 test('registra a restauração oficial 12.1.51 sem promover aceite autenticado', () => {
     const event = statusData.events.find(item => item.id === 'runtime-installed-1251-official-backup-restore-complete-2026-11-07-0445');
@@ -156,6 +157,34 @@ test('roadmap counters match the current checklist totals', () => {
     assert.match(statusData.coverage.definition, /não equivale à homologação formal/);
     assert.ok(homologationHtml.includes('id="coverage-source"'));
     assert.ok(dashboardSource.includes("byId('coverage-source').textContent = `${coverage.definition"));
+});
+
+test('roadmap checklist coverage matches literal checkbox counts in the roadmap source', () => {
+    const coverage = statusData.roadmapChecklistCoverage;
+    const statuses = [...roadmapSource.matchAll(/^\s*[-*] \[([ xX])\]/gm)].map(match => match[1].toLowerCase());
+    const completed = statuses.filter(status => status === 'x').length;
+    const pending = statuses.filter(status => status === ' ').length;
+
+    assert.equal(coverage.completed, completed);
+    assert.equal(coverage.pending, pending);
+    assert.equal(coverage.inProgress, 0);
+    assert.equal(coverage.total, statuses.length);
+});
+
+test('roadmap active and future pending counts follow explicit backlog section boundaries', () => {
+    const coverage = statusData.roadmapChecklistCoverage;
+    const lines = roadmapSource.split(/\r?\n/);
+    const backlogStart = lines.findIndex(line => /^## Backlog futuro\b/.test(line));
+    assert.notEqual(backlogStart, -1, 'roadmap must declare its future backlog section');
+
+    let backlogEnd = backlogStart + 1;
+    while (backlogEnd < lines.length && !/^## /.test(lines[backlogEnd])) backlogEnd++;
+    const futurePending = lines.slice(backlogStart + 1, backlogEnd)
+        .filter(line => /^\s*[-*] \[ \]/.test(line)).length;
+    const open = [...roadmapSource.matchAll(/^\s*[-*] \[ \]/gm)].length;
+
+    assert.equal(coverage.futurePending, futurePending);
+    assert.equal(coverage.activePending, open - futurePending);
 });
 
 test('records metadata saver cancellation propagation without crediting formal homologation', () => {

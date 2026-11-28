@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-24T17:50:10-03:00",
+  "generatedAt": "2026-11-26T15:26:31-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -9,7 +9,7 @@
     "completed": 357,
     "pending": 74,
     "total": 438,
-    "definition": "Checklists de implementação do roadmap (cada checkbox conta como um item e não equivale à homologação formal); tarefas com evento ativo identificado aparecem como em execução.",
+    "definition": "Status dos 438 itens do catálogo de features exibido no portal; não equivale à homologação formal. A contagem literal dos checkboxes do roadmap está separada em roadmapChecklistCoverage.",
     "inProgress": 7
   },
   "tracks": [
@@ -17785,6 +17785,173 @@
         "docs/homologacao-release-12.1.59.md",
         "docs/roadmap-evolucao-tecnologica-servidor-e-web.md"
       ]
+    },
+    {
+      "id": "windows-server-introskipper-final-audit-2026-11-24",
+      "title": "Fechamento parcial da auditoria Windows e IntroSkipper",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows 11; runtime MulletaFlix 12.1.58; .NET 10 Release",
+      "location": "IntroSkipper; runtime Windows; firewall Nginx/MariaDB",
+      "scope": "Validar health e Nginx, reduzir regras públicas excessivas, corrigir agendamento por biblioteca e diagnóstico FFmpeg com redação de caminhos/tokens.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-24T23:19:34-03:00",
+      "updatedAt": "2026-11-24T23:19:34-03:00",
+      "evidence": "Health direto 127.0.0.1:8096 e proxy HTTP/HTTPS: 200; nginx -t passou. ActiveStore: apenas TCP 80/443 para Nginx do serviço; mysqld sem regra Allow e escuta em loopback. IntroSkipper.Integration.Tests Release: 92 aprovados, 58 ignorados, 0 falhas/150. Dois destinos STRM amostrados retornaram HTTP 404. Ignorados dependem de integrações não disponíveis e não contam como homologados. A query de tarefas WACS não elevada foi inconclusiva (seis erros de acesso). Regressão adicional para `Failed to open`/`Unable to open` sem extensão: focal 31/31. Redação global de HTTP status, Authorization e Bearer também foi testada; verificação final focal 34/34. TLS: win-acme task repaired and independently verified elevated Ready/SYSTEM/Highest/daily; next run set. No actual renewal executed. Post task-repair runtime recheck: direct/proxy HTTP+HTTPS health all 200, nginx -t successful, server process present.",
+      "release": "Não publicada: regra local 4.0 mantém gate aberto (81 tarefas pendentes e 1 em andamento); diff atual ainda precisa de build final, CI hospedada válida, assinatura Authenticode e VM limpa de instalação/upgrade. Sem push, tag ou publicação. Windows ACME task recovered; its first post-repair run remains pending.",
+      "links": [
+        "MulletaFlix-master/docs/homologacao-release-12.1.59.md",
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md"
+      ]
+    },
+    {
+      "id": "t9-windows-nginx-service-transaction-2026-11-25",
+      "title": "T9 Windows: transação de migração do serviço Nginx",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T9.1",
+        "T9.3",
+        "T9.5"
+      ],
+      "local": "Windows PowerShell 5.1/7, mock NSSM/firewall; IntroSkipper .NET 10 Release",
+      "location": "tools/release/configure-https.ps1; tests/configure-https-orchestration.tests.ps1; tests/configure-https-service-transaction.tests.ps1; tests/configure-https-credential.tests.ps1; IntroSkipper",
+      "scope": "Auditoria do configurador Windows HTTPS, preflight sem efeitos de Nginx/NSSM/WACS, transação DuckDNS de config protegida + tarefa, rollback NSSM/nginx.conf/firewall e amostra de funcionamento do servidor Windows.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-25T00:32:00-03:00",
+      "updatedAt": "2026-11-25T03:04:00-03:00",
+      "evidence": "TDD RED: teste de orquestração falhou antes da implementação porque Assert-HttpsPrerequisites não existia. GREEN: configure-https-orchestration.tests.ps1 passou em Windows PowerShell 5.1 e PowerShell 7; injeta ausência de Nginx/NSSM/WACS/updater, SkipCertificate, falhas do update DuckDNS, registro/verificação da tarefa e primeiro setup, e confirma rollback de JSON protegido e tarefa XML. configure-https-service-transaction.tests.ps1 e configure-https-credential.tests.ps1 passaram nos dois runtimes. Segurança DuckDNS ACL passou em PS; transporte Node 16/16; duckdns-update.test.sh passou em Git Bash; parser e diff-check passaram. IntroSkipper.Integration.Tests Release atual: 92 aprovados, 58 ignorados, 0 falhas (150); houve uma falha transitória do teste HTTP 404 sob concorrência, focal repetido passou 10/10. Runtime Windows somente leitura: processo MulletaFlix presente, nginx -t OK, health direto e proxy HTTP/HTTPS 200; migração real não aplicada. WACS issue/renewal e --setuptaskscheduler ficam depois do commit do serviço e falhas não revertem esse commit; VM limpa, emissão/tarefa/reload real pendentes. WACS failure injection: --source and --setuptaskscheduler failure keep bootstrap at 503/no HTTP proxy when no cert exists; renewal with existing chain/key keeps TLS. Errors omit the DuckDNS token. Recovery: fix DNS/ports/WACS and rerun configurator; this avoids downgrading to cleartext. External ACME/task/reload and VM remain pending. Full solution serial Release rerun passed 17 assemblies: 6,145 passed, 315 skipped, 0 failed/6,460; Controller 73/73. Scheduler test had one failure in first full run, then focal 20/20 and full rerun passed. Windows installer mode is Basic (Tray/HKCU Run), so current health does not prove service-mode or boot-before-login behavior. Homologação integral Windows/.NET com MariaDB descartável: 17 assemblies, 6.376 aprovados, 84 ignorados, 0 falhas/6.460; Server Integration 146/146; IntroSkipper Integration 149/150 (um skip), exit code 0. Corrigido o teste de proveniência para usar a migration predecessora imediata; focal 1/1. Instância temporária loopback encerrada. Release não publicada: gate 4.0, VM limpa, CI hospedada, assinatura Authenticode e escopo Linux/Mongo/provedores reais pendentes.",
+      "release": "Não publicada. Alteração local; roadmap ainda tem 54 itens abertos, assinatura Authenticode válida indisponível, CI hospedada sem sucesso e VM limpa ausente; T9 e gate permanecem parciais.",
+      "links": [
+        "tools/release/tests/configure-https-service-transaction.tests.ps1",
+        "tools/release/tests/configure-https-orchestration.tests.ps1",
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md"
+      ]
+    },
+    {
+      "id": "windows-update-version-metadata-2026-11-25",
+      "title": "Atualizador Windows sincroniza versão no registro após update validado",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T9.1"
+      ],
+      "local": "Windows PowerShell 5.1/7, .NET 10 Release, ambiente local",
+      "location": "MulletaFlix-master/Jellyfin.Api/Controllers/UpdateInfoController.cs; MulletaFlix-packaging-master/MulletaFlix-ux-custom/nsis/apply-update.ps1; tests de updater e CI Windows",
+      "scope": "Corrigir DisplayVersion/DisplayName desatualizados depois de update in-place validando a versão-alvo e ProductVersion da DLL após a cópia.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-25T10:40:00-03:00",
+      "updatedAt": "2026-11-25T10:51:30-03:00",
+      "evidence": "TDD RED/GREEN. UpdateVersionMetadata.Tests.ps1 passou em Windows PowerShell 5.1 e PowerShell 7; os 7 checks do job windows-packaging-script-tests passaram. UpdateInfoControllerTests 13/13. Jellyfin.Api.Tests completa: 1.252 aprovados, 3 ignorados, 0 falhas/1.255. Sem update real. Registro live continua 12.1.5 até build que contenha a correção. A homologação global permanece parcial: 79 itens ativos abertos (82 no total, três no backlog futuro), firewall live sem aplicação por bloqueio de elevação, `.strm` investigados ainda respondem 404, WACS real/VM/CI/integrações/Authenticode pendentes.",
+      "release": "Não publicada. Gate 4.0 mantém roadmap ativo aberto; não foi criado artefato nem tag.",
+      "links": [
+        "MulletaFlix-master/Jellyfin.Api/Controllers/UpdateInfoController.cs",
+        "MulletaFlix-master/tests/Jellyfin.Api.Tests/Controllers/UpdateInfoControllerTests.cs",
+        "MulletaFlix-packaging-master/scripts/tests/UpdateVersionMetadata.Tests.ps1",
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md"
+      ]
+    },
+    {
+      "id": "windows-wacs-observability-2026-11-25",
+      "title": "Revalidação read-only do certificado e scheduler WACS",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T9.3",
+        "T9.5"
+      ],
+      "local": "Windows; leitura de certificado público e Task Scheduler sem elevação",
+      "location": "Certificado público local; tarefa win-acme renew",
+      "scope": "Verificar validade do certificado HTTPS e última execução da tarefa de renovação depois da configuração anterior.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-25T10:53:00-03:00",
+      "updatedAt": "2026-11-25T10:55:38-03:00",
+      "evidence": "Certificado público válido de 2026-10-03 22:24:14 UTC até 2027-01-01 22:24:13 UTC. Nenhuma chave privada foi lida. `Get-ScheduledTask` não expôs a tarefa no contexto atual e `schtasks /Query` respondeu acesso negado; execução/renovação/reload não foram confirmados. Nenhum host state alterado.",
+      "release": "Não publicada; 79 checkboxes ativos continuam abertos (82 no total, três no backlog futuro); gate 4.0 exige conclusão.",
+      "links": [
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
+        "tools/release/configure-https.ps1"
+      ]
+    },
+    {
+      "id": "release-gate-count-reconciled-2026-11-25",
+      "title": "Reconciliar contagem do gate ativo de release",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Parser Markdown e revisão independente do roadmap local",
+      "location": "docs/roadmap-evolucao-tecnologica-servidor-e-web.md; .agents/rules/mulletaflix-conventions.md §4.0",
+      "scope": "Distinguir checklists abertos totais dos itens que pertencem ao ciclo ativo do gate 4.0.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-25T10:58:00-03:00",
+      "updatedAt": "2026-11-25T11:01:00-03:00",
+      "evidence": "A análise completa achou 82 itens `[ ]` no total; três estão sob `Backlog futuro — fora do ciclo ativo` (linhas 4330, 4337 e 4343). Gate §4.0: 79 itens ativos abertos, não 54 (contagem rasa que omitia indentação) nem 82 (incluindo backlog). Seis checkpoints da Definition of Done também estão abertos e compõem os ativos. Revisão read-only, sem alteração de checks.",
+      "release": "Não publicada. O gate 4.0 permanece fechado até homologar todas as melhorias ativas, finalizar Quality Bar, gerar assets oficiais e verificar portal/API.",
+      "links": [
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
+        ".agents/rules/mulletaflix-conventions.md"
+      ]
+    },
+    {
+      "id": "windows-clean-release-build-2026-11-25",
+      "title": "Rebuild limpo Release e suíte .NET Windows",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [],
+      "local": "Windows; .NET SDK 10.0.404; execução serial",
+      "location": "MulletaFlix-master/MediaBrowser.Model/MediaBrowser.Model.csproj; MulletaFlix.sln",
+      "scope": "Corrigir o preprocessing do conteúdo MimeTypes durante o rebuild limpo e homologar novamente a solução Release.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-25T11:20:00-03:00",
+      "updatedAt": "2026-11-25T11:49:20-03:00",
+      "evidence": "RED: o rebuild limpo padrão reproduziu 2 CS0234 em MediaBrowser.Model/Net/MimeTypes.cs porque RunProduceContentAssets era omitido após limpeza. O projeto agora restaura _CleaningWithoutRebuilding antes do preprocessing. GREEN: rebuild limpo padrão exit 0, 570 avisos, 0 erros. Suíte Release atual: 17 assemblies, 6.149 aprovados, 315 ignorados, 0 falhas/6.464 casos. Os skips não recebem crédito; MariaDB/Mongo não foram iniciados nesta rodada. Integração MariaDB descartável anterior: 6.376/6.460 aprovados, 84 ignorados. Mapa técnico conferido; nenhuma alteração de arquitetura/runtime. Live read-only host: direct health 200, API/ProductVersion 12.1.58, Nginx Running, HTTP 301, verified HTTPS 200; uninstall registry remains 12.1.5. Portal contract 379/379 after separate feature and checklist coverage counters and redaction of absolute profile path.",
+      "release": "Não publicada: restam 79 checkboxes ativos, além de VM limpa, CI hospedada, Authenticode, WACS/reload e integrações externas pendentes. Nenhum artefato/tag criado.",
+      "links": [
+        "MulletaFlix-master/MediaBrowser.Model/MediaBrowser.Model.csproj",
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
+        "MulletaFlix-master/docs/homologacao-release-12.1.59.md"
+      ]
+    },
+    {
+      "id": "windows-server-live-firewall-audit-2026-11-26",
+      "title": "Auditoria Windows: health, baseline, scan e release",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T9.1",
+        "T9.5"
+      ],
+      "local": "Windows 11; runtime 12.1.58; source 12.1.59",
+      "location": "Runtime Windows, firewall, Nginx, MariaDB/MongoDB loopback, IntroSkipper, portal de homologação",
+      "scope": "Auditar saúde do servidor instalado, portas, firewall, scan FFmpeg, integração STRM/Nebula e elegibilidade do release; corrigir e homologar falhas comprovadas",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-26T00:50:00-03:00",
+      "updatedAt": "2026-11-26T15:26:31-03:00",
+      "evidence": "Rechecagem Windows em 26/11: runtime instalado 12.1.58; health local e público 200 Healthy. Após renovação ACME HTTP-01, TLS público negociou 1.3, PolicyErrors=None e certificado válido até 24/02/2027. Script de reload Nginx terminou sob SYSTEM. Inventário elevado confirma tarefa diária WACS habilitada como SYSTEM/Highest, ação --renew, LastTaskResult=0 e WACS --list “Scheduled task looks healthy”; query não elevada não a lista. O próximo disparo automático está previsto para 27/11; APIs de consulta retornaram horas distintas por atraso aleatório, observar execução automática. Nginx iniciou no último boot antes do Explorer; MulletaFlix.exe continua iniciado na sessão do usuário, sem serviço próprio. Literal roadmap: 399 concluídos, 80 abertos/479; 80 ativos/0 futuros por seção explícita (a seção futura não contém checkboxes). Main local 5 commits à frente, 40 paths pendentes; tag v12.1.59 ausente, CI #700 cancelled, última release pública v12.1.58, sem assinatura Authenticode utilizável e sem VM limpa de upgrade. Release não publicada; sem commit/tag/push e sem binários de aplicação atualizados. Nebula segue sem agregados confiáveis de volume/duração; sem consulta MongoDB nem leitura do rclone-mount.log. Installer UX revalidada após boot audit: Setup Type agora distingue Basic desktop (inicia após sign-in e termina com a sessão) de Service always-on (sem sign-in; rede compartilhada requer configuração extra), e recomenda Service para servidores headless. RED/GREEN em InstallerLocalization.Tests.ps1; PowerShell 5.1/7 passaram, packaging scripts 8/8, makensis preprocessor exit 0. Nenhum instalador foi construído/instalado nesta verificação.",
+      "release": "Não publicar: §4.0 mantém 80 itens ativos em aberto (nenhum checkbox está na seção explícita de backlog futuro); CI hospedada verde, chave Authenticode e upgrade em VM limpa também continuam sem evidência. A tag v12.1.59 está ausente; main tem 5 commits à frente e 40 paths pendentes. Nenhum commit, tag, push, asset ou release foi criado.",
+      "links": [
+        "MulletaFlix-master/docs/homologacao-release-12.1.59.md",
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
+        "MulletaFlix-packaging-master/scripts/tests/PublicServerFirewallRules.Tests.ps1",
+        "D:/Users/Raphael/Documents/Projetos/nebula/NebulaFTP-master/docs/STRM_LIBRARY.md"
+      ]
     }
-  ]
+  ],
+  "roadmapChecklistCoverage": {
+    "completed": 399,
+    "pending": 80,
+    "inProgress": 0,
+    "total": 479,
+    "definition": "Contagem literal dos checkboxes Markdown de todo o roadmap (399 concluídos, 80 abertos, 479 total). Para o gate §4.0, contam como ativos os abertos fora da seção explícita Backlog futuro; essa seção não contém checkboxes abertos no estado atual, logo 80 ativos e 0 futuros. Não equivale à homologação formal.",
+    "activePending": 80,
+    "futurePending": 0
+  }
 }

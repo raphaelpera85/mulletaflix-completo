@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Serialization;
+using MulletaFlix.Data.Events.Users;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Builder;
@@ -27,6 +28,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MulletaFlix.Data;
 using Moq;
 using MulletaFlix.Database.Implementations.Enums;
+using MulletaFlix.Plugin.GetAvatar;
 using MulletaFlix.Plugin.GetAvatar.Configuration;
 using MulletaFlix.Plugin.GetAvatar.Controllers;
 using MulletaFlix.Plugin.GetAvatar.Services;
@@ -54,6 +56,25 @@ public sealed class AvatarControllerUserAvatarAuthorizationTests
         Assert.Single(GetAvatarPlugin.Config.AvailableAvatars!);
         Assert.Equal("test-avatar", GetAvatarPlugin.Config.AvailableAvatars![0].Id);
         Assert.Equal(["test-avatar.png"], Directory.GetFiles(context.AvatarDirectory).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public async Task UserCreatedAvatarConsumer_AssignsCatalogAvatarWhenAutoAssignIsEnabled()
+    {
+        using var context = new AvatarTestContext();
+        var user = context.TargetUser;
+        GetAvatarPlugin.Config.EnableAutoAssign = true;
+        GetAvatarPlugin.Config.UserAvatars = [];
+        var service = context.CreateAvatarService(user);
+        var consumer = new UserCreatedAvatarConsumer(service, NullLogger<UserCreatedAvatarConsumer>.Instance);
+
+        await consumer.OnEvent(new UserCreatedEventArgs(user));
+
+        Assert.NotNull(user.ProfileImage);
+        Assert.True(File.Exists(user.ProfileImage!.Path));
+        var mapping = Assert.Single(GetAvatarPlugin.Config.UserAvatars!);
+        Assert.Equal(user.Id.ToString(), mapping.UserId);
+        Assert.Equal("test-avatar", mapping.AvatarId);
     }
 
     [Fact]

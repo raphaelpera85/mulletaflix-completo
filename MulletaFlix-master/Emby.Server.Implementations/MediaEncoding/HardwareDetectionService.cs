@@ -3,8 +3,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.MediaEncoding;
@@ -25,6 +25,31 @@ namespace Emby.Server.Implementations.MediaEncoding
         private readonly IServerConfigurationManager _configurationManager;
         private readonly IMediaEncoder _mediaEncoder;
         private readonly IApplicationPaths _appPaths;
+        private readonly Func<string[]> _videoControllerNamesProvider;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct DisplayDevice
+        {
+            public int Size;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string DeviceName;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceString;
+
+            public int StateFlags;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceId;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceKey;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "EnumDisplayDevicesW")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool EnumDisplayDevices(string? device, uint deviceNumber, ref DisplayDevice displayDevice, uint flags);
 
         // Codecs de decodificacao por tipo de GPU
         private static readonly string[] NvencDecodingCodecs = ["h264", "hevc", "mpeg2video", "mpeg4"];
@@ -57,6 +82,21 @@ namespace Emby.Server.Implementations.MediaEncoding
             _configurationManager = configurationManager;
             _mediaEncoder = mediaEncoder;
             _appPaths = appPaths;
+            _videoControllerNamesProvider = GetVideoControllerNames;
+        }
+
+        internal HardwareDetectionService(
+            ILogger<HardwareDetectionService> logger,
+            IServerConfigurationManager configurationManager,
+            IMediaEncoder mediaEncoder,
+            IApplicationPaths appPaths,
+            Func<string[]> videoControllerNamesProvider)
+        {
+            _logger = logger;
+            _configurationManager = configurationManager;
+            _mediaEncoder = mediaEncoder;
+            _appPaths = appPaths;
+            _videoControllerNamesProvider = videoControllerNamesProvider;
         }
 
         public void Run()
@@ -66,19 +106,27 @@ namespace Emby.Server.Implementations.MediaEncoding
             try
             {
                 var encodingOptions = _configurationManager.GetEncodingOptions();
-                var changes = DetectAndApplyConfiguration(encodingOptions);
-
-                if (changes > 0)
+                var gpuList = _videoControllerNamesProvider();
+                if (gpuList is null)
                 {
-                    _configurationManager.SaveConfiguration("encoding", encodingOptions);
-                    _logger.LogInformation(
-                        "Deteccao de hardware concluida: {Changes} configuracao(oes) foram atualizadas.",
-                        changes);
+                    _logger.LogWarning("GPU inventory could not be read; keeping the current encoding configuration.");
                 }
                 else
                 {
-                    _logger.LogInformation(
-                        "Deteccao de hardware concluida: Nenhuma alteracao necessaria. Configuracao ja esta otimizada.");
+                    var changes = DetectAndApplyConfiguration(encodingOptions, gpuList);
+
+                    if (changes > 0)
+                    {
+                        _configurationManager.SaveConfiguration("encoding", encodingOptions);
+                        _logger.LogInformation(
+                            "Deteccao de hardware concluida: {Changes} configuracao(oes) foram atualizadas.",
+                            changes);
+                    }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "Deteccao de hardware concluida: Nenhuma alteracao necessaria. Configuracao ja esta otimizada.");
+                    }
                 }
             }
             catch (Exception ex)
@@ -89,14 +137,13 @@ namespace Emby.Server.Implementations.MediaEncoding
             _logger.LogInformation("=== DETECCAO DE HARDWARE FINALIZADA ===");
         }
 
-        private int DetectAndApplyConfiguration(EncodingOptions options)
+        private int DetectAndApplyConfiguration(EncodingOptions options, string[] gpuList)
         {
             var changes = 0;
 
             // =========================================================
             // FASE 1: Detectar GPUs disponiveis no sistema
             // =========================================================
-            var gpuList = GetVideoControllerNames();
             _logger.LogInformation("GPUs detectadas no sistema: {Count}", gpuList.Length);
             foreach (var gpu in gpuList)
             {
@@ -679,98 +726,48 @@ namespace Emby.Server.Implementations.MediaEncoding
             };
         }
 
-        private string[] GetVideoControllerNames()
+        private string[]? GetVideoControllerNames()
         {
-            try
+            if (!OperatingSystem.IsWindows())
             {
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = "powershell.exe",
-#if NET6_0_OR_GREATER
-                    ArgumentList =
-                    {
-                        "-NoProfile",
-                        "-Command",
-                        "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterCompatibility | Format-Table -HideTableHeaders"
-                    },
-#else
-                    Arguments = "-NoProfile -Command \"Get-CimInstance Win32_VideoController | Select-Object Name,AdapterCompatibility | Format-Table -HideTableHeaders\"",
-#endif
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                using var process = Process.Start(startInfo);
-                if (process is null)
-                {
-                    return Array.Empty<string>();
-                }
-
-                var output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit();
-
-                if (process.ExitCode != 0)
-                {
-                    return Array.Empty<string>();
-                }
-
-                var lines = output
-                    .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Where(line => !string.IsNullOrWhiteSpace(line) && line.Length > 3)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-
-                // Se o Format-Table nao funcionar, tenta apenas o nome
-                if (lines.Length == 0)
-                {
-                    var fallbackStartInfo = new ProcessStartInfo
-                    {
-                        FileName = "powershell.exe",
-#if NET6_0_OR_GREATER
-                        ArgumentList =
-                        {
-                            "-NoProfile",
-                            "-Command",
-                            "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"
-                        },
-#else
-                        Arguments = "-NoProfile -Command \"Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name\"",
-#endif
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-
-                    using var fallbackProcess = Process.Start(fallbackStartInfo);
-                    if (fallbackProcess is null)
-                    {
-                        return Array.Empty<string>();
-                    }
-
-                    var fallbackOutput = fallbackProcess.StandardOutput.ReadToEnd();
-                    fallbackProcess.WaitForExit();
-
-                    if (fallbackProcess.ExitCode != 0)
-                    {
-                        return Array.Empty<string>();
-                    }
-
-                    return fallbackOutput
-                        .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToArray();
-                }
-
-                return lines;
+                return null;
             }
-            catch (Exception ex)
+
+            var names = new List<string>();
+            for (uint deviceNumber = 0; deviceNumber < 64; deviceNumber++)
             {
-                _logger.LogDebug(ex, "Failed to get video controller names via PowerShell.");
-                return Array.Empty<string>();
+                var displayDevice = new DisplayDevice { Size = Marshal.SizeOf<DisplayDevice>() };
+                if (!EnumDisplayDevices(null, deviceNumber, ref displayDevice, 0))
+                {
+                    break;
+                }
+
+                // Ignore software mirror drivers; only physical display adapters inform codec selection.
+                const int DisplayDeviceMirroringDriver = 0x00000008;
+                if ((displayDevice.StateFlags & DisplayDeviceMirroringDriver) == 0)
+                {
+                    names.Add(displayDevice.DeviceString);
+                }
             }
+
+            var normalizedNames = NormalizeVideoControllerNames(names);
+            if (normalizedNames.Length == 0)
+            {
+                _logger.LogWarning("Windows did not return a physical display adapter; keeping the current encoding configuration.");
+                return null;
+            }
+
+            return normalizedNames;
+        }
+
+        internal static string[] NormalizeVideoControllerNames(IEnumerable<string?> names)
+        {
+            return names
+                .Select(name => name?.Trim())
+                .Where(name => !string.IsNullOrWhiteSpace(name) && name.Length > 3)
+                .Select(name => name!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
         }
 
         private static bool ContainsAny(string value, params string[] needles)

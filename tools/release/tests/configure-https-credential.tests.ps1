@@ -8,6 +8,10 @@ if ($parseErrors.Count -gt 0) {
     throw "HTTPS configurator has PowerShell parse errors: $($parseErrors[0].Message)"
 }
 
+if ($configAst.Extent.Text -notmatch '(?s)&\s+\$wacsExe\s+--source\s+manual.*?\$LASTEXITCODE\s+-ne\s+0.*?&\s+\$wacsExe\s+--setuptaskscheduler.*?\$LASTEXITCODE\s+-ne\s+0') {
+    throw 'The bundled win-acme scheduled renewal task must be reconciled after certificate configuration.'
+}
+
 $safeReaderBootstrap = $configAst.Find({
     param($node)
     $node -is [System.Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.Contains('MulletaFlix.DuckDns.SafeTokenFile')
@@ -34,7 +38,7 @@ if ($null -eq $nginxValidationDefinition -or
     $nginxValidationDefinition.Extent.Text.Contains('GetRelativePath')) {
     throw 'Nginx candidate validation must pass its absolute path without .NET 6-only path APIs.'
 }
-$nginxTransactionFunctionNames = @('Restore-PendingNginxConfig', 'Install-NginxConfig', 'Restore-NginxConfig', 'Complete-NginxConfig')
+$nginxTransactionFunctionNames = @('Restore-PendingNginxConfig', 'Install-NginxConfig', 'Restore-NginxConfig', 'Complete-NginxConfig', 'Remove-ObsoleteNginxFirewallRules')
 $nginxTransactionDefinitions = $configAst.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
@@ -62,8 +66,14 @@ if ($null -eq $firewallReconcile -or
     $firewallReconcile.Extent.Text -notmatch '-RemoteAddress\s+Any' -or
     $firewallReconcile.Extent.Text -notmatch 'Get-NetFirewallPortFilter' -or
     $firewallReconcile.Extent.Text -notmatch 'Get-NetFirewallAddressFilter' -or
-    $firewallReconcile.Extent.Text -notmatch 'Remove-NetFirewallRule') {
-    throw 'Nginx firewall rules must be repaired to the bundled binary and TCP 80/443 only.'
+    $firewallReconcile.Extent.Text -notmatch 'ExistingRuleNames' -or
+    $firewallReconcile.Extent.Text -notmatch 'CreatedRules') {
+    throw 'Nginx firewall rules must stage exact TCP 80/443 rules without pruning prior rules.'
+}
+$firewallCommit = $nginxTransactionDefinitions | Where-Object { $_.Name -eq 'Remove-ObsoleteNginxFirewallRules' } | Select-Object -First 1
+if ($null -eq $firewallCommit -or $firewallCommit.Extent.Text -notmatch 'PreviousExecutablePath' -or
+    $firewallCommit.Extent.Text -notmatch 'ownedRulePattern' -or $firewallCommit.Extent.Text -notmatch 'Remove-NetFirewallRule') {
+    throw 'Firewall cleanup must target the prior executable only after successful service verification.'
 }
 $tlsPreservationFunction = $nginxTransactionDefinitions | Where-Object { $_.Name -eq 'Test-CanPreserveExistingTls' } | Select-Object -First 1
 if ($null -eq $tlsPreservationFunction -or $configAst.Extent.Text -notmatch 'Write-NginxConfig\s+\$preserveExistingTls\s+\$acmeBootstrapOnly' -or
@@ -116,20 +126,23 @@ function Remove-NetFirewallRule {
     [void]$script:firewallState.Remove($InputObject)
 }
 function New-NetFirewallRule {
-    param([string]$DisplayName, [string]$Program, [string]$Direction, [string]$Protocol, [string]$LocalPort, [string]$LocalAddress, [string]$RemoteAddress, [string]$Action, [string]$Profile)
-    $script:firewallState.Add([pscustomobject]@{ DisplayName=$DisplayName; Program=$Program; Direction=$Direction; Protocol=$Protocol; LocalPort=$LocalPort; LocalAddress=$LocalAddress; RemoteAddress=$RemoteAddress; Action=$Action; Profile=$Profile; Enabled='True' })
+    param([string]$DisplayName, [string]$Program, [string]$Direction, [string]$Protocol, [string]$LocalPort, [string]$LocalAddress, [string]$RemoteAddress, [string]$Action, [string]$Profile, [switch]$PassThru)
+    $rule = [pscustomobject]@{ Name=[guid]::NewGuid().ToString('N'); DisplayName=$DisplayName; Program=$Program; Direction=$Direction; Protocol=$Protocol; LocalPort=$LocalPort; LocalAddress=$LocalAddress; RemoteAddress=$RemoteAddress; Action=$Action; Profile=$Profile; Enabled='True' }
+    $script:firewallState.Add($rule)
+    return $rule
 }
 try {
     $nginxExe = 'C:\Program Files\MulletaFlix\Server\nginx\nginx.exe'
     $script:firewallState.Add([pscustomobject]@{ DisplayName='MulletaFlix Nginx HTTPS 80'; Program=$nginxExe; Direction='Inbound'; Protocol='Any'; LocalPort='Any'; LocalAddress='Any'; RemoteAddress='Any'; Action='Allow'; Profile='Any'; Enabled='True' })
-    $script:firewallState.Add([pscustomobject]@{ DisplayName='nginx.exe'; Program=$nginxExe; Direction='Inbound'; Protocol='UDP'; LocalPort='Any'; LocalAddress='Any'; RemoteAddress='Any'; Action='Allow'; Profile='Any'; Enabled='True' })
+    $script:firewallState.Add([pscustomobject]@{ DisplayName='MulletaFlix Nginx HTTPS 443'; Program=$nginxExe; Direction='Inbound'; Protocol='UDP'; LocalPort='Any'; LocalAddress='Any'; RemoteAddress='Any'; Action='Allow'; Profile='Any'; Enabled='True' })
     $script:firewallState.Add([pscustomobject]@{ DisplayName='MulletaFlix Nginx HTTPS 443'; Program=$nginxExe; Direction='Inbound'; Protocol='TCP'; LocalPort='443'; LocalAddress='Any'; RemoteAddress='192.0.2.1'; Action='Allow'; Profile='Any'; Enabled='True' })
     Invoke-Expression $firewallReconcile.Extent.Text
-    Ensure-FirewallRules
+    $null = Ensure-FirewallRules
+    Remove-ObsoleteNginxFirewallRules -PreviousExecutablePath $nginxExe
     if ($script:firewallState.Count -ne 2 -or @($script:firewallState | Where-Object { $_.Program -cne $nginxExe -or $_.Direction -ne 'Inbound' -or $_.Protocol -ne 'TCP' -or $_.LocalPort -notin @('80','443') -or $_.LocalAddress -ne 'Any' -or $_.RemoteAddress -ne 'Any' -or $_.Action -ne 'Allow' -or $_.Profile -ne 'Any' }).Count -gt 0) {
         throw 'Firewall reconciliation did not replace broad/restricted Nginx allows with exact TCP web rules.'
     }
-    Write-Output 'Nginx firewall reconciliation removed broad Any/UDP rules and retained only TCP 80/443.'
+    Write-Output 'Nginx firewall staging and post-health cleanup retained only exact TCP 80/443 rules.'
 }
 finally {
     Remove-Item Function:\Get-NetFirewallRule, Function:\Get-NetFirewallApplicationFilter, Function:\Get-NetFirewallPortFilter, Function:\Get-NetFirewallAddressFilter, Function:\Remove-NetFirewallRule, Function:\New-NetFirewallRule -ErrorAction SilentlyContinue

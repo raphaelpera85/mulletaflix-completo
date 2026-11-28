@@ -115,6 +115,11 @@ public sealed partial class Entrypoint(
             return;
         }
 
+        if (PluginDisabledFor(item))
+        {
+            return;
+        }
+
         // Queues the item's own id. The pass resolves the season it belongs to when it
         // starts, off this library event thread and after Jellyfin has attached a new
         // episode to its season. A replaced file needs no special handling: queue
@@ -161,6 +166,9 @@ public sealed partial class Entrypoint(
         item = candidate;
         return true;
     }
+
+    private bool PluginDisabledFor(BaseItem item)
+        => _libraryManager.GetLibraryOptions(item).DisabledMediaSegmentProviders?.Contains(Plugin.Instance!.Name, StringComparer.Ordinal) == true;
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Media item removed, deleting fingerprint cache for {Id}")]
     private partial void LogMediaItemRemoved(Guid id);

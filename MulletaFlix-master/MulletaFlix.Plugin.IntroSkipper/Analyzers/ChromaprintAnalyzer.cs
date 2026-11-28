@@ -148,7 +148,7 @@ internal sealed partial class ChromaprintAnalyzer(
             }
             catch (FingerprintException ex)
             {
-                LogCaughtFingerprintError(ex);
+                LogCaughtFingerprintError(ex.Message);
                 WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
 
                 // Keep a transient fingerprint failure retriable. A completed neighbor may be
@@ -573,8 +573,8 @@ internal sealed partial class ChromaprintAnalyzer(
         return invIndex;
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error")]
-    private partial void LogCaughtFingerprintError(Exception exception);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error: {Message}")]
+    private partial void LogCaughtFingerprintError(string message);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);

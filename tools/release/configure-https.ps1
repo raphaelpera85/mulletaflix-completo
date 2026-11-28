@@ -286,6 +286,80 @@ function Remove-LegacyDuckDnsConfig {
     Remove-Item -LiteralPath $legacyDuckDnsConfig -Force
 }
 
+function Get-DuckDnsTaskSnapshot {
+    $task = Get-ScheduledTask -TaskName $duckDnsTask -ErrorAction SilentlyContinue
+    if ($null -eq $task) { return [pscustomobject]@{ Exists = $false; Xml = $null } }
+    $xml = Export-ScheduledTask -TaskName $duckDnsTask -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace([string]$xml)) { throw 'Existing DuckDNS task could not be snapshotted; configuration was not changed.' }
+    return [pscustomobject]@{ Exists = $true; Xml = [string]$xml }
+}
+
+function Restore-DuckDnsTaskSnapshot($Snapshot) {
+    $current = Get-ScheduledTask -TaskName $duckDnsTask -ErrorAction SilentlyContinue
+    if ($Snapshot.Exists) {
+        Register-ScheduledTask -TaskName $duckDnsTask -Xml ([string]$Snapshot.Xml) -Force -ErrorAction Stop | Out-Null
+        if ($null -eq (Get-ScheduledTask -TaskName $duckDnsTask -ErrorAction SilentlyContinue)) { throw 'Previous DuckDNS scheduled task did not return after rollback.' }
+        return
+    }
+    if ($null -ne $current) {
+        if ($current.State -eq 'Running') { Stop-ScheduledTask -TaskName $duckDnsTask -ErrorAction Stop }
+        Unregister-ScheduledTask -TaskName $duckDnsTask -Confirm:$false -ErrorAction Stop
+        if ($null -ne (Get-ScheduledTask -TaskName $duckDnsTask -ErrorAction SilentlyContinue)) { throw 'New DuckDNS scheduled task remained after rollback.' }
+    }
+}
+
+function Assert-DuckDnsScheduledTask {
+    $task = Get-ScheduledTask -TaskName $duckDnsTask -ErrorAction Stop
+    $actions = @($task.Actions)
+    $expectedArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$duckDnsScript`" -ConfigPath `"$duckDnsConfig`""
+    $principal = [string]$task.Principal.UserId
+    if (-not $task.Settings.Enabled -or $actions.Count -ne 1 -or
+        [System.IO.Path]::GetFileName([string]$actions[0].Execute) -ine 'powershell.exe' -or
+        [string]$actions[0].Arguments -ine $expectedArguments -or
+        $principal -notin @('SYSTEM', 'NT AUTHORITY\SYSTEM', 'S-1-5-18')) {
+        throw 'DuckDNS scheduled task verification failed.'
+    }
+}
+
+function Invoke-DuckDnsUpdater([string]$ConfigPath) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $duckDnsScript -ConfigPath $ConfigPath
+    if ($LASTEXITCODE -ne 0) { throw 'DuckDNS could not be updated.' }
+}
+
+function Invoke-WacsCertificateSetup {
+    param([string]$HostName, [string]$EmailAddress)
+
+    & $wacsExe --source manual --host $HostName --validation filesystem --webroot $acmeRoot --store pemfiles --pemfilespath $certRoot --pemfilesname $HostName --emailaddress $EmailAddress --accepttos --installation script --script $reloadScript | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'win-acme could not issue or configure the certificate.' }
+}
+
+function Invoke-WacsTaskSetup {
+    & $wacsExe --setuptaskscheduler | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'win-acme could not configure the scheduled renewal task.' }
+}
+
+function Assert-HttpsPrerequisites {
+    param(
+        [switch]$SkipCertificate,
+        [string]$DuckDnsSubdomain,
+        [string]$DuckDnsTokenFile
+    )
+
+    Assert-File $nginxExe 'Bundled Nginx executable'
+    Assert-File $nssmExe 'NSSM service wrapper'
+    if (-not $SkipCertificate) { Assert-File $wacsExe 'Bundled win-acme executable' }
+
+    $hasSubdomain = -not [string]::IsNullOrWhiteSpace($DuckDnsSubdomain)
+    $hasTokenFile = -not [string]::IsNullOrWhiteSpace($DuckDnsTokenFile)
+    if ($hasSubdomain -ne $hasTokenFile) { throw 'DuckDNS subdomain and protected token file must be configured together.' }
+    if ($hasSubdomain) {
+        if ($DuckDnsSubdomain -notmatch '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$') { throw 'Invalid DuckDNS subdomain.' }
+        Assert-File $duckDnsScript 'Bundled DuckDNS updater'
+        Assert-File $DuckDnsTokenFile 'Protected DuckDNS token file'
+    }
+    if ($ServerPort -lt 1 -or $ServerPort -gt 65535) { throw 'Server port must be between 1 and 65535.' }
+}
+
 function Disable-DuckDns {
     $task = Get-ScheduledTask -TaskName $duckDnsTask -ErrorAction SilentlyContinue
     if ($null -ne $task) {
@@ -339,10 +413,6 @@ Assert-DuckDnsAdministrator
 if ($HostName -notmatch '^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$') {
     throw 'Invalid public hostname.'
 }
-if ($EmailAddress -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$') {
-    throw 'A valid ACME notification email is required.'
-}
-
 function Configure-DuckDns {
     if ([string]::IsNullOrWhiteSpace($DuckDnsSubdomain) -and [string]::IsNullOrWhiteSpace($DuckDnsTokenFile)) { Disable-DuckDns; return }
     if ([string]::IsNullOrWhiteSpace($DuckDnsTokenFile)) { throw 'Protected DuckDNS token file is required when DuckDNS is enabled.' }
@@ -352,8 +422,13 @@ function Configure-DuckDns {
     $DuckDnsToken = Read-DuckDnsTokenFile $DuckDnsTokenFile
     if ([string]::IsNullOrWhiteSpace($DuckDnsToken)) { throw 'DuckDNS token is required when DuckDNS is enabled.' }
     Protect-LegacyDuckDnsConfig
+    $taskSnapshot = Get-DuckDnsTaskSnapshot
     $configTempFile = Join-Path $duckDnsConfigRoot ([System.IO.Path]::GetRandomFileName() + '.tmp')
     $configBackupFile = "$configTempFile.bak"
+    $failedConfigFile = "$configTempFile.failed"
+    $hadPreviousConfig = [System.IO.File]::Exists($duckDnsConfig)
+    $taskMutationAttempted = $false
+    $committed = $false
     try {
         $file = [System.IO.File]::Open($configTempFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
         $file.Dispose()
@@ -361,7 +436,7 @@ function Configure-DuckDns {
         Set-ProtectedDuckDnsAcl -Path $configTempFile
         $configJson = @{ subdomain = $DuckDnsSubdomain; token = $DuckDnsToken } | ConvertTo-Json -Depth 3 -Compress
         [System.IO.File]::WriteAllText($configTempFile, $configJson, [System.Text.UTF8Encoding]::new($false))
-        if ([System.IO.File]::Exists($duckDnsConfig)) {
+        if ($hadPreviousConfig) {
             Assert-NoDuckDnsReparsePoints -Path $duckDnsConfig
             Set-ProtectedDuckDnsAcl -Path $duckDnsConfig
             Assert-ProtectedDuckDnsAcl -Path $duckDnsConfig
@@ -370,18 +445,50 @@ function Configure-DuckDns {
         else {
             [System.IO.File]::Move($configTempFile, $duckDnsConfig)
         }
+        Invoke-DuckDnsUpdater -ConfigPath $duckDnsConfig
+        $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$duckDnsScript`" -ConfigPath `"$duckDnsConfig`""
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+        $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+        $taskMutationAttempted = $true
+        Register-ScheduledTask -TaskName $duckDnsTask -Action $action -Trigger $trigger -Principal $principal -Force -ErrorAction Stop | Out-Null
+        Assert-DuckDnsScheduledTask
+        Remove-LegacyDuckDnsConfig
+        $committed = $true
+    }
+    catch {
+        $failure = $_
+        $rollbackErrors = [System.Collections.Generic.List[string]]::new()
+        try {
+            if ([System.IO.File]::Exists($configBackupFile)) {
+                if ([System.IO.File]::Exists($duckDnsConfig)) {
+                    [System.IO.File]::Replace($configBackupFile, $duckDnsConfig, $failedConfigFile)
+                    Remove-Item -LiteralPath $failedConfigFile -Force -ErrorAction SilentlyContinue
+                }
+                else {
+                    [System.IO.File]::Move($configBackupFile, $duckDnsConfig)
+                }
+            }
+            elseif (-not $hadPreviousConfig -and [System.IO.File]::Exists($duckDnsConfig)) {
+                Assert-NoDuckDnsReparsePoints -Path $duckDnsConfig
+                [System.IO.File]::Delete($duckDnsConfig)
+            }
+        }
+        catch { $rollbackErrors.Add('credential configuration could not be restored') }
+        if ($taskMutationAttempted) {
+            try { Restore-DuckDnsTaskSnapshot -Snapshot $taskSnapshot }
+            catch { $rollbackErrors.Add('scheduled task could not be restored') }
+        }
+        if ($rollbackErrors.Count -gt 0) {
+            $recoveryDetail = if ([System.IO.File]::Exists($configBackupFile)) { " Protected recovery copy retained at '$configBackupFile'." } else { '' }
+            throw "DuckDNS setup failed and rollback was incomplete: $($rollbackErrors -join '; ').$recoveryDetail Original failure: $($failure.Exception.Message)"
+        }
+        throw $failure
     }
     finally {
         Remove-Item -LiteralPath $configTempFile -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $configBackupFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $failedConfigFile -Force -ErrorAction SilentlyContinue
+        if ($committed) { Remove-Item -LiteralPath $configBackupFile -Force -ErrorAction SilentlyContinue }
     }
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $duckDnsScript -ConfigPath $duckDnsConfig
-    if ($LASTEXITCODE -ne 0) { throw 'DuckDNS could not be updated.' }
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$duckDnsScript`" -ConfigPath `"$duckDnsConfig`""
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
-    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-    Register-ScheduledTask -TaskName $duckDnsTask -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-    Remove-LegacyDuckDnsConfig
 }
 
 function Write-NginxConfig([bool]$TlsEnabled, [bool]$AcmeBootstrapOnly = $false) {
@@ -470,95 +577,278 @@ $tlsServer
     [System.IO.File]::WriteAllText($nginxCandidateConfig, $configText, [System.Text.UTF8Encoding]::new($false))
 }
 
-function Ensure-NginxService {
-    Assert-File $nginxExe 'Bundled Nginx executable'
-    Assert-File $nssmExe 'NSSM service wrapper'
-    $status = & $nssmExe status $nginxService 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        & $nssmExe install $nginxService $nginxExe | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'Nginx service registration failed.' }
-    }
-    & $nssmExe set $nginxService AppDirectory $nginxRoot | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Nginx service directory configuration failed.' }
-    & $nssmExe set $nginxService Application $nginxExe | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Nginx service executable configuration failed.' }
-    & $nssmExe set $nginxService AppParameters "-p `"$nginxRoot`" -c conf/nginx.conf" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Nginx service arguments configuration failed.' }
-    & $nssmExe set $nginxService DisplayName 'MulletaFlix HTTPS Proxy (Nginx)' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Nginx service display name configuration failed.' }
-    & $nssmExe set $nginxService Start SERVICE_AUTO_START | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Nginx service startup mode configuration failed.' }
-    $service = Get-Service -Name $nginxService -ErrorAction Stop
-    $configuredApplication = (& $nssmExe get $nginxService Application 2>$null | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or -not [string]::Equals([System.IO.Path]::GetFullPath($configuredApplication), [System.IO.Path]::GetFullPath($nginxExe), [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Nginx service is not configured to use the bundled executable.'
-    }
+function Invoke-Nssm {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running) {
-        try {
-            Restart-Service -Name $nginxService -Force -ErrorAction Stop
-        }
-        catch {
-            try { Start-Service -Name $nginxService -ErrorAction SilentlyContinue } catch { }
-            throw
-        }
-    }
-    else {
-        Start-Service -Name $nginxService -ErrorAction Stop
-    }
+    $output = @(& $nssmExe @Arguments 2>$null)
+    $exitCode = 0
+    if ($null -ne $LASTEXITCODE) { $exitCode = [int]$LASTEXITCODE }
+    $nullCharacter = [string][char]0
+    $text = (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Replace($nullCharacter, [string]::Empty).Trim()
+    return [pscustomobject]@{ ExitCode = $exitCode; Output = $text }
+}
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(20)
-    do {
-        $service = Get-Service -Name $nginxService -ErrorAction Stop
-        $nginxProcesses = @(Get-CimInstance Win32_Process -Filter "Name='nginx.exe'" -ErrorAction SilentlyContinue | Where-Object {
-            $_.ExecutablePath -and [string]::Equals([System.IO.Path]::GetFullPath([string]$_.ExecutablePath), [System.IO.Path]::GetFullPath($nginxExe), [System.StringComparison]::OrdinalIgnoreCase)
-        })
-        if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running -and $nginxProcesses.Count -gt 0) { break }
-        Start-Sleep -Milliseconds 500
-    } while ([DateTime]::UtcNow -lt $deadline)
+function Get-NssmServiceSettings {
+    $settings = [ordered]@{}
+    foreach ($name in @('Application', 'AppDirectory', 'AppParameters', 'DisplayName', 'Start')) {
+        $result = Invoke-Nssm -Arguments @('get', $nginxService, $name)
+        if ($result.ExitCode -ne 0) { throw "Could not snapshot Nginx NSSM setting '$name'." }
+        $settings[$name] = ([string]$result.Output).Replace([string][char]0, [string]::Empty).Trim()
+    }
+    return $settings
+}
 
-    if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running -or $nginxProcesses.Count -eq 0) {
-        throw 'Nginx service did not start from the bundled executable.'
+function Set-NssmServiceSettings {
+    param([Parameter(Mandatory = $true)][System.Collections.IDictionary]$Settings)
+
+    foreach ($name in @('Application', 'AppDirectory', 'AppParameters', 'DisplayName', 'Start')) {
+        $result = Invoke-Nssm -Arguments @('set', $nginxService, $name, [string]$Settings[$name])
+        if ($result.ExitCode -ne 0) { throw "Could not set Nginx NSSM setting '$name'." }
     }
 }
 
 function Ensure-FirewallRules {
-    foreach ($port in 80, 443) {
-        $name = "MulletaFlix Nginx HTTPS $port"
-        $rules = @(Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)
-        $hasCorrectNamedRule = $false
-        foreach ($rule in $rules) {
+    $existingRuleNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $createdRules = [System.Collections.Generic.List[object]]::new()
+    $allAllows = @(Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow -ErrorAction SilentlyContinue)
+    foreach ($rule in $allAllows) {
+        if ($rule.Name) { [void]$existingRuleNames.Add([string]$rule.Name) }
+    }
+
+    try {
+        foreach ($port in 80, 443) {
+            $name = "MulletaFlix Nginx HTTPS $port"
+            $rules = @(Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)
+            $hasCorrectRule = $false
+            foreach ($rule in $rules) {
+                $application = $rule | Get-NetFirewallApplicationFilter
+                $portFilter = $rule | Get-NetFirewallPortFilter
+                $addressFilter = $rule | Get-NetFirewallAddressFilter
+                $isCorrect = $rule.Enabled -eq 'True' -and $rule.Direction -eq 'Inbound' -and $rule.Action -eq 'Allow' -and
+                    [string]::Equals([string]$application.Program, $nginxExe, [System.StringComparison]::OrdinalIgnoreCase) -and
+                    $rule.Profile -eq 'Any' -and $portFilter.Protocol -eq 'TCP' -and [string]$portFilter.LocalPort -eq [string]$port -and
+                    [string]$addressFilter.LocalAddress -eq 'Any' -and [string]$addressFilter.RemoteAddress -eq 'Any'
+                if ($isCorrect) { $hasCorrectRule = $true; break }
+            }
+
+            if (-not $hasCorrectRule) {
+                $created = New-NetFirewallRule -DisplayName $name -Program $nginxExe -Direction Inbound -Protocol TCP -LocalPort $port -LocalAddress Any -RemoteAddress Any -Action Allow -Profile Any -PassThru
+                if ($null -eq $created -or -not $created.Name) { throw "Could not track staged Nginx firewall rule for TCP $port." }
+                if ($existingRuleNames.Contains([string]$created.Name)) { throw "Nginx firewall rule identifier was not unique for TCP $port." }
+                $createdRules.Add($created)
+            }
+        }
+    }
+    catch {
+        Remove-StagedFirewallRules -Transaction ([pscustomobject]@{ CreatedRules = @($createdRules); ExistingRuleNames = $existingRuleNames })
+        throw
+    }
+
+    return [pscustomobject]@{ CreatedRules = @($createdRules); ExistingRuleNames = $existingRuleNames }
+}
+
+function Remove-StagedFirewallRules {
+    param([Parameter(Mandatory = $true)]$Transaction)
+
+    foreach ($rule in @($Transaction.CreatedRules)) {
+        if ($null -eq $rule -or -not $rule.Name) { continue }
+        if ($Transaction.ExistingRuleNames.Contains([string]$rule.Name)) { continue }
+        try { Remove-NetFirewallRule -InputObject $rule -ErrorAction Stop }
+        catch { Write-Warning 'A staged MulletaFlix Nginx firewall rule could not be removed during rollback.' }
+    }
+}
+
+function Remove-ObsoleteNginxFirewallRules {
+    param([string]$PreviousExecutablePath)
+
+    $ownedRulePattern = '^MulletaFlix Nginx HTTPS\s+(80|443)$'
+    try {
+        $allAllows = @(Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow -ErrorAction Stop)
+        foreach ($rule in $allAllows) {
+            $isNamedManagedRule = [string]$rule.DisplayName -match $ownedRulePattern
+            $isGenericNginxRule = [string]::Equals([string]$rule.DisplayName, 'nginx', [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $isNamedManagedRule -and -not $isGenericNginxRule) { continue }
             $application = $rule | Get-NetFirewallApplicationFilter
             $portFilter = $rule | Get-NetFirewallPortFilter
             $addressFilter = $rule | Get-NetFirewallAddressFilter
-            $isCorrect = $rule.Enabled -eq 'True' -and $rule.Direction -eq 'Inbound' -and $rule.Action -eq 'Allow' -and
-                [string]::Equals([string]$application.Program, $nginxExe, [System.StringComparison]::OrdinalIgnoreCase) -and
-                $rule.Profile -eq 'Any' -and $portFilter.Protocol -eq 'TCP' -and [string]$portFilter.LocalPort -eq [string]$port -and
-                [string]$addressFilter.LocalAddress -eq 'Any' -and [string]$addressFilter.RemoteAddress -eq 'Any'
-            if ($isCorrect) {
-                $hasCorrectNamedRule = $true
+            $isCurrentExecutable = [string]::Equals([string]$application.Program, $nginxExe, [System.StringComparison]::OrdinalIgnoreCase)
+            $isPreviousExecutable = -not [string]::IsNullOrWhiteSpace($PreviousExecutablePath) -and
+                -not [string]::Equals([string]$PreviousExecutablePath, $nginxExe, [System.StringComparison]::OrdinalIgnoreCase) -and
+                [string]::Equals([string]$application.Program, $PreviousExecutablePath, [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $isCurrentExecutable -and -not $isPreviousExecutable) { continue }
+
+            # Windows may retain generic nginx allow rules from the app prompt. Only clean
+            # wildcard-port/protocol rules for the exact Nginx executable validated above;
+            # specific-port generic rules and every unrelated executable remain untouched.
+            if ($isGenericNginxRule) {
+                $isBroadRule = [string]$portFilter.LocalPort -eq 'Any' -or [string]$portFilter.Protocol -eq 'Any'
+                if ($isBroadRule) {
+                    try { Remove-NetFirewallRule -InputObject $rule -ErrorAction Stop }
+                    catch { Write-Warning 'A broad generic Nginx firewall rule could not be removed after service health verification.' }
+                }
+                continue
             }
-            else {
-                Remove-NetFirewallRule -InputObject $rule
+
+            $isStrictWebRule = $rule.Profile -eq 'Any' -and $portFilter.Protocol -eq 'TCP' -and
+                [string]$portFilter.LocalPort -in @('80', '443') -and [string]$addressFilter.LocalAddress -eq 'Any' -and
+                [string]$addressFilter.RemoteAddress -eq 'Any'
+
+            if ($isPreviousExecutable -or ($isCurrentExecutable -and -not $isStrictWebRule)) {
+                try { Remove-NetFirewallRule -InputObject $rule -ErrorAction Stop }
+                catch { Write-Warning 'An obsolete MulletaFlix Nginx firewall rule could not be removed after service health verification.' }
             }
-        }
-        if (-not $hasCorrectNamedRule) {
-            New-NetFirewallRule -DisplayName $name -Program $nginxExe -Direction Inbound -Protocol TCP -LocalPort $port -LocalAddress Any -RemoteAddress Any -Action Allow -Profile Any | Out-Null
         }
     }
+    catch { Write-Warning 'MulletaFlix Nginx firewall cleanup could not be completed; existing rules were left in place.' }
+}
 
-    # Remove broader Allow rules already attached to this exact bundled Nginx binary.
-    $allAllows = @(Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow -ErrorAction SilentlyContinue)
-    foreach ($rule in $allAllows) {
-        $application = $rule | Get-NetFirewallApplicationFilter
-        if (-not [string]::Equals([string]$application.Program, $nginxExe, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
-        $portFilter = $rule | Get-NetFirewallPortFilter
-        $addressFilter = $rule | Get-NetFirewallAddressFilter
-        $strictWebRule = $rule.Profile -eq 'Any' -and $portFilter.Protocol -eq 'TCP' -and [string]$portFilter.LocalPort -in @('80', '443')
-        $strictAddressRule = [string]$addressFilter.LocalAddress -eq 'Any' -and [string]$addressFilter.RemoteAddress -eq 'Any'
-        if (-not $strictWebRule -or -not $strictAddressRule) {
-            Remove-NetFirewallRule -InputObject $rule
+function Restore-NginxServiceTransaction {
+    param([Parameter(Mandatory = $true)]$Transaction)
+
+    $errors = [System.Collections.Generic.List[string]]::new()
+    if ($Transaction.ServiceExisted) {
+        try {
+            $service = Get-Service -Name $nginxService -ErrorAction SilentlyContinue
+            if ($null -ne $service -and [string]$service.Status -ne 'Stopped') {
+                Stop-Service -Name $nginxService -ErrorAction Stop
+            }
         }
+        catch { $errors.Add('could not stop the partially migrated service') }
+
+        foreach ($name in @('Application', 'AppDirectory', 'AppParameters', 'DisplayName', 'Start')) {
+            try {
+                $result = Invoke-Nssm -Arguments @('set', $nginxService, $name, [string]$Transaction.PreviousSettings[$name])
+                if ($result.ExitCode -ne 0) { $errors.Add("could not restore previous NSSM setting '$name'") }
+            }
+            catch { $errors.Add("could not restore previous NSSM setting '$name'") }
+        }
+
+        try {
+            $service = Get-Service -Name $nginxService -ErrorAction SilentlyContinue
+            if ($Transaction.WasRunning) {
+                if ($null -ne $service -and [string]$service.Status -eq 'Running') {
+                    Restart-Service -Name $nginxService -Force -ErrorAction Stop
+                }
+                else {
+                    Start-Service -Name $nginxService -ErrorAction Stop
+                }
+            }
+            elseif ($null -ne $service -and [string]$service.Status -ne 'Stopped') {
+                Stop-Service -Name $nginxService -ErrorAction Stop
+            }
+        }
+        catch { $errors.Add('could not restore the original service state') }
+    }
+    elseif ($Transaction.ServiceMutationStarted) {
+        try {
+            $service = Get-Service -Name $nginxService -ErrorAction SilentlyContinue
+            if ($null -ne $service) {
+                Stop-Service -Name $nginxService -ErrorAction Stop
+                $result = Invoke-Nssm -Arguments @('remove', $nginxService, 'confirm')
+                if ($result.ExitCode -ne 0) { $errors.Add('could not remove the newly registered service') }
+            }
+        }
+        catch { $errors.Add('could not remove the newly registered service') }
+    }
+
+    if ($errors.Count -gt 0) { return ($errors -join '; ') }
+    return ''
+}
+
+function Ensure-NginxService {
+    param($NginxConfigTransaction)
+
+    $transaction = [pscustomobject]@{
+        ServiceExisted = $false
+        WasRunning = $false
+        PreviousSettings = $null
+        ServiceMutationStarted = $false
+        Firewall = $null
+    }
+
+    try {
+        Assert-File $nginxExe 'Bundled Nginx executable'
+        Assert-File $nssmExe 'NSSM service wrapper'
+
+        $originalService = Get-Service -Name $nginxService -ErrorAction SilentlyContinue
+        $transaction.ServiceExisted = $null -ne $originalService
+        if ($transaction.ServiceExisted) {
+            $transaction.WasRunning = [string]$originalService.Status -eq 'Running'
+            $transaction.PreviousSettings = Get-NssmServiceSettings
+        }
+
+        $transaction.Firewall = Ensure-FirewallRules
+        $transaction.ServiceMutationStarted = $true
+
+        if (-not $transaction.ServiceExisted) {
+            $install = Invoke-Nssm -Arguments @('install', $nginxService, $nginxExe)
+            if ($install.ExitCode -ne 0) { throw 'Nginx service registration failed.' }
+        }
+
+        $newSettings = [ordered]@{
+            Application = $nginxExe
+            AppDirectory = $nginxRoot
+            AppParameters = "-p `"$nginxRoot`" -c conf/nginx.conf"
+            DisplayName = 'MulletaFlix HTTPS Proxy (Nginx)'
+            Start = 'SERVICE_AUTO_START'
+        }
+        Set-NssmServiceSettings -Settings $newSettings
+
+        $configured = Invoke-Nssm -Arguments @('get', $nginxService, 'Application')
+        $nullCharacter = [string][char]0
+        $configuredApplication = ([string]$configured.Output).Replace($nullCharacter, [string]::Empty).Trim()
+        if ($configured.ExitCode -ne 0 -or -not [string]::Equals([System.IO.Path]::GetFullPath($configuredApplication), [System.IO.Path]::GetFullPath($nginxExe), [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Nginx service is not configured to use the bundled executable.'
+        }
+
+        if ($transaction.WasRunning) {
+            Restart-Service -Name $nginxService -Force -ErrorAction Stop
+        }
+        else {
+            Start-Service -Name $nginxService -ErrorAction Stop
+        }
+
+        $timeoutSeconds = 20
+        if ($null -ne $nginxStartupTimeoutSeconds) { $timeoutSeconds = [Math]::Max(0, [int]$nginxStartupTimeoutSeconds) }
+        $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
+        do {
+            $service = Get-Service -Name $nginxService -ErrorAction Stop
+            $nginxProcesses = @(Get-CimInstance Win32_Process -Filter "Name='nginx.exe'" -ErrorAction SilentlyContinue | Where-Object {
+                $_.ExecutablePath -and [string]::Equals([System.IO.Path]::GetFullPath([string]$_.ExecutablePath), [System.IO.Path]::GetFullPath($nginxExe), [System.StringComparison]::OrdinalIgnoreCase)
+            })
+            if ([string]$service.Status -eq 'Running' -and $nginxProcesses.Count -gt 0) { break }
+            if ($timeoutSeconds -eq 0) { break }
+            Start-Sleep -Milliseconds 500
+        } while ([DateTime]::UtcNow -lt $deadline)
+
+        if ([string]$service.Status -ne 'Running' -or $nginxProcesses.Count -eq 0) {
+            throw 'Nginx service did not start from the bundled executable.'
+        }
+
+        if ($null -ne $NginxConfigTransaction) { Complete-NginxConfig $NginxConfigTransaction }
+        $previousPath = if ($transaction.ServiceExisted) { [string]$transaction.PreviousSettings.Application } else { '' }
+        Remove-ObsoleteNginxFirewallRules -PreviousExecutablePath $previousPath
+        return $transaction
+    }
+    catch {
+        $failure = $_
+        $rollbackProblems = [System.Collections.Generic.List[string]]::new()
+
+        if ($null -ne $NginxConfigTransaction) {
+            try { Restore-NginxConfig $NginxConfigTransaction }
+            catch { $rollbackProblems.Add('could not restore the previous Nginx configuration') }
+        }
+
+        if ($transaction.ServiceMutationStarted) {
+            $serviceRollbackError = Restore-NginxServiceTransaction -Transaction $transaction
+            if (-not [string]::IsNullOrWhiteSpace($serviceRollbackError)) { $rollbackProblems.Add($serviceRollbackError) }
+        }
+
+        if ($null -ne $transaction.Firewall) { Remove-StagedFirewallRules -Transaction $transaction.Firewall }
+        if ($rollbackProblems.Count -gt 0) {
+            throw "Nginx migration failed and rollback was incomplete: $($rollbackProblems -join '; '). Original failure: $($failure.Exception.Message)"
+        }
+        throw $failure
     }
 }
 
@@ -621,49 +911,65 @@ function Complete-NginxConfig($Transaction) {
     }
 }
 
+function ConvertTo-PowerShellSingleQuotedLiteral([string]$Value) {
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
 function Write-ReloadScript {
+    $nginxExeLiteral = ConvertTo-PowerShellSingleQuotedLiteral $nginxExe
+    $nginxRootLiteral = ConvertTo-PowerShellSingleQuotedLiteral $nginxRoot
+
     @"
 `$ErrorActionPreference = 'Stop'
-& '$nginxExe' -p '$nginxRoot' -c conf/nginx.conf -s reload
+& $nginxExeLiteral -p $nginxRootLiteral -c conf/nginx.conf -s reload
 if (`$LASTEXITCODE -ne 0) { throw 'Nginx reload failed after certificate renewal.' }
 "@ | Set-Content -LiteralPath $reloadScript -Encoding utf8
 }
 
-Restore-PendingNginxConfig
-Configure-DuckDns
-Ensure-FirewallRules
-Write-ReloadScript
-$preserveExistingTls = Test-CanPreserveExistingTls -HostName $HostName -SkipCertificate:$SkipCertificate -CertificateChainPath "${certPrefix}-chain.pem" -PrivateKeyPath "${certPrefix}-key.pem"
-$acmeBootstrapOnly = -not $preserveExistingTls -and -not $SkipCertificate
-Write-NginxConfig $preserveExistingTls $acmeBootstrapOnly
-$httpConfigTransaction = Install-NginxConfig
-try {
-    Ensure-NginxService
-    Complete-NginxConfig $httpConfigTransaction
-}
-catch {
-    Restore-NginxConfig $httpConfigTransaction
-    throw
+function Invoke-HttpsSetup {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][string]$HostName,
+        [string]$EmailAddress,
+        [string]$DuckDnsSubdomain,
+        [string]$DuckDnsTokenFile,
+        [int]$ServerPort = 8096,
+        [switch]$SkipCertificate
+    )
+
+    # Perform all read-only dependency and argument checks before recovery, credential,
+    # firewall, Nginx, service, or certificate operations can mutate machine state.
+    Assert-HttpsPrerequisites -SkipCertificate:$SkipCertificate -DuckDnsSubdomain $DuckDnsSubdomain -DuckDnsTokenFile $DuckDnsTokenFile
+    if (-not $SkipCertificate -and $EmailAddress -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$') { throw 'A valid ACME notification email is required.' }
+
+    Restore-PendingNginxConfig
+    Configure-DuckDns
+    Write-ReloadScript
+    $preserveExistingTls = Test-CanPreserveExistingTls -HostName $HostName -SkipCertificate:$SkipCertificate -CertificateChainPath "${certPrefix}-chain.pem" -PrivateKeyPath "${certPrefix}-key.pem"
+    $acmeBootstrapOnly = -not $preserveExistingTls -and -not $SkipCertificate
+    Write-NginxConfig $preserveExistingTls $acmeBootstrapOnly
+    $httpConfigTransaction = Install-NginxConfig
+    $null = Ensure-NginxService -NginxConfigTransaction $httpConfigTransaction
+
+    if (-not $SkipCertificate) {
+        Invoke-WacsCertificateSetup -HostName $HostName -EmailAddress $EmailAddress
+        Invoke-WacsTaskSetup
+        Assert-File "${certPrefix}-chain.pem" 'Issued certificate chain'
+        Assert-File "${certPrefix}-key.pem" 'Issued certificate private key'
+        Write-NginxConfig $true
+        $tlsConfigTransaction = Install-NginxConfig
+        try {
+            & $nginxExe -p $nginxRoot -c conf/nginx.conf -s reload
+            if ($LASTEXITCODE -ne 0) { throw 'Nginx could not reload with the issued certificate.' }
+            Complete-NginxConfig $tlsConfigTransaction
+        }
+        catch {
+            Restore-NginxConfig $tlsConfigTransaction
+            throw
+        }
+    }
+
+    Write-Host "HTTPS setup completed for $HostName" -ForegroundColor Green
 }
 
-if (-not $SkipCertificate) {
-    Assert-File $wacsExe 'Bundled win-acme executable'
-    if ([string]::IsNullOrWhiteSpace($EmailAddress)) { throw 'An ACME notification email is required.' }
-    & $wacsExe --source manual --host $HostName --validation filesystem --webroot $acmeRoot --store pemfiles --pemfilespath $certRoot --pemfilesname $HostName --emailaddress $EmailAddress --accepttos --installation script --script $reloadScript
-    if ($LASTEXITCODE -ne 0) { throw 'win-acme could not issue or configure the certificate.' }
-    Assert-File "${certPrefix}-chain.pem" 'Issued certificate chain'
-    Assert-File "${certPrefix}-key.pem" 'Issued certificate private key'
-    Write-NginxConfig $true
-    $tlsConfigTransaction = Install-NginxConfig
-    try {
-        & $nginxExe -p $nginxRoot -c conf/nginx.conf -s reload
-        if ($LASTEXITCODE -ne 0) { throw 'Nginx could not reload with the issued certificate.' }
-        Complete-NginxConfig $tlsConfigTransaction
-    }
-    catch {
-        Restore-NginxConfig $tlsConfigTransaction
-        throw
-    }
-}
-
-Write-Host "HTTPS setup completed for $HostName" -ForegroundColor Green
+Invoke-HttpsSetup -InstallRoot $InstallRoot -HostName $HostName -EmailAddress $EmailAddress -DuckDnsSubdomain $DuckDnsSubdomain -DuckDnsTokenFile $DuckDnsTokenFile -ServerPort $ServerPort -SkipCertificate:$SkipCertificate

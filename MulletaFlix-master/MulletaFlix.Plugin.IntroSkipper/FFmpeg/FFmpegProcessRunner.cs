@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
+using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.FFmpeg;
@@ -13,6 +15,17 @@ namespace IntroSkipper.FFmpeg;
 /// <param name="logger">Logger.</param>
 internal sealed partial class FFmpegProcessRunner(ILogger logger)
 {
+    internal const int MaxDiagnosticBytes = 8 * 1024;
+
+    private const int MaxDiagnosticCharacters = 1024;
+    private static readonly Regex _networkUriRegex = new("""(?i)\b[a-z][a-z0-9+.-]*://[^\s"'<>]+""", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex _pathLikeLineRegex = new(@"(?i)(?:\b[A-Z]:[\\/]|\\\\[^\\/\s]+[\\/]|(?<!\w)/[^/\s]+|(?:^|[\s""'=:(])\.{1,2}[\\/]|(?:^|[\s""'=:(])(?:[^\\/\s]+[\\/]){2,}[^\\/\s]+|(?:^|[\s""'=:(])[^\\/\s]+\.(?:mkv|mp4|avi|mov|m4v|m3u8|strm|mp3|aac|flac|wav|ts|m4a|ogg|webm)\b|[\\/][^\\/\s]+\.(?:mkv|mp4|avi|mov|m4v|m3u8|strm|mp3|aac|flac|wav|ts|m4a|ogg|webm)\b)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex _inputOpenFailureRegex = new(@"(?i)\b(?:(?:error|failed|could not|cannot)\s+(?:to\s+)?(?:opening|open)|unable\s+to\s+(?:opening|open))\s+(?:the\s+)?input\s+file\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex _httpStatusRegex = new(@"(?i)(?:HTTP\s+(?:error\s+)?\d{3}|Server returned\s+\d{3})", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex _authorizationHeaderRegex = new(@"(?i)\bAuthorization\s*:\s*[^\s,;]+(?:\s+[^\s,;]+)?", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex _bearerTokenRegex = new(@"(?i)\bBearer\s+[^\s,;]+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex _queryRegex = new("""\?[^\s"'<>]+""", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private readonly ILogger _logger = logger;
 
     /// <summary>
@@ -33,6 +46,35 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         int timeout = 60 * 1000,
         CancellationToken cancellationToken = default)
     {
+        var result = await RunCoreAsync(processPath, args, stderr, timeout, cancellationToken, captureDiagnostics: false, logArguments: true).ConfigureAwait(false);
+        return result.Output;
+    }
+
+    /// <summary>
+    /// Runs a process while retaining a bounded stderr tail for safe failure diagnostics.
+    /// Command arguments are deliberately omitted from logs because inputs may contain media URIs.
+    /// </summary>
+    /// <param name="processPath">Executable to start.</param>
+    /// <param name="args">Arguments, one token each.</param>
+    /// <param name="timeout">Milliseconds to wait for the process to exit before killing it.</param>
+    /// <param name="cancellationToken">Cancels the wait and kills the process.</param>
+    /// <returns>Selected process output, exit code and a bounded stderr tail.</returns>
+    public Task<FFmpegProcessOutput> RunWithDiagnosticsAsync(
+        string processPath,
+        IReadOnlyList<string> args,
+        int timeout = 60 * 1000,
+        CancellationToken cancellationToken = default)
+        => RunCoreAsync(processPath, args, stderr: false, timeout, cancellationToken, captureDiagnostics: true, logArguments: false);
+
+    private async Task<FFmpegProcessOutput> RunCoreAsync(
+        string processPath,
+        IReadOnlyList<string> args,
+        bool stderr,
+        int timeout,
+        CancellationToken cancellationToken,
+        bool captureDiagnostics,
+        bool logArguments)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         var info = new ProcessStartInfo(processPath)
@@ -50,7 +92,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             info.ArgumentList.Add(arg);
         }
 
-        if (_logger.IsEnabled(LogLevel.Debug))
+        if (logArguments && _logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", string.Join(" ", info.ArgumentList.Select(RedactArgument)));
         }
@@ -70,10 +112,11 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             }
 
             using var ms = new MemoryStream();
+            var diagnosticBuffer = captureDiagnostics ? new BoundedTailBuffer(MaxDiagnosticBytes) : null;
             // Draining must not use the caller token: on cancellation or timeout the process is
             // killed first, then its remaining output is drained so the pipes cannot deadlock.
-            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms);
-            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null);
+            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, diagnosticBuffer: null);
+            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, diagnosticBuffer);
 
             using var timeoutCts = new CancellationTokenSource(timeout);
             using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
@@ -106,12 +149,12 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             // nonzero exit does not yet say whether that output was usable (a file without an
             // audio stream fails a fingerprint run this way). The line makes those cases
             // visible in the log before any caller starts treating an exit code as a failure.
-            if (process.ExitCode != 0 && _logger.IsEnabled(LogLevel.Debug))
+            if (logArguments && process.ExitCode != 0 && _logger.IsEnabled(LogLevel.Debug))
             {
                 _logger.LogDebug("ffmpeg exited with code {ExitCode}: {Arguments}", process.ExitCode, string.Join(" ", info.ArgumentList.Select(RedactArgument)));
             }
 
-            return ms.ToArray();
+            return new FFmpegProcessOutput(ms.ToArray(), process.ExitCode, diagnosticBuffer is null ? string.Empty : Encoding.UTF8.GetString(diagnosticBuffer.ToArray()));
         }
         finally
         {
@@ -120,7 +163,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         }
     }
 
-    private static async Task DrainAsync(Stream stream, Stream? destination)
+    private static async Task DrainAsync(Stream stream, Stream? destination, BoundedTailBuffer? diagnosticBuffer)
     {
         var buffer = new byte[4096];
         int bytesRead;
@@ -130,6 +173,85 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             {
                 await destination.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
             }
+
+            diagnosticBuffer?.Append(buffer, bytesRead);
+        }
+    }
+
+    /// <summary>
+    /// Removes remote URIs, query strings and path-bearing lines while retaining useful
+    /// transport status text such as an HTTP 404 response.
+    /// </summary>
+    /// <param name="diagnostic">Raw process stderr.</param>
+    /// <returns>A short diagnostic safe to include in the server log.</returns>
+    internal static string SanitizeDiagnostic(string diagnostic)
+    {
+        if (string.IsNullOrWhiteSpace(diagnostic))
+        {
+            return string.Empty;
+        }
+
+        var safeLines = new List<string>();
+        foreach (var rawLine in diagnostic.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = _networkUriRegex.Replace(rawLine, "[remote URI redacted]");
+            line = _queryRegex.Replace(line, "[query redacted]");
+            var status = _httpStatusRegex.Match(line);
+            if (status.Success)
+            {
+                line = status.Value;
+            }
+            else if (_pathLikeLineRegex.IsMatch(line) || _inputOpenFailureRegex.IsMatch(line))
+            {
+                line = "[path-bearing FFmpeg detail redacted]";
+            }
+            else
+            {
+                line = _authorizationHeaderRegex.Replace(line, "Authorization: [redacted]");
+                line = _bearerTokenRegex.Replace(line, "Bearer [redacted]");
+            }
+
+            line = new string(line.Where(character => !char.IsControl(character) || character == '\t').ToArray()).Trim();
+            if (line.Length > 0)
+            {
+                safeLines.Add(line);
+            }
+        }
+
+        var result = string.Join(" | ", safeLines);
+        return result.Length <= MaxDiagnosticCharacters ? result : result[..MaxDiagnosticCharacters];
+    }
+
+    private sealed class BoundedTailBuffer(int capacity)
+    {
+        private readonly byte[] _buffer = new byte[capacity];
+        private int _start;
+        private int _count;
+
+        public void Append(byte[] source, int length)
+        {
+            for (var i = 0; i < length; i++)
+            {
+                if (_count < _buffer.Length)
+                {
+                    _buffer[(_start + _count) % _buffer.Length] = source[i];
+                    _count++;
+                }
+                else
+                {
+                    _buffer[_start] = source[i];
+                    _start = (_start + 1) % _buffer.Length;
+                }
+            }
+        }
+
+        public byte[] ToArray()
+        {
+            var result = new byte[_count];
+            var firstLength = Math.Min(_count, _buffer.Length - _start);
+            Array.Copy(_buffer, _start, result, 0, firstLength);
+            Array.Copy(_buffer, 0, result, firstLength, _count - firstLength);
+            return result;
         }
     }
 
@@ -142,15 +264,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             return argument;
         }
 
-        var redactedUri = new UriBuilder(uri)
-        {
-            UserName = string.Empty,
-            Password = string.Empty,
-            Query = string.Empty,
-            Fragment = string.Empty,
-        };
-
-        return redactedUri.Uri.GetLeftPart(UriPartial.Path);
+        return "[remote URI redacted]";
     }
 
     private void KillProcessTree(Process process)
@@ -192,3 +306,9 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
     [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg process already gone while killing process tree")]
     private static partial void LogFfmpegProcessAlreadyGone(ILogger logger, Exception ex);
 }
+
+/// <summary>Result of a process invocation that retains a bounded error tail.</summary>
+/// <param name="Output">The selected standard output bytes.</param>
+/// <param name="ExitCode">The process exit code.</param>
+/// <param name="StandardError">The bounded standard error tail.</param>
+internal sealed record FFmpegProcessOutput(byte[] Output, int ExitCode, string StandardError);
