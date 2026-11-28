@@ -731,3 +731,36 @@ Todos os oito `MulletaFlix-packaging-master/scripts/tests/*.Tests.ps1` passaram 
 - Preflight oficial `publish-release.ps1 -Tag v12.1.59 ... -TargetCommitish HEAD` terminou exit 1 em `git rev-parse v12.1.59^{commit}` porque a tag não existe. O script parou antes de obter credenciais ou acessar GitHub; nenhuma operação remota ocorreu.
 - Estado rechecado: branch `main`, HEAD `795adef6a2cc3d191118dc01fe10cd6f2f036f7b`, `origin/main` `a4082f166358093c13dd86fcd54960aa4c99a09b`, cinco commits de diferença, 40 paths modificados/não rastreados, tag local/remota ausente. O gate `.agents/rules/mulletaflix-conventions.md` §4.0 veda release intermediária enquanto houver melhorias ativas; o relatório registra 77 itens ativos abertos. CI #700 cancelada, sem chave privada Authenticode disponível e sem VM limpa.
 - Nenhum código, serviço, banco, mídia, configuração do host, tag, commit, push ou release foi alterado/criado nesta etapa. `Mapa técnico e estrutura do projeto.md` conferido e permaneceu válido; sem mudança estrutural. Próximo passo: concluir o roadmap ativo e, para homologação operacional, fornecer VM isolada Windows com bancos descartáveis; só então gerar/validar manifesto vinculado a commit limpo, assinar artefato e executar o fluxo oficial.
+
+## Retomada da auditoria Windows — 2026-11-28 04:07 BRT
+
+- Fonte confirmada em `main` e `origin/main`, commit `4fe6b98a8e8d4edb15bb2aef631a18c9cd49370b`, árvore limpa, versão 12.1.59. Runtime instalado segue na 12.1.58; `/health` HTTP 200 e Nginx Running/Automatic. Correções estão no código sincronizado e ainda não foram aplicadas ao servidor instalado.
+- `dotnet test MulletaFlix.sln --no-restore -c Release -m:1`: exit 0 sem falhas. Integrações que requerem bancos/serviços indisponíveis foram ignoradas; a saída não fornece agregado global confiável. Portal: 381/381; scripts Windows packaging: 8/8; `dotnet publish` self-contained win-x64 12.1.59: exit 0; `git diff --check`: exit 0 (avisos LF/CRLF).
+- Smoke isolado do publish não iniciado: execução do comando foi rejeitada pela política antes do PowerShell, nenhum processo candidato foi criado e as portas de teste permaneceram fechadas. Não houve instalação/upgrade/rollback nem alteração no runtime de produção.
+- Release não publicada: a convenção `.agents/rules/mulletaflix-conventions.md` §4.0 mantém o gate fechado com 80 itens ativos abertos. A versão pública verificada segue 12.1.58; não há tag/artefato 12.1.59 elegível nesta etapa. Pendentes: homologação operacional em VM limpa, CI verde e assinatura Authenticode utilizável, além da conclusão do gate ativo.
+- O mapa técnico foi conferido e permaneceu estruturalmente válido; sem módulos, APIs, classes ou dependências novas nesta etapa. Ver sessão no vault de 28/11 para limites e evidências detalhadas.
+
+## Regressões focadas após retomada — 2026-11-28 04:13 BRT
+
+- `IntroSkipper.Integration.Tests` com filtro `FFmpegAudioDurationTests|PluginRuntimeConfigurationTests`: 27/27 passaram, sem skips. Cobre o limite de concorrência configurável efetiva entre 1 e 2 e o timeout maior para STRM (mínimo 900 s) com preservação do timeout local. `Jellyfin.Api.Tests` com filtro `AvatarControllerUserAvatarAuthorizationTests|AvatarFileStoreTests`: 41 aprovados, 3 ignorados por cenários específicos de Linux, 0 falhas.
+- A primeira tentativa de executar as duas compilações ao mesmo tempo colidiu nos diretórios `obj` compartilhados (CS2012); repetição serial passou. Não executei o E2E que inicia FFmpeg enquanto os dois processos FFmpeg do servidor estavam ativos. A amostra confirmou contagem máxima atual 2; os processos não foram interrompidos.
+- Logs em `C:\ProgramData\MulletaFlix\Server\log`: arquivo de 28/11 criado no boot ainda vazio; último log com conteúdo, de 27/11, registra Chromaprint com janela `[0, 0]` em STRM. Isso é evidência histórica do runtime 12.1.58, não prova de falha atual nem valida a correção 12.1.59. Testes unitários confirmam o cálculo de timeout/concurrency; scan de mídia válida pela fonte corrigida continua sem E2E runtime.
+- Mapa técnico conferido e mantido: sem mudança de estrutura; registra os fluxos FFmpeg/STRM já existentes. Nenhum processo, configuração, dado ou mídia de produção foi alterado.
+
+## Observação do scan ao vivo — 2026-11-28 04:17 BRT
+
+- Rechecagem read-only confirmou a fila `ChangedItems` em execução desde 04:08; o log registra análise de introduções e créditos. Dois processos `ffmpeg.exe` são filhos do PID do servidor e os comandos contêm a saída Chromaprint. Em uma amostra de 12 s os PIDs mudaram e o uso de CPU avançou, consistente com subprocessos FFmpeg sendo concluídos/substituídos na fila. A contagem ficou em 2.
+- Desde o boot de 28/11, a busca no log não encontrou `Chromaprint returned 0 points`; isso é sinal melhor que os avisos históricos de 27/11, mas ainda não prova que segmentos foram identificados e persistidos. Runtime observado continua 12.1.58; não valida a fonte 12.1.59.
+- Não pausei nem iniciei tarefas e não consultei/alterei banco ou biblioteca. Próxima evidência necessária para fechar o E2E: observar a conclusão da fila autorizada e confirmar segmentos persistidos via UI/API autenticada ou banco de teste, mantendo concorrência em 2; em seguida, repetir no candidato isolado.
+
+## Correção do runner macOS no CI — 2026-11-28 04:23 BRT
+
+- Evidência pública: CI #701 no commit `4fe6b98` cancelada em 5 s. Anotações do GitHub mostram jobs não iniciados por bloqueio de cobrança da conta e dois erros de configuração `macos-14-arm64-us-default` nos jobs macOS. A fonte `.github/workflows/ci.yml` usava `macos-14` em `server-restore-macos-startup` e `ios-build-test`.
+- Consulta à documentação oficial atual de runners do GitHub confirmou `macos-15` como label macOS suportado e não listou `macos-14`. RED: o teste novo `uses currently supported GitHub-hosted macOS runners for macOS jobs` falhou com as labels antigas. GREEN: ambas as jobs passaram a usar `macos-15`; teste focado 1/1 e suíte portal completa 382/382. `git diff --check` exit 0. Não foi possível confirmar execução hosted porque a conta está bloqueada por cobrança; ajuste de YAML não remove esse bloqueio.
+- Arquivos: `.github/workflows/ci.yml`, `portal-site/tests/homologacao.test.mjs`, relatório desta homologação, status do portal, ficha e sessão no vault. Mapa técnico conferido: nenhuma alteração em módulos, APIs, classes, dependências ou fluxos do servidor; somente labels de runner do CI.
+- Referências: run `https://github.com/raphaelpera85/mulletaflix-completo/actions/runs/46119130817`; documentação de runners `https://docs.github.com/en/actions/reference/runners/github-hosted-runners`.
+- O release workflow segue pendente: gate §4.0 com 80 ativos; CI deve ser reexecutada após regularizar a cobrança e a troca das labels chegar à branch remota. Nenhuma release foi criada.
+
+#### Configuração observada no runtime — 2026-11-28 04:23 BRT
+
+Leitura restrita de `C:\ProgramData\MulletaFlix\Server\plugins\configurations\IntroSkipper.xml` confirmou `MaxParallelism=2` e `ScanTimeoutSeconds=300` no runtime 12.1.58; a fonte 12.1.59 impõe mínimo 900 s apenas para `.strm` mesmo quando o valor salvo fica em 300. Não alterei XML do runtime durante scan. Dois FFmpeg ativos e zero avisos de fingerprint vazio no log corrente até 04:17, mas resultado de segmentos ainda não verificado.

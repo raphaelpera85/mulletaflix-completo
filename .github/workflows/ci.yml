@@ -179,7 +179,7 @@ jobs:
 
   server-restore-macos-startup:
     name: Server restore startup guard (macOS)
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: MulletaFlix-master
@@ -730,7 +730,7 @@ jobs:
 
   ios-build-test:
     name: iOS Core tests & Xcode build
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: MulletaFlix-iOS

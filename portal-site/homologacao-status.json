@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-26T15:26:31-03:00",
+  "generatedAt": "2026-11-28T04:23:00-03:00",
   "source": {
     "roadmap": "https://github.com/raphaelpera85/mulletaflix-completo/blob/main/docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
     "repository": "https://github.com/raphaelpera85/mulletaflix-completo"
@@ -17942,6 +17942,32 @@
         "docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
         "MulletaFlix-packaging-master/scripts/tests/PublicServerFirewallRules.Tests.ps1",
         "D:/Users/Raphael/Documents/Projetos/nebula/NebulaFTP-master/docs/STRM_LIBRARY.md"
+      ]
+    },
+    {
+      "id": "windows-server-audit-resumed-2026-11-28",
+      "title": "Retomada da auditoria Windows e verificação da fonte 12.1.59",
+      "agent": "Codex",
+      "front": "server",
+      "featureIds": [
+        "T9.1",
+        "T9.5"
+      ],
+      "local": "Windows; runtime 12.1.58 com 2 FFmpeg ativos; source 12.1.59",
+      "location": "Servidor Windows, publish win-x64, testes da solução, packaging e gate de release",
+      "scope": "Confirmar correções sincronizadas, executar checks locais e registrar limites da homologação operacional.",
+      "status": "partial",
+      "progressPercent": null,
+      "startedAt": "2026-11-28T03:30:00-03:00",
+      "updatedAt": "2026-11-28T04:23:00-03:00",
+      "evidence": "main e origin/main sincronizadas em 4fe6b98a8e8d4edb15bb2aef631a18c9cd49370b, árvore limpa, fonte 12.1.59. dotnet test da solução terminou exit 0 sem falhas; integrações dependentes de bancos/serviços indisponíveis foram ignoradas e não há agregado global confiável. Portal 381/381; scripts Windows packaging 8/8; publish self-contained win-x64 exit 0; diff --check exit 0 com avisos LF/CRLF. Runtime instalado permanece 12.1.58, /health 200 e Nginx Running. Smoke isolado foi rejeitado pela política antes de iniciar; nenhum candidato executado. Instalação/upgrade/rollback em VM permanecem pendentes. Regressões focadas: IntroSkipper timeout/concorrência 27/27; GetAvatar/AvatarFileStore 41 aprovados, 3 Linux-only ignorados, 0 falhas. Uma primeira compilação paralela colidiu em obj e foi repetida em série. Dois FFmpeg do runtime permaneceram ativos, portanto o E2E que os inicia foi adiado. Logs 12.1.58 têm ocorrências históricas de janela [0, 0], em seguida foi observado scan ativo no log do boot, sem aviso de zero pontos até 04:17. Observação de scan ao vivo: ChangedItems executa desde 04:08; duas instâncias FFmpeg filhas do server usam saída Chromaprint e PIDs rotacionaram com CPU avançando em amostra de 12 s. Log atual sem aviso de zero pontos até 04:17, porém segmento persistido não foi confirmado; runtime continua 12.1.58. GitHub Actions #701 da revisão 4fe6b98 cancelada em 5 s: conta bloqueada por cobrança impediu os jobs e anotações reportaram config macos-14-arm64-us-default inválida. Fonte usa macos-14 em duas jobs; alteradas para macos-15 conforme docs oficiais. TDD RED/GREEN 1/1 e portal 382/382; run hospedado ainda não reexecutado por bloqueio de cobrança. A configuração XML do plugin ativo 12.1.58 informa MaxParallelism=2 e ScanTimeoutSeconds=300; a fonte 12.1.59 aumenta o piso de timeout STRM para 900 s, verificado por teste focal. Não alterei a configuração do runtime.",
+      "release": "Não publicada. Gate de convenções §4.0 permanece fechado com 80 itens ativos abertos; CI verde, VM limpa e chave Authenticode sem evidência. Versão pública verificada permanece 12.1.58.",
+      "links": [
+        "MulletaFlix-master/docs/homologacao-release-12.1.59.md",
+        "docs/roadmap-evolucao-tecnologica-servidor-e-web.md",
+        "MulletaFlix-packaging-master/scripts/tests",
+        "https://github.com/raphaelpera85/mulletaflix-completo/actions/runs/46119130817",
+        "https://docs.github.com/en/actions/reference/runners/github-hosted-runners"
       ]
     }
   ],

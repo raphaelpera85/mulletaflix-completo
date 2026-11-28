@@ -3961,6 +3961,12 @@ test('records cross-stripe MariaDB deadlock coverage as pending until disposable
     assert.match(event.release, /não explicam a origem do log.*CI Linux deste checkout, runtime instalado, produção e homologação formal continuam pendentes/i);
 });
 
+test('uses currently supported GitHub-hosted macOS runners for macOS jobs', () => {
+    assert.match(serverCiWorkflow, /server-restore-macos-startup:[\s\S]*?runs-on: macos-15\b/);
+    assert.match(serverCiWorkflow, /ios-build-test:[\s\S]*?runs-on: macos-15\b/);
+    assert.doesNotMatch(serverCiWorkflow, /runs-on:\s*macos-14\b/);
+});
+
 test('portal records the handle ACL validator without claiming restore integration or formal credit', () => {
     const event = statusData.events.find(item => item.id === 'server-restore-acl-handle-validator-2026-10-24-1342');
     const server = statusData.tracks.find(track => track.id === 'server');
